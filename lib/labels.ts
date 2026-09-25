@@ -398,6 +398,30 @@ export const WEEK_LEGEND_ITEMS: { label: string; appearance: ItemAppearance; ico
   { label: "自由時間", appearance: NON_FIXED_APPEARANCE.free, icons: [NON_FIXED_APPEARANCE.free.icon] },
 ];
 
+/** 分の表示「45分」「1時間15分」「2時間」 */
+function formatMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}分`;
+  return m === 0 ? `${h}時間` : `${h}時間${m}分`;
+}
+
+/**
+ * 週表示の列のボタンの読み上げ「10月7日（水）　タスク3件・余白45分・締切なし。予定を見る」。
+ * ブロックに文字を出さないため、その日の概要を読み上げで伝える（mock-spec.md 10.22）
+ */
+export function formatWeekColumnLabel(
+  dateLong: string,
+  summary: { taskCount: number; bufferMinutes: number; deadlineCount: number },
+): string {
+  const buffer =
+    summary.bufferMinutes > 0
+      ? `${SCREEN_LABELS.buffer}${formatMinutes(summary.bufferMinutes)}`
+      : `${SCREEN_LABELS.buffer}なし`;
+  const deadline = summary.deadlineCount > 0 ? `締切${summary.deadlineCount}件` : "締切なし";
+  return `${dateLong}　タスク${summary.taskCount}件・${buffer}・${deadline}。予定を見る`;
+}
+
 /** 月表示の小さな点の色（MonthView の kinds。design-spec.md 2.3 の丸印の色） */
 export const MONTH_KIND_DOT_COLORS: Record<MonthView["days"][number]["kinds"][number], string> = {
   class: "var(--kind-fixed)",

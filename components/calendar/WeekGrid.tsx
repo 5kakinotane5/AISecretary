@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
-import { WEEK_LEGEND_ITEMS, getItemAppearance, getTravelIcon, type ItemAppearance } from "@/lib/labels";
+import { WEEK_LEGEND_ITEMS, formatWeekColumnLabel, getItemAppearance, getTravelIcon, type ItemAppearance } from "@/lib/labels";
 import { diffMinutes, formatDateLong, getDayOfMonth, getWeekdayJa } from "@/lib/datetime";
+import { sumMinutesOfKind } from "@/lib/schedule";
 import type { DayView, ScheduleItem } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 
@@ -91,7 +92,7 @@ export function WeekGrid({ days, today, onDaySelect }: WeekGridProps) {
             key={day.date}
             type="button"
             onClick={() => onDaySelect(day.date)}
-            aria-label={`${formatDateLong(day.date)}の予定を見る`}
+            aria-label={columnLabel(day)}
             className={cn(
               "relative min-w-0 flex-1 border-l outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
               day.date === today && "bg-(--brand-purple-pale)/30",
@@ -107,6 +108,15 @@ export function WeekGrid({ days, today, onDaySelect }: WeekGridProps) {
       <WeekLegend />
     </div>
   );
+}
+
+/** 列のボタンの読み上げ。表示に使っている DayView から、タスクの件数・余白の合計・締切の件数を出す */
+function columnLabel(day: DayView): string {
+  return formatWeekColumnLabel(formatDateLong(day.date), {
+    taskCount: day.items.filter((item) => item.kind === "task").length,
+    bufferMinutes: sumMinutesOfKind(day.items, "buffer"),
+    deadlineCount: day.deadlines.length,
+  });
 }
 
 /** 7:00〜24:00 の枠に収まる部分の上端と高さ（px）。枠の外なら null */
