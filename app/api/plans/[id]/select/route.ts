@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { PlanStyle } from "@/lib/schemas";
+import { SelectPlanResponseSchema, type PlanStyle } from "@/lib/schemas";
 import { isMockError, mockDelay, mockErrorResponse } from "@/lib/mock/http";
 import { setActivePlanStyle } from "@/lib/mock/store";
 
@@ -21,5 +21,5 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/plans/[
   }
 
   setActivePlanStyle(style);
-  return NextResponse.json({ active_plan_id: id });
+  return NextResponse.json(SelectPlanResponseSchema.parse({ active_plan_id: id }));
 }

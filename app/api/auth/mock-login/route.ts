@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { MockLoginRequestSchema, MockLoginResponseSchema } from "@/lib/schemas";
 import { isMockError, mockDelay, mockErrorResponse } from "@/lib/mock/http";
 import { PERSONA_DISPLAY_NAME } from "@/mocks/persona";
 
@@ -7,10 +8,10 @@ export async function POST(request: NextRequest) {
   if (isMockError(request)) return mockErrorResponse();
   await mockDelay(400);
 
-  const body = await request.json().catch(() => ({}));
-  if (typeof body !== "object" || body === null || !("email" in body)) {
+  const parsed = MockLoginRequestSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
     return NextResponse.json({ error: "email is required" }, { status: 400 });
   }
 
-  return NextResponse.json({ user_id: "user_hikari", display_name: PERSONA_DISPLAY_NAME });
+  return NextResponse.json(MockLoginResponseSchema.parse({ user_id: "user_hikari", display_name: PERSONA_DISPLAY_NAME }));
 }

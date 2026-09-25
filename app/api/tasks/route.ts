@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { TasksResponseSchema } from "@/lib/api";
+import { TasksResponseSchema } from "@/lib/schemas";
 import { isMockError, mockDelay, mockErrorResponse } from "@/lib/mock/http";
 import { TASKS } from "@/mocks/tasks";
 

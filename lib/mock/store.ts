@@ -13,6 +13,8 @@ type MockState = {
   interview_goal_draft: Goal | null;
   goal: Goal;
   active_plan_style: PlanStyle;
+  /** POST /api/plans/generate が呼ばれたか。GET /api/plans/candidates の返す内容を決める（10.19章） */
+  plans_generated: boolean;
   replan_accepted: boolean;
   demo_now: string;
 };
@@ -25,6 +27,7 @@ function initialState(): MockState {
     interview_goal_draft: null,
     goal: GOAL,
     active_plan_style: "balanced",
+    plans_generated: false,
     replan_accepted: false,
     demo_now: "2026-10-05T07:00:00+09:00",
   };
@@ -68,6 +71,10 @@ export function confirmGoal(goal: Goal): void {
 
 export function setActivePlanStyle(style: PlanStyle): void {
   state = { ...state, active_plan_style: style };
+}
+
+export function setPlansGenerated(generated: boolean): void {
+  state = { ...state, plans_generated: generated };
 }
 
 export function setReplanAccepted(accepted: boolean): void {

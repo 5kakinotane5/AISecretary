@@ -93,7 +93,8 @@ export function formatTime(isoStr: string): string {
 
 /** JSTの時（0〜23）。あいさつ文の出し分けなどに使う */
 export function getJstHour(isoStr: string): number {
-  return Number(hourFormatter.format(toJstInstant(isoStr)));
+  // format() は "7時" のように単位が付くため、数字の部分だけを取り出す
+  return Number(hourFormatter.formatToParts(toJstInstant(isoStr)).find((p) => p.type === "hour")?.value);
 }
 
 /**

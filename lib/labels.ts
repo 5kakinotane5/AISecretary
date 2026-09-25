@@ -1,10 +1,13 @@
 import type { ComponentType } from "react";
 import {
+  ArrowRightLeft,
   Briefcase,
   Bus,
   Bike,
   CalendarClock,
   CircleCheck,
+  CircleMinus,
+  CirclePlus,
   Coffee,
   Footprints,
   Heart,
@@ -13,15 +16,25 @@ import {
   Map as MapIcon,
   MessageCircle,
   Moon,
+  Repeat,
   Settings,
   School,
+  Timer,
   TrainFront,
   Utensils,
   type LucideProps,
 } from "lucide-react";
 import type { z } from "zod";
-import type { FixedCategorySchema, ItemKindSchema, PlanStyleSchema, TravelModeSchema } from "./schemas";
-import { formatMonthDay, getJstHour } from "./datetime";
+import type {
+  FixedCategorySchema,
+  GoalPlanStyle,
+  ItemKindSchema,
+  Level,
+  PlanStyleSchema,
+  ReplanChange,
+  TravelModeSchema,
+} from "./schemas";
+import { formatMonthDay, formatTime, getJstHour } from "./datetime";
 
 type ItemKind = z.infer<typeof ItemKindSchema>;
 type FixedCategory = z.infer<typeof FixedCategorySchema>;
@@ -250,4 +263,109 @@ export function getGreeting(isoStr: string): string {
   if (hour >= 5 && hour < 11) return "おはよう、今日もよい航路を。";
   if (hour >= 11 && hour < 17) return "こんにちは、今日の航路は順調ですか。";
   return "おつかれさま、今日の航路をふり返ろう。";
+}
+
+// ---------- 目標時間3案（mock-spec.md 5.8・10.2） ----------
+export const GOAL_PLAN_STYLE_LABELS: Record<GoalPlanStyle, string> = {
+  intensive: "短期集中型",
+  balanced: "バランス標準型",
+  paced: "マイペース型",
+};
+
+/** 目標時間3案の負荷のバッジ */
+export const LOAD_LABELS: Record<Level, string> = {
+  high: "負荷 高め",
+  medium: "負荷 ふつう",
+  low: "負荷 軽め",
+};
+
+/** 3案の選択を送ったときのユーザーの吹き出し「『バランス標準型』週6時間にします」（10.2章） */
+export function formatGoalSelectionMessage(style: GoalPlanStyle, hoursPerWeek: number): string {
+  return `『${GOAL_PLAN_STYLE_LABELS[style]}』週${hoursPerWeek}時間にします`;
+}
+
+/** /plans の3案の切り替え（セグメント）に使う短い表示名 */
+export const PLAN_STYLE_SHORT_LABELS: Record<PlanStyle, string> = {
+  intensive: "集中",
+  balanced: "バランス",
+  relaxed: "ゆとり",
+};
+
+// ---------- オンボーディング（/login・/interview・/plans）の文言（design-spec.md 1章・4章・6章） ----------
+export const ONBOARDING_LABELS = {
+  tagline: "まだ決まっていない未来を、今の自分から航海する。",
+  taglineEn: "Navigate your uncertain future.",
+  start: "はじめる",
+  interviewTitle: "航海の準備",
+  plansTitle: "航路プランを選ぶ",
+  chooseCandidate: "これにする",
+  confirmCandidate: "この内容で確定",
+  confirmGoal: "確定する",
+  generatePlans: "スケジュール作成",
+  generating: "スケジュールを作成しています…",
+  selectPlan: "このプランにする",
+  noPlans: "航路プランはまだありません",
+  backToInterview: "航海の準備へ",
+  inputWhileChoosing: "上の案から選んでください",
+  inputWhileConfirming: "確定ボタンを押してください",
+} as const;
+
+// ---------- 通常利用（/today・/replan）の文言（design-spec.md 4章・6章・9.4、mock-spec.md 2.4・2.5） ----------
+export const TODAY_LABELS = {
+  taskTotal: "タスク",
+  bufferTotal: SCREEN_LABELS.buffer,
+  freeTotal: "自由時間",
+  noPlan: "この日の計画はまだありません",
+  noPlanHint: "固定の予定だけを表示しています",
+  updated: "計画を更新しました",
+} as const;
+
+export const REPLAN_LABELS = {
+  prompt: "予定の変更や、今の状態を教えてください",
+  advancedClock: "デモのため、時刻を18:00に進めました",
+  adjusting: "航路を調整しています…",
+  changesTitle: "変更点",
+  unchanged: (count: number) => `変更なし ${count}件`,
+  otherDaysTitle: "ほかの日への影響",
+  compareToggle: "変更前と変更後を並べて見る",
+  before: "変更前",
+  after: "変更後",
+  none: "なし",
+  accept: "この計画にする",
+  cancel: "やめておく",
+  acceptError: "計画を更新できませんでした。",
+  sendError: "送信できませんでした。",
+} as const;
+
+/** /replan のクイックリプライ（mock-spec.md 2.5） */
+export const REPLAN_QUICK_REPLIES = [
+  "今日は疲れた",
+  "18時から予定が入った",
+  "このタスクを明日に回したい",
+  "今から30分だけ何かやりたい",
+];
+
+/** 再計画の変更の種類（ReplanChange の change_type）ごとの表示名とアイコン */
+export const CHANGE_TYPE_LABELS: Record<ReplanChange["change_type"], { label: string; icon: LucideIcon }> = {
+  moved: { label: "移動", icon: ArrowRightLeft },
+  shortened: { label: "短縮", icon: Timer },
+  replaced: { label: "入れ替え", icon: Repeat },
+  removed: { label: "削除", icon: CircleMinus },
+  added: { label: "追加", icon: CirclePlus },
+};
+
+/** デモ時刻のチップ「デモ 07:00」（design-spec.md 9.4） */
+export function formatDemoChip(isoStr: string): string {
+  return `デモ ${formatTime(isoStr)}`;
+}
+
+/** 仮ページ（/calendar・/settings。ステップ7・8で作る） */
+export const PLACEHOLDER_LABEL = "準備中";
+
+/** /settings の見出し（タブバーの「設定」と同じ） */
+export const SETTINGS_TITLE = "設定";
+
+/** 時間数の表示「3.5時間」（小数第1位まで。/plans の比較表と /today の合計で共用） */
+export function formatHours(hours: number): string {
+  return `${Math.round(hours * 10) / 10}時間`;
 }

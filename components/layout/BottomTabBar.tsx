@@ -7,7 +7,7 @@ import { TAB_ITEMS } from "@/lib/labels";
 /**
  * 通常利用の画面の下部タブバー（design-spec.md 5.2）。
  * 白背景・上に細い境界線。選択中は --brand-purple、それ以外は --purple-gray。
- * MobileShell の bottom に渡して使う（枠の下端に固定される）。
+ * MobileShell の bottom に渡して使う（列の下端に固定される）。
  */
 export function BottomTabBar() {
   const pathname = usePathname();

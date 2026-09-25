@@ -154,9 +154,9 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 
 ## 5. 共通部品
 
-### 5.1 スマホの枠（PC表示）
+### 5.1 PC表示（中央の列）
 
-`docs/mock-spec.md` 1.1・10.16の決定事項のとおり（画面幅640px以上で幅390px・高さ844pxの枠を表示）。枠の外の背景は `--brand-bg` に、ごく薄い紫のぼかし（`radial-gradient`）を重ねる。
+`docs/mock-spec.md` 1.1・10.16の決定事項のとおり、スマホの枠（縁取り・角丸・影）は表示しない。画面幅が広いときは、幅430pxまでの列を画面中央に置く。列の外の背景は `--brand-bg` に、ごく薄い紫のぼかし（`radial-gradient`）を重ねる。9.11参照。
 
 ### 5.2 タブバー（`mock-spec.md` 1.2 を置き換え）
 
@@ -327,3 +327,9 @@ PURCHARTにする範囲：
 
 - 5.3のボタンは、`components/ui/button.tsx` に variant を追加済み（副ボタン `brand-outline`、テキストボタン `brand-text`、大きさ `cta`（高さ52px・横幅いっぱい）・`tap`（高さ44px））
 - shadcn の上書き（`npx shadcn@latest add button --overwrite`）はしない。追加した variant が消えるため
+### 9.11 スマホの枠をやめる
+
+- デモは Chrome の開発者ツールのスマホ表示で見せるため、アプリ側の「スマホの枠」（幅390px・高さ844px・角丸・縁取り・影）は表示しない（以前の 5.1 の決定を変更）
+- 画面幅が広いときは、幅430pxまで（`max-w-[430px]`）の列を画面中央に置く形だけを残す。列の外の背景は 5.1 のまま（`--brand-bg` に紫のぼかし）
+- タブバーや下部の固定要素は、その列の下端に固定する
+- 枠の影に使っていた `--shadow-frame` は削除した。5.1章を修正済み

@@ -21,13 +21,15 @@ type DayTimelinePreviewProps = {
  * 画面から mocks/ を直接 import しない（AGENTS.md「モックとの関係」）ため、確認用ページも API 経由にする。
  */
 export function DayTimelinePreview({ date, now = null, maxItems, showStatusSample = false }: DayTimelinePreviewProps) {
-  const result = useApiData(() => Promise.all([fetchCalendarDay(date), fetchTasks()]), [date]);
+  const result = useApiData(() => Promise.all([fetchCalendarDay(date), fetchTasks()]), [date], {
+    isEmpty: ([day]) => !day.has_plan,
+  });
 
   if (result.status === "loading") return <LoadingState rows={5} />;
   if (result.status === "error") return <ErrorState onRetry={result.retry} />;
+  if (result.status === "empty") return <EmptyState message="この日の計画はまだありません" />;
 
   const [day, tasks] = result.data;
-  if (!day.has_plan) return <EmptyState message="この日の計画はまだありません" />;
 
   const items = maxItems ? day.items.slice(0, maxItems) : day.items;
   const firstTask = day.items.find((item) => item.kind === "task");
