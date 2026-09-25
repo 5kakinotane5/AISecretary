@@ -399,7 +399,7 @@ export const WEEK_LEGEND_ITEMS: { label: string; appearance: ItemAppearance; ico
 ];
 
 /** 分の表示「45分」「1時間15分」「2時間」 */
-function formatMinutes(minutes: number): string {
+export function formatMinutes(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   if (h === 0) return `${m}分`;
@@ -430,11 +430,53 @@ export const MONTH_KIND_DOT_COLORS: Record<MonthView["days"][number]["kinds"][nu
   social: "var(--kind-social)",
 };
 
-/** 仮ページ（/settings。ステップ8で作る） */
-export const PLACEHOLDER_LABEL = "準備中";
+// ---------- 設定（/settings）の文言（mock-spec.md 2.7） ----------
+export const SETTINGS_LABELS = {
+  // タブバーの「設定」と同じ
+  title: "設定",
+  rhythmTitle: "生活リズム",
+  sleep: "睡眠",
+  dailyWorkLimit: "1日の作業上限",
+  minBuffer: `${SCREEN_LABELS.buffer}の最低量`,
+  locationsTitle: "よく行く場所",
+  noLocations: "登録されている場所はありません",
+  travelTitle: "移動時間",
+  noTravelTimes: "登録されている移動時間はありません",
+  goalTitle: SCREEN_LABELS.goal,
+  deadline: "期限",
+  // design-spec.md 4章：目標（Goal）は画面上「目的地」（mock-spec.md 10.23）
+  consultGoal: `新しい${SCREEN_LABELS.goal}を相談する`,
+  demoTitle: "デモ用",
+  demoClock: "デモ時刻の切り替え",
+  demoClockError: "デモ時刻を切り替えられませんでした。",
+  reset: "モックをリセット",
+  resetting: "リセットしています…",
+  resetError: "リセットできませんでした。",
+} as const;
 
-/** /settings の見出し（タブバーの「設定」と同じ） */
-export const SETTINGS_TITLE = "設定";
+/** デモ時刻の切り替えの選択肢（mock-spec.md 2.7） */
+export const DEMO_CLOCK_TIMES = ["07:00", "18:00"] as const;
+
+/** 「0:00〜7:30」（UserPreference の "HH:MM" から。時の先頭の0は付けない） */
+export function formatClockRange(start: string, end: string): string {
+  const trim = (hm: string) => hm.replace(/^0(\d)/, "$1");
+  return `${trim(start)}〜${trim(end)}`;
+}
+
+/** 移動時間の一覧の1行「自宅 → 架空大学 つばさキャンパス」 */
+export function formatRoute(fromName: string, toName: string): string {
+  return `${fromName} → ${toName}`;
+}
+
+/** 「50分（徒歩＋電車）」（design-spec.md 9.9 の手段の表示名） */
+export function formatTravelDuration(minutes: number, mode: TravelMode): string {
+  return `${minutes}分（${TRAVEL_MODE_LABELS[mode]}）`;
+}
+
+/** 目標の週の時間「週6時間」 */
+export function formatHoursPerWeek(hours: number): string {
+  return `週${hours}時間`;
+}
 
 /** 時間数の表示「3.5時間」（小数第1位まで。/plans の比較表と /today の合計で共用） */
 export function formatHours(hours: number): string {

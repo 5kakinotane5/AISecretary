@@ -298,6 +298,9 @@ export const ReplanAcceptRequestSchema = z.object({ proposal_id: z.string() });
 /** GET・POST /api/mock/clock（デモ時刻。10.20章） */
 export const MockClockResponseSchema = z.object({ now: z.string() });
 
+/** POST /api/mock/reset */
+export const MockResetResponseSchema = z.object({ ok: z.literal(true) });
+
 // ---------- 型 ----------
 export type PlanStyle = z.infer<typeof PlanStyleSchema>;
 export type InterviewState = z.infer<typeof InterviewStateSchema>;
