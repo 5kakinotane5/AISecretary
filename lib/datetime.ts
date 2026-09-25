@@ -22,6 +22,17 @@ const hourFormatter = new Intl.DateTimeFormat("ja-JP", {
   hourCycle: "h23",
 });
 
+const isoFieldFormatter = new Intl.DateTimeFormat("ja-JP", {
+  timeZone: JST_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
 /** "YYYY-MM-DD"（日付のみ）は JST 0時として扱い、フルの ISO 日時文字列はそのまま解釈する */
 function toJstInstant(value: string): Date {
   const iso = value.length === 10 ? `${value}T00:00:00+09:00` : value;
@@ -121,4 +132,11 @@ export function getWeekStart(dateStr: string): string {
 /** 2つのISO日時の差分（分）。start/end の順序はそのまま計算する */
 export function diffMinutes(startIso: string, endIso: string): number {
   return Math.round((toJstInstant(endIso).getTime() - toJstInstant(startIso).getTime()) / 60000);
+}
+
+/** 現在時刻を +09:00 付きのISO 8601（JST）で返す（チャットメッセージの created_at など） */
+export function nowIsoJst(): string {
+  const parts = isoFieldFormatter.formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}+09:00`;
 }

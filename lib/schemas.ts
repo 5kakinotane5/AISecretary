@@ -247,6 +247,10 @@ export const MockCheckResultSchema = z.object({
 });
 
 // ---------- 型 ----------
+export type PlanStyle = z.infer<typeof PlanStyleSchema>;
+export type InterviewState = z.infer<typeof InterviewStateSchema>;
+export type InterviewStep = z.infer<typeof InterviewStepSchema>;
+export type InterviewMessage = z.infer<typeof InterviewMessageSchema>;
 export type Location = z.infer<typeof LocationSchema>;
 export type TravelTime = z.infer<typeof TravelTimeSchema>;
 export type TravelMode = z.infer<typeof TravelModeSchema>;
