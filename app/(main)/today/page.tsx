@@ -13,6 +13,7 @@ import { MainShell } from "@/components/layout/MainShell";
 import { ItemDetailSheet } from "@/components/timeline/ItemDetailSheet";
 import { Timeline } from "@/components/timeline/Timeline";
 import { buttonVariants } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useApiData } from "@/hooks/use-api-data";
 import { fetchCalendarDay, fetchDemoNow, fetchSettings, fetchTasks } from "@/lib/api";
 import { formatDateLong, toDateStr } from "@/lib/datetime";
@@ -71,11 +72,14 @@ export default function TodayPage() {
       </Suspense>
 
       <header className="px-4 pt-4 pb-12 text-white" style={{ background: "var(--gradient-header)" }}>
+        {/* 読み込み中は挨拶と日付の位置にスケルトンを出し、カードの見出しと同じ「今日の航路」は出さない（10.21章） */}
         <div className="flex min-h-11 items-center justify-between gap-2">
-          <p className="text-sm opacity-90">{data ? getGreeting(data.now) : null}</p>
+          {data ? <p className="text-sm opacity-90">{getGreeting(data.now)}</p> : null}
+          {result.status === "loading" ? <Skeleton className="h-4 w-52 rounded-full bg-white/20" /> : null}
           {data ? <DemoNowChip now={data.now} /> : null}
         </div>
-        <h1 className="text-2xl font-bold">{data ? formatDateLong(data.day.date) : SCREEN_LABELS.today}</h1>
+        {data ? <h1 className="text-2xl font-bold">{formatDateLong(data.day.date)}</h1> : null}
+        {result.status === "loading" ? <Skeleton className="h-8 w-40 rounded-full bg-white/20" /> : null}
         {data && result.status === "success" ? (
           <dl className="mt-3 flex flex-wrap gap-2 text-xs">
             <Total label={TODAY_LABELS.taskTotal} minutes={sumMinutesOfKind(data.day.items, "task")} />

@@ -34,6 +34,8 @@ export function ItemDetailSheet({ item, open, onOpenChange, tasks = [], location
       <SheetContent
         side="bottom"
         showCloseButton={false}
+        // 背景はぼかさず、--brand-dark の30%で暗くして後ろの画面をうっすら見せる（mock-spec.md 10.21）
+        overlayClassName="bg-(--brand-dark)/30 supports-backdrop-filter:backdrop-blur-none"
         className="mx-auto max-h-[85dvh] w-full max-w-[430px] overflow-y-auto rounded-t-3xl pb-[max(1rem,env(safe-area-inset-bottom))]"
       >
         {item ? (
