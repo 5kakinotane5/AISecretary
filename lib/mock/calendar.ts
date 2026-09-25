@@ -1,4 +1,14 @@
-import { DayViewSchema, MonthViewSchema, type DayView, type FixedEvent, type MonthView, type PlanStyle, type ScheduleItem } from "@/lib/schemas";
+import {
+  DayViewSchema,
+  MonthViewSchema,
+  WeekViewSchema,
+  type DayView,
+  type FixedEvent,
+  type MonthView,
+  type PlanStyle,
+  type ScheduleItem,
+  type WeekView,
+} from "@/lib/schemas";
 import { addDays, diffMinutes, getWeekdayJa, toDateStr } from "@/lib/datetime";
 import { FIXED_EVENTS } from "@/mocks/fixed-events";
 import { TASKS } from "@/mocks/tasks";
@@ -87,9 +97,9 @@ export function buildDayView(date: string): DayView {
   });
 }
 
-export function buildWeekView(weekStart: string): { week_start: string; days: DayView[] } {
+export function buildWeekView(weekStart: string): WeekView {
   const days = Array.from({ length: 7 }, (_, i) => buildDayView(addDays(weekStart, i)));
-  return { week_start: weekStart, days };
+  return WeekViewSchema.parse({ week_start: weekStart, days });
 }
 
 const MONTH_KIND_BY_FIXED_CATEGORY: Partial<Record<string, "class" | "work" | "social">> = {

@@ -30,6 +30,7 @@ import type {
   GoalPlanStyle,
   ItemKindSchema,
   Level,
+  MonthView,
   PlanStyleSchema,
   ReplanChange,
   TravelModeSchema,
@@ -359,7 +360,77 @@ export function formatDemoChip(isoStr: string): string {
   return `デモ ${formatTime(isoStr)}`;
 }
 
-/** 仮ページ（/calendar・/settings。ステップ7・8で作る） */
+// ---------- 航海図（/calendar）の文言（design-spec.md 4章・6章、mock-spec.md 2.6） ----------
+export type CalendarViewMode = "month" | "week" | "day";
+
+/** 月／週／日 の切り替え（この順に並べる。初期表示は週） */
+export const CALENDAR_VIEW_LABELS: Record<CalendarViewMode, string> = {
+  month: "月",
+  week: "週",
+  day: "日",
+};
+
+export const CALENDAR_LABELS = {
+  title: "あなたの航海図",
+  prev: { month: "前の月", week: "前の週", day: "前の日" } satisfies Record<CalendarViewMode, string>,
+  next: { month: "次の月", week: "次の週", day: "次の日" } satisfies Record<CalendarViewMode, string>,
+  noMonthData: "この月のデータはありません",
+  noWeekData: "この週のデータはありません",
+  noWeekPlan: "この週の計画はまだありません",
+  noPlanHint: TODAY_LABELS.noPlanHint,
+  noDayPlan: TODAY_LABELS.noPlan,
+  conditionTitle: "今週のコンディション",
+  hasPlanLegend: "計画あり",
+  deadlineLegend: "締切",
+} as const;
+
+/**
+ * 週表示の凡例（mock-spec.md 10.22、design-spec.md 9.12）。色・アイコンはタイムラインと同じ見た目から引く。
+ * 固定予定（授業／バイト）と移動（電車／徒歩）は、ブロックに出るアイコンが複数あるので並べて出す
+ */
+export const WEEK_LEGEND_ITEMS: { label: string; appearance: ItemAppearance; icons: LucideIcon[] }[] = [
+  { label: "タスク", appearance: NON_FIXED_APPEARANCE.task, icons: [NON_FIXED_APPEARANCE.task.icon] },
+  { label: "固定予定", appearance: FIXED_APPEARANCE.class, icons: [School, Briefcase] },
+  { label: "食事", appearance: FIXED_APPEARANCE.meal, icons: [FIXED_APPEARANCE.meal.icon] },
+  { label: "大切な人との時間", appearance: FIXED_APPEARANCE.social, icons: [FIXED_APPEARANCE.social.icon] },
+  { label: "移動", appearance: NON_FIXED_APPEARANCE.travel, icons: [TrainFront, Footprints] },
+  { label: SCREEN_LABELS.buffer, appearance: NON_FIXED_APPEARANCE.buffer, icons: [NON_FIXED_APPEARANCE.buffer.icon] },
+  { label: "自由時間", appearance: NON_FIXED_APPEARANCE.free, icons: [NON_FIXED_APPEARANCE.free.icon] },
+];
+
+/** 分の表示「45分」「1時間15分」「2時間」 */
+function formatMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}分`;
+  return m === 0 ? `${h}時間` : `${h}時間${m}分`;
+}
+
+/**
+ * 週表示の列のボタンの読み上げ「10月7日（水）　タスク3件・余白45分・締切なし。予定を見る」。
+ * ブロックに文字を出さないため、その日の概要を読み上げで伝える（mock-spec.md 10.22）
+ */
+export function formatWeekColumnLabel(
+  dateLong: string,
+  summary: { taskCount: number; bufferMinutes: number; deadlineCount: number },
+): string {
+  const buffer =
+    summary.bufferMinutes > 0
+      ? `${SCREEN_LABELS.buffer}${formatMinutes(summary.bufferMinutes)}`
+      : `${SCREEN_LABELS.buffer}なし`;
+  const deadline = summary.deadlineCount > 0 ? `締切${summary.deadlineCount}件` : "締切なし";
+  return `${dateLong}　タスク${summary.taskCount}件・${buffer}・${deadline}。予定を見る`;
+}
+
+/** 月表示の小さな点の色（MonthView の kinds。design-spec.md 2.3 の丸印の色） */
+export const MONTH_KIND_DOT_COLORS: Record<MonthView["days"][number]["kinds"][number], string> = {
+  class: "var(--kind-fixed)",
+  work: "var(--kind-fixed)",
+  task: "var(--kind-task)",
+  social: "var(--kind-social)",
+};
+
+/** 仮ページ（/settings。ステップ8で作る） */
 export const PLACEHOLDER_LABEL = "準備中";
 
 /** /settings の見出し（タブバーの「設定」と同じ） */

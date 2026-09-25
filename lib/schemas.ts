@@ -179,6 +179,12 @@ export const DayViewSchema = z.object({
   deadlines: z.array(DeadlineMarkSchema),
 });
 
+/** GET /api/calendar/week（月曜から7日分） */
+export const WeekViewSchema = z.object({
+  week_start: z.string(),              // 月曜の日付
+  days: z.array(DayViewSchema).length(7),
+});
+
 export const MonthViewSchema = z.object({
   month: z.string(),                   // "2026-10"
   days: z.array(z.object({
@@ -311,6 +317,7 @@ export type DayPlan = z.infer<typeof DayPlanSchema>;
 export type PlanSummary = z.infer<typeof PlanSummarySchema>;
 export type ScheduleCandidate = z.infer<typeof ScheduleCandidateSchema>;
 export type DayView = z.infer<typeof DayViewSchema>;
+export type WeekView = z.infer<typeof WeekViewSchema>;
 export type MonthView = z.infer<typeof MonthViewSchema>;
 export type ReplanProposal = z.infer<typeof ReplanProposalSchema>;
 export type ValidationIssue = z.infer<typeof ValidationIssueSchema>;
