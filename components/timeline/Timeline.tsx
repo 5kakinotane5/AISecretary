@@ -14,6 +14,11 @@ type TimelineProps = {
   tasks?: Task[];
   /** 場所の表示名を出すための場所一覧 */
   locations?: Location[];
+  /**
+   * 簡略表示。/replan の「変更前と変更後を並べて見る」で2本を左右に並べるときに使う（mock-spec.md 2.5）。
+   * 時刻の列と間隔を詰め、ブロックの補足（場所・候補・締切）と移動手段の文字を省く
+   */
+  compact?: boolean;
   /** 渡すと、タスクとバッファのブロックがタップできるようになる（mock-spec.md 2.4） */
   onItemSelect?: (item: ScheduleItem) => void;
   className?: string;
@@ -25,7 +30,16 @@ type LineStyle = "none" | "solid" | "dashed";
 type Highlight = { itemId: string; kind: "now" | "next" };
 
 const TIME_COL = "w-12";
+const TIME_COL_COMPACT = "w-9";
 const RAIL_WIDTH = 24;
+
+/** 1行の横並び（簡略表示では時刻の列と間隔を詰める） */
+function rowClasses(compact: boolean): { row: string; timeCol: string } {
+  return {
+    row: cn("flex items-stretch", compact ? "gap-1.5" : "gap-3"),
+    timeCol: cn(compact ? TIME_COL_COMPACT : TIME_COL, "flex shrink-0 items-center justify-end"),
+  };
+}
 
 /**
  * 今日の航路のタイムライン（design-spec.md 5.4）。
@@ -34,10 +48,19 @@ const RAIL_WIDTH = 24;
  * - 睡眠は1行に折りたたむ
  * - 現在時刻を含む予定の行を「現在地」、該当がなければ次に始まる予定の行を「次の航路」として強調する
  */
-export function Timeline({ items, now, tasks = [], locations = [], onItemSelect, className }: TimelineProps) {
+export function Timeline({
+  items,
+  now,
+  tasks = [],
+  locations = [],
+  compact = false,
+  onItemSelect,
+  className,
+}: TimelineProps) {
   const taskById = new Map(tasks.map((t) => [t.id, t] as const));
   const locationNameById = new Map(locations.map((l) => [l.id, l.name] as const));
   const highlight = now ? findHighlight(items, now) : null;
+  const classes = rowClasses(compact);
 
   const lineBetween = (a: ScheduleItem | undefined, b: ScheduleItem | undefined): LineStyle => {
     if (!a || !b) return "none";
@@ -52,7 +75,7 @@ export function Timeline({ items, now, tasks = [], locations = [], onItemSelect,
 
         if (item.kind === "sleep") {
           return (
-            <CompactRow key={item.id} item={item} top={top} bottom={bottom}>
+            <CompactRow key={item.id} item={item} top={top} bottom={bottom} compact={compact}>
               {item.title} {formatTimeRange(item.start_at, item.end_at)}
             </CompactRow>
           );
@@ -65,10 +88,11 @@ export function Timeline({ items, now, tasks = [], locations = [], onItemSelect,
               item={item}
               top={top}
               bottom={bottom}
+              compact={compact}
               highlight={highlight?.itemId === item.id ? highlight.kind : null}
             >
               移動 {diffMinutes(item.start_at, item.end_at)}分
-              {item.travel ? `（${TRAVEL_MODE_LABELS[item.travel.mode]}）` : null}
+              {item.travel && !compact ? `（${TRAVEL_MODE_LABELS[item.travel.mode]}）` : null}
             </CompactRow>
           );
         }
@@ -78,8 +102,8 @@ export function Timeline({ items, now, tasks = [], locations = [], onItemSelect,
         const suggested = item.suggested_task_id ? taskById.get(item.suggested_task_id) : undefined;
 
         return (
-          <li key={item.id} className="flex items-stretch gap-3">
-            <div className={cn(TIME_COL, "flex shrink-0 items-center justify-end")}>
+          <li key={item.id} className={classes.row}>
+            <div className={classes.timeCol}>
               <TimeLabel isoStr={item.start_at} highlight={highlight?.itemId === item.id ? highlight.kind : null} />
             </div>
             <Rail top={top} bottom={bottom}>
@@ -91,6 +115,7 @@ export function Timeline({ items, now, tasks = [], locations = [], onItemSelect,
                 locationName={item.location_id ? (locationNameById.get(item.location_id) ?? null) : null}
                 deadlineAt={task?.deadline_at ?? null}
                 suggestedTaskTitle={suggested?.title ?? null}
+                compact={compact}
                 onSelect={selectable ? () => onItemSelect(item) : undefined}
               />
             </div>
@@ -127,22 +152,25 @@ function CompactRow({
   top,
   bottom,
   highlight = null,
+  compact,
   children,
 }: {
   item: ScheduleItem;
   top: LineStyle;
   bottom: LineStyle;
   highlight?: Highlight["kind"] | null;
+  compact: boolean;
   children: ReactNode;
 }) {
   const appearance = getItemAppearance(item.kind, item.fixed_category);
   // getTravelIcon の戻り値をそのまま <Icon /> にすると react-hooks/static-components に
   // 引っかかるため、プロパティ経由で参照する
   const icon = { Icon: item.travel ? getTravelIcon(item.travel.mode) : appearance.icon };
+  const classes = rowClasses(compact);
 
   return (
-    <li className="flex items-stretch gap-3">
-      <div className={cn(TIME_COL, "flex shrink-0 items-center justify-end")}>
+    <li className={classes.row}>
+      <div className={classes.timeCol}>
         {highlight ? <HighlightText kind={highlight} /> : null}
       </div>
       <Rail top={top} bottom={bottom} />

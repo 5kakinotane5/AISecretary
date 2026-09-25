@@ -11,7 +11,9 @@ type PageHeaderProps = {
   backHref?: string;
   /** 進行状況（例：{ current: 3, total: 9 }）。省略すると出さない */
   progress?: { current: number; total: number };
-  /** 背景のグラデーション（design-spec.md 2.2・6章）。deep＝航海の準備、header＝航路プランを選ぶ */
+  /** タイトルの右に置くもの（デモ時刻のチップなど。design-spec.md 9.4） */
+  trailing?: ReactNode;
+  /** 背景のグラデーション（design-spec.md 2.2・6章）。deep＝航海の準備・AIとの対話、header＝航路プランを選ぶ */
   gradient: "deep" | "header";
   className?: string;
 };
@@ -21,7 +23,7 @@ type PageHeaderProps = {
  * 初回設定（オンボーディング）では戻るボタンと進行状況も出す（mock-spec.md 1.2：タブバーなし。上部に戻るボタンと進行状況）。
  * 進行状況バーは紫（design-spec.md 2.0：既定色の青を使わない）。
  */
-export function PageHeader({ title, subtitle, backHref, progress, gradient, className }: PageHeaderProps) {
+export function PageHeader({ title, subtitle, backHref, progress, trailing, gradient, className }: PageHeaderProps) {
   const ratio = progress ? Math.min(Math.max(progress.current / progress.total, 0), 1) : 0;
 
   return (
@@ -40,6 +42,7 @@ export function PageHeader({ title, subtitle, backHref, progress, gradient, clas
           </Link>
         ) : null}
         <h1 className="min-w-0 flex-1 truncate text-xl font-bold">{title}</h1>
+        {trailing}
         {progress ? (
           <span className="shrink-0 text-sm font-medium tabular-nums opacity-90">
             {progress.current} / {progress.total}

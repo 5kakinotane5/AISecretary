@@ -4,8 +4,10 @@ import {
   GeneratePlansResponseSchema,
   InterviewConfirmResponseSchema,
   InterviewTurnSchema,
+  MockClockResponseSchema,
   MockLoginResponseSchema,
   PlanCandidatesResponseSchema,
+  ReplanResponseSchema,
   SelectPlanResponseSchema,
   SettingsResponseSchema,
   TasksResponseSchema,
@@ -14,6 +16,7 @@ import {
   type InterviewMessageRequest,
   type InterviewTurn,
   type MockLoginResponse,
+  type ReplanResponse,
   type ScheduleCandidate,
   type SettingsResponse,
   type Task,
@@ -130,4 +133,26 @@ export function fetchCalendarDay(date: string): Promise<DayView> {
 /** GET /api/settings */
 export function fetchSettings(): Promise<SettingsResponse> {
   return request("/api/settings", SettingsResponseSchema);
+}
+
+/** GET /api/mock/clock：今のデモ時刻（demo_now）を読む（10.20章） */
+export async function fetchDemoNow(): Promise<string> {
+  const { now } = await request("/api/mock/clock", MockClockResponseSchema);
+  return now;
+}
+
+/** POST /api/mock/clock：デモ時刻を now にする（10.20章） */
+export async function setDemoNow(now: string): Promise<string> {
+  const result = await post("/api/mock/clock", MockClockResponseSchema, { now });
+  return result.now;
+}
+
+/** POST /api/plans/replan（ReplanProposal か、対応していない入力なら { supported: false, message }） */
+export function requestReplan(date: string, text: string): Promise<ReplanResponse> {
+  return post("/api/plans/replan", ReplanResponseSchema, { date, text });
+}
+
+/** POST /api/plans/replan/accept（確定後のその日の DayView を返す） */
+export function acceptReplan(proposalId: string): Promise<DayView> {
+  return post("/api/plans/replan/accept", DayViewSchema, { proposal_id: proposalId });
 }

@@ -179,7 +179,7 @@ Claude Code がモックを実装するための仕様書。要件は `docs/requ
 
 **上部**：タイトル「予定を変更」、デモ時刻（`demo_now`。例：「18:00 現在」）
 
-画面を開いたら `POST /api/mock/clock` を呼び、`demo_now` が18:00より前なら18:00に進める。時刻表示の下に、その場合だけ小さく「デモのため、時刻を18:00に進めました」と表示する（すでに18:00以降なら何も表示しない）。10章参照
+画面を開いたら `GET /api/mock/clock` で時刻を読み、`demo_now` が18:00より前なら `POST /api/mock/clock` に18:00を明示して送る（10.20参照）。時刻表示の下に、その場合だけ小さく「デモのため、時刻を18:00に進めました」と表示する（すでに18:00以降なら何も表示しない）。10章参照
 
 **入力前**
 
@@ -530,7 +530,8 @@ export type MockCheckResult = z.infer<typeof MockCheckResultSchema>;
 | `POST /api/plans/replan/accept` | `{ proposal_id }` | `DayView` | 400ms |
 | `GET /api/settings` | — | `{ preferences, locations, travel_times, goal }` | 400ms |
 | `GET /api/tasks` | — | `{ tasks: Task[] }`（既存の `TaskSchema`。10.17参照） | 400ms |
-| `POST /api/mock/clock` | `{ now }` | `{ now }` | 0 |
+| `GET /api/mock/clock` | — | `{ now }`（今の `demo_now` を返すだけ。時刻は変えない。10.20参照） | 0 |
+| `POST /api/mock/clock` | `{ now }`（省略すると、18:00より前なら18:00に進める） | `{ now }` | 0 |
 | `POST /api/mock/reset` | なし | `{ ok: true }` | 0 |
 | `GET /api/mock/check` | — | `MockCheckResultSchema`（`{ errors, warnings }`。6章の検査結果） | 0 |
 
@@ -553,7 +554,8 @@ export type MockCheckResult = z.infer<typeof MockCheckResultSchema>;
 
 初期値でプランが選択済みになっているのは、開発中に `/today` や `/calendar` を直接開いても表示できるようにするため。
 
-- `/replan` 画面を開いたら、画面から `POST /api/mock/clock` を呼び、`demo_now` が18:00より前なら18:00に進める（モック専用の動き。10.6参照）。`POST /api/plans/replan` が呼ばれたときも念のため同じ処理をする（二重に呼ばれても副作用はない）
+- `/replan` 画面を開いたら、画面から `GET /api/mock/clock` で `demo_now` を読み、18:00より前なら `POST /api/mock/clock` に `{ now: "<その日>T18:00:00+09:00" }` を明示して送る（モック専用の動き。10.6・10.20参照）。`POST /api/plans/replan` が呼ばれたときも念のため18:00への繰り上げをする（二重に呼ばれても副作用はない）
+- `/today` は `GET /api/mock/clock` で `demo_now` を読み、その日付の計画を表示する（10.20参照）
 - `replan_accepted` が `true` のとき、`calendar/day`・`week`・`month` は10/5をAfterの内容で、10/7・10/8を振り替え後の内容で返す
 - `mock/reset` で全項目を初期値に戻す
 
@@ -1174,7 +1176,7 @@ app/
   (onboarding)/login/page.tsx
   (onboarding)/interview/page.tsx
   (onboarding)/plans/page.tsx
-  (main)/layout.tsx          # タブバー付き
+  (main)/layout.tsx          # children を返すだけ。タブバー付きの枠は各ページが MainShell で組み立てる（10.20参照）
   (main)/today/page.tsx
   (main)/calendar/page.tsx
   (main)/replan/page.tsx
@@ -1182,14 +1184,14 @@ app/
   api/...                    # 4章のRoute Handlers（mocks/ を import してよいのはここと lib/mock/ だけ）
   page.tsx                   # /login へリダイレクト
 components/
-  layout/MobileShell.tsx, BottomTabBar.tsx
+  layout/MobileShell.tsx, BottomTabBar.tsx, MainShell.tsx, PageHeader.tsx, DemoNowChip.tsx
   timeline/Timeline.tsx, ItemBlock.tsx, ItemDetailSheet.tsx
   chat/ChatBubble.tsx, QuickReplies.tsx, ChatInput.tsx   # /interview と /replan で共用（10.18参照）
   interview/GoalCandidateCard.tsx
   plans/PlanCompareTable.tsx
   replan/ChangeList.tsx
   calendar/MonthGrid.tsx, WeekGrid.tsx
-  common/LoadingState.tsx, ErrorState.tsx, EmptyState.tsx, SurfaceCard.tsx, SuggestionCard.tsx
+  common/LoadingState.tsx, ErrorState.tsx, EmptyState.tsx, SurfaceCard.tsx, SuggestionCard.tsx, FlashNotice.tsx
   ui/                        # shadcn が生成
 hooks/
   use-api-data.ts            # lib/api.ts の関数を呼び、ローディング・エラー・成功の状態と再試行を返す（1.4）
@@ -1198,6 +1200,7 @@ lib/
   labels.ts                  # 表示名・色・アイコン（1.3、6.3・6.8.4の表示名）
   api.ts                     # 画面から呼ぶ fetch 関数（mock_error 対応）。画面が mocks/ の代わりに使う（10.17参照）
   datetime.ts                # JSTでの表示・計算
+  schedule.ts                # 計画の項目の集計（sumMinutesOfKind。画面とモックで共用。10.20参照）
   mock/store.ts, clock.ts, summarize.ts, validate.ts
   mock/http.ts                # モックAPIで共通に使う処理（待ち時間、x-mock-errorのエラー応答）
   mock/calendar.ts            # カレンダーAPIで共通に使う処理（固定予定の展開、日・週・月の組み立て）
@@ -1311,7 +1314,7 @@ mocks/
 
 ### 10.6 `/replan` のデモ時刻
 
-- `/replan` を開いた時点で、画面から `POST /api/mock/clock` を呼び、`demo_now` が18:00より前なら18:00にする
+- `/replan` を開いた時点で、画面から `GET /api/mock/clock` で時刻を読み、`demo_now` が18:00より前なら `POST /api/mock/clock` で18:00にする（10.20参照）
 - ヘッダーは `demo_now` を表示し、その下に小さく「デモのため、時刻を18:00に進めました」と表示する（すでに18:00以降なら表示しない）
 - `POST /api/plans/replan` 側の「18:00に進める」処理は、念のため残す（二重に呼ばれても副作用はない）
 
@@ -1422,3 +1425,35 @@ mocks/
 
 - APIのリクエスト・レスポンスの形（`TasksResponseSchema`・`MockLoginResponseSchema`・`InterviewConfirmResponseSchema`・`GeneratePlansResponseSchema`・`PlanCandidatesResponseSchema`・`SelectPlanResponseSchema`・`SettingsResponseSchema` など）は `lib/schemas.ts` に置く
 - `app/api/` の Route Handler も `lib/api.ts` も、`lib/schemas.ts` から import する。サーバー側（`app/api/`）は `lib/api.ts` を import しない
+
+### 10.20 `/today`・`/replan` の枠・デモ時刻・更新の通知・見出しの部品
+
+**タブバー付きの枠（案A）**
+
+- `app/(main)/layout.tsx` は `children` を返すだけにする
+- 各ページは `components/layout/MainShell.tsx` を使う。`MainShell` はページの固定要素（主ボタン・入力欄など）を `bottom` で受け取り、`MobileShell` の `bottom` に「ページの固定要素 → `BottomTabBar`」の順で渡す（10.16の「下部の固定要素は `MobileShell` の `bottom` に渡す」をそのまま守るため）
+- `/calendar`・`/settings` は、本実装（8章のステップ7・8）までは「準備中」と表示するだけの仮ページにし、タブを押しても404にならないようにする
+
+**デモ時刻の読み方（`GET /api/mock/clock`）**
+
+- `GET /api/mock/clock` を追加する。今の `demo_now` を `{ now }` で返すだけで、時刻は変えない。レスポンスは `lib/schemas.ts` の `MockClockResponseSchema`（`POST /api/mock/clock` も同じ形）
+- `/today` はこれで時刻を読み、その日付の計画を `GET /api/calendar/day` で取得する
+- `/replan` は開いたときにこれで時刻を読み、18:00より前なら `POST /api/mock/clock` に `{ now: "2026-10-05T18:00:00+09:00" }`（その日の18:00）を明示して送る。**進めたときだけ**「デモのため、時刻を18:00に進めました」を表示する
+- 4章の表・4.1章・2.5章・10.6章を修正済み
+
+**「計画を更新しました」の通知（10.7）**
+
+- npm パッケージ（`sonner` など）は増やさず、ページ上部に数秒だけ重ねて出す小さな通知（`role="status"`。`components/common/FlashNotice.tsx`）にする
+
+**見出しの部品**
+
+- `components/layout/OnboardingHeader.tsx` を `PageHeader.tsx` に名前を変え、通常利用の画面（`/replan` など）でも使う。右上にデモ時刻のチップなどを置く `trailing` を追加した
+
+**`lib/schemas.ts` への追加（既存のスキーマは変更なし）**
+
+- `ReplanRequestSchema`（`{ date, text }`）、`ReplanUnsupportedSchema`（`{ supported: false, message }`）、`ReplanResponseSchema`（`ReplanProposal` か `ReplanUnsupported`）、`ReplanAcceptRequestSchema`（`{ proposal_id }`）、`MockClockResponseSchema`（`{ now }`）
+- `lib/api.ts` で応答を `.parse()` するため。Route Handler もこれらで `.parse()` する（パスとレスポンスの形は変えない）
+
+**合計時間の計算の共用**
+
+- 項目の種類ごとの合計時間は `lib/schedule.ts` の `sumMinutesOfKind` に切り出し、`/today` の合計と `lib/mock/summarize.ts` で共用する（`summarize.ts` は `mocks/` を import しているため画面から呼べない）

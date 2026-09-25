@@ -281,6 +281,17 @@ export const SettingsResponseSchema = z.object({
 /** GET /api/tasks */
 export const TasksResponseSchema = z.object({ tasks: z.array(TaskSchema) });
 
+/** POST /api/plans/replan（2.5章。モックで結果を返せるのは「疲れた」を含む文だけ） */
+export const ReplanRequestSchema = z.object({ date: z.string(), text: z.string() });
+export const ReplanUnsupportedSchema = z.object({ supported: z.literal(false), message: z.string() });
+export const ReplanResponseSchema = z.union([ReplanProposalSchema, ReplanUnsupportedSchema]);
+
+/** POST /api/plans/replan/accept（レスポンスは DayView） */
+export const ReplanAcceptRequestSchema = z.object({ proposal_id: z.string() });
+
+/** GET・POST /api/mock/clock（デモ時刻。10.20章） */
+export const MockClockResponseSchema = z.object({ now: z.string() });
+
 // ---------- 型 ----------
 export type PlanStyle = z.infer<typeof PlanStyleSchema>;
 export type InterviewState = z.infer<typeof InterviewStateSchema>;
@@ -309,3 +320,5 @@ export type Level = z.infer<typeof LevelSchema>;
 export type MockLoginResponse = z.infer<typeof MockLoginResponseSchema>;
 export type InterviewConfirmResponse = z.infer<typeof InterviewConfirmResponseSchema>;
 export type SettingsResponse = z.infer<typeof SettingsResponseSchema>;
+export type ReplanChange = z.infer<typeof ReplanChangeSchema>;
+export type ReplanResponse = z.infer<typeof ReplanResponseSchema>;

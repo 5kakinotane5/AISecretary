@@ -13,6 +13,8 @@ type ItemBlockProps = {
   deadlineAt?: string | null;
   /** バッファの候補タスク名（suggested_task_id から引いたもの） */
   suggestedTaskTitle?: string | null;
+  /** 簡略表示（左右に2本並べるとき）。補足の行は時刻だけにする */
+  compact?: boolean;
   /** 渡すとタップできるブロックになる（タスク・バッファの詳細シートを開く） */
   onSelect?: () => void;
 };
@@ -21,7 +23,14 @@ type ItemBlockProps = {
  * タイムラインの1項目の右側（タイトルと補足）。design-spec.md 2.3・5.4、mock-spec.md 1.3。
  * 睡眠・移動は Timeline 側で1行に折りたたむため、ここでは扱わない。
  */
-export function ItemBlock({ item, locationName, deadlineAt, suggestedTaskTitle, onSelect }: ItemBlockProps) {
+export function ItemBlock({
+  item,
+  locationName,
+  deadlineAt,
+  suggestedTaskTitle,
+  compact = false,
+  onSelect,
+}: ItemBlockProps) {
   const appearance = getItemAppearance(item.kind, item.fixed_category);
   const completed = item.status === "completed";
   // 内部の「バッファ」は画面上「余白」と表示する（design-spec.md 4章）
@@ -31,22 +40,29 @@ export function ItemBlock({ item, locationName, deadlineAt, suggestedTaskTitle, 
     <>
       <div className="flex items-center gap-1.5">
         {completed ? <Check size={14} className="shrink-0 text-primary" aria-label="完了" /> : null}
-        <p className={cn("min-w-0 flex-1 truncate text-sm font-bold", completed && "line-through decoration-1")}>
+        <p
+          className={cn(
+            "min-w-0 flex-1 truncate font-bold",
+            compact ? "text-xs" : "text-sm",
+            completed && "line-through decoration-1",
+          )}
+        >
           {title}
         </p>
         {item.locked ? <Lock size={12} className="shrink-0 text-muted-foreground" aria-label="固定" /> : null}
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <span className="tabular-nums">{formatTimeRange(item.start_at, item.end_at)}</span>
-        {locationName ? <span className="max-w-full truncate">{locationName}</span> : null}
-        {suggestedTaskTitle ? <span>候補：{suggestedTaskTitle}</span> : null}
-        {deadlineAt ? <DeadlineBadge deadlineAt={deadlineAt} /> : null}
+        {locationName && !compact ? <span className="max-w-full truncate">{locationName}</span> : null}
+        {suggestedTaskTitle && !compact ? <span>候補：{suggestedTaskTitle}</span> : null}
+        {deadlineAt && !compact ? <DeadlineBadge deadlineAt={deadlineAt} /> : null}
       </div>
     </>
   );
 
   const className = cn(
-    "block min-h-11 w-full min-w-0 rounded-2xl px-3 py-2 text-left",
+    "block min-h-11 w-full min-w-0 rounded-2xl py-2 text-left",
+    compact ? "px-2" : "px-3",
     completed && "opacity-50",
     onSelect && "outline-none transition-opacity hover:opacity-80 focus-visible:ring-3 focus-visible:ring-ring/50",
   );
