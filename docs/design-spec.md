@@ -60,6 +60,11 @@
 
 shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground` = 白、`--background` = `--brand-bg`、`--foreground` = `--brand-dark`、`--card` = `--surface`、`--muted` = `#F1F0FB`（推定）、`--muted-foreground` = `--purple-gray`、`--border` = `--purple-gray-light`、`--input` = `--purple-gray-light`、`--ring` = `--brand-purple-light`
 
+`--chart-*`・`--sidebar-*`（グラフ・サイドバー用にshadcn/uiが持つ変数。青・緑の既定色を残さないための対応）：
+
+- `--chart-1`〜`--chart-5` は順に `--brand-purple`・`--brand-purple-light`・`--brand-purple-pale`・`--purple-gray`・`--kind-free`
+- `--sidebar` = `--background`、`--sidebar-foreground` = `--foreground`、`--sidebar-primary` = `--primary`、`--sidebar-primary-foreground` = `--primary-foreground`、`--sidebar-accent` = `--accent`、`--sidebar-accent-foreground` = `--accent-foreground`、`--sidebar-border` = `--border`、`--sidebar-ring` = `--ring`
+
 ### 2.2 グラデーション（推定）
 
 | 変数名 | 値 | 用途 |
