@@ -8,18 +8,13 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { SuggestionCard } from "@/components/common/SuggestionCard";
 import { SurfaceCard } from "@/components/common/SurfaceCard";
-import { ChatBubble, ChatTypingBubble } from "@/components/interview/ChatBubble";
-import { DeadlineBadge } from "@/components/timeline/DeadlineBadge";
-import { Timeline } from "@/components/timeline/Timeline";
+import { ChatBubble, ChatTypingBubble } from "@/components/chat/ChatBubble";
 import { formatDateShort } from "@/lib/datetime";
-import { BALANCED_DAY_ITEMS } from "@/mocks/plans/balanced";
-import { TASKS } from "@/mocks/tasks";
-import { ChatInputSample, ErrorStateSample } from "./InteractiveSamples";
+import { DayTimelinePreview } from "../_components/DayTimelinePreview";
+import { ChatInputSample, DeadlineBadgeSample, ErrorStateSample } from "./InteractiveSamples";
 
 // design-spec.md の値の確認用ページ。本番の画面遷移には含めない。
 
-const REPORT_DEADLINE = TASKS.find((t) => t.id === "task_report")?.deadline_at ?? null;
-const MONDAY_ITEMS = BALANCED_DAY_ITEMS["2026-10-05"].slice(0, 9);
 const DEMO_NOW = "2026-10-05T09:00:00+09:00"; // イメージの「9:00」に合わせて1限を現在地にする
 
 export default function DevDesignPage() {
@@ -93,12 +88,12 @@ export default function DevDesignPage() {
         <Section title="カードとタイムライン（月曜・バランスプラン）">
           <SurfaceCard>
             <p className="mb-2 text-sm font-bold">今日の航路　{formatDateShort("2026-10-05")}</p>
-            <Timeline items={MONDAY_ITEMS} now={DEMO_NOW} tasks={TASKS} />
+            <DayTimelinePreview date="2026-10-05" now={DEMO_NOW} maxItems={9} />
           </SurfaceCard>
         </Section>
 
         <Section title="締切バッジ">
-          {REPORT_DEADLINE ? <DeadlineBadge deadlineAt={REPORT_DEADLINE} size="md" /> : null}
+          <DeadlineBadgeSample />
         </Section>
 
         <Section title="チャットの吹き出しと入力欄">

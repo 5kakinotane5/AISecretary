@@ -197,6 +197,15 @@ export function getTravelIcon(mode: TravelMode): LucideIcon {
   }
 }
 
+/** 移動手段の表示名（design-spec.md 9.9。「移動 50分（徒歩＋電車）」のように使う） */
+export const TRAVEL_MODE_LABELS: Record<TravelMode, string> = {
+  walk_train: "徒歩＋電車",
+  walk: "徒歩",
+  train: "電車",
+  bus: "バス",
+  bike: "自転車",
+};
+
 // ---------- 締切バッジ（design-spec.md 5.4・9.3・9.6。赤は使わない） ----------
 export const DEADLINE_BADGE_BG = "var(--deadline-bg)";
 export const DEADLINE_BADGE_TEXT_COLOR = "var(--deadline-fg)";
@@ -221,6 +230,8 @@ export const SCREEN_LABELS = {
   replanButton: "航路を調整する",
   buffer: "余白",
   currentTimeLine: "現在地",
+  // 現在時刻を含む予定がないときに、次に始まる予定の行に付ける（design-spec.md 9.8）
+  nextRoute: "次の航路",
   goal: "目的地",
   interview: "航海の準備（目的地を決める）",
 } as const;

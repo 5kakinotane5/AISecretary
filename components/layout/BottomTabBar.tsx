@@ -7,16 +7,13 @@ import { TAB_ITEMS } from "@/lib/labels";
 /**
  * 通常利用の画面の下部タブバー（design-spec.md 5.2）。
  * 白背景・上に細い境界線。選択中は --brand-purple、それ以外は --purple-gray。
- * MobileShell の中で使い、MobileShell には withTabBar を付ける。
+ * MobileShell の bottom に渡して使う（枠の下端に固定される）。
  */
 export function BottomTabBar() {
   const pathname = usePathname();
 
   return (
-    <nav
-      aria-label="メインメニュー"
-      className="fixed bottom-0 left-1/2 z-40 w-full max-w-[430px] -translate-x-1/2 border-t bg-card pb-[env(safe-area-inset-bottom)]"
-    >
+    <nav aria-label="メインメニュー" className="border-t bg-card pb-[env(safe-area-inset-bottom)]">
       <ul className="grid h-16 grid-cols-4">
         {TAB_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);

@@ -2,8 +2,11 @@
 
 import { useState } from "react";
 import { ErrorState } from "@/components/common/ErrorState";
-import { ChatBubble } from "@/components/interview/ChatBubble";
-import { ChatInput } from "@/components/interview/ChatInput";
+import { ChatBubble } from "@/components/chat/ChatBubble";
+import { ChatInput } from "@/components/chat/ChatInput";
+import { DeadlineBadge } from "@/components/timeline/DeadlineBadge";
+import { useApiData } from "@/hooks/use-api-data";
+import { fetchTasks } from "@/lib/api";
 
 // /dev/design の見本のうち、イベント処理が必要なもの（関数はサーバーコンポーネントから渡せないため分ける）
 
@@ -30,4 +33,12 @@ export function ErrorStateSample() {
       onRetry={() => setRetried((n) => n + 1)}
     />
   );
+}
+
+/** 締切バッジの見本。締切の日付は GET /api/tasks から取る（ゼミレポート） */
+export function DeadlineBadgeSample() {
+  const result = useApiData(fetchTasks, []);
+  if (result.status !== "success") return null;
+  const deadlineAt = result.data.find((task) => task.id === "task_report")?.deadline_at;
+  return deadlineAt ? <DeadlineBadge deadlineAt={deadlineAt} size="md" /> : null;
 }

@@ -156,7 +156,7 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 
 ### 5.1 スマホの枠（PC表示）
 
-`docs/mock-spec.md` 10章の決定事項のとおり。枠の外の背景は `--brand-bg` に、ごく薄い紫のぼかし（`radial-gradient`）を重ねる。
+`docs/mock-spec.md` 1.1・10.16の決定事項のとおり（画面幅640px以上で幅390px・高さ844pxの枠を表示）。枠の外の背景は `--brand-bg` に、ごく薄い紫のぼかし（`radial-gradient`）を重ねる。
 
 ### 5.2 タブバー（`mock-spec.md` 1.2 を置き換え）
 
@@ -310,3 +310,20 @@ PURCHARTにする範囲：
 - 5.4章・9.3章の「TrainFront / Footprints」の記述を上記のとおり確定する
 
 `app/layout.tsx`・`README.md` 自体の編集は、モック実装の作業の中で行う（本項は方針の記録のみ）。
+
+### 9.8 現在地・次の航路の強調（タイムライン）
+
+- 現在時刻を含む予定があれば、その行を「現在地」として強調する（時刻を `--brand-purple-pale` の角丸の枠で囲み、下に小さく「現在地」）
+- 移動中は、移動の行そのものを「現在地」として扱う（移動の行は時刻を出さないため、時刻の列に「現在地」の文字だけを出す）
+- 睡眠中や予定の間の隙間などで該当する行がないときは、次に始まる予定の行を「次の航路」として同じ形で強調する（睡眠の行は対象にしない）
+- 表示名は `lib/labels.ts` の `SCREEN_LABELS.currentTimeLine`（現在地）・`SCREEN_LABELS.nextRoute`（次の航路）
+
+### 9.9 移動の表示
+
+- 移動は「移動 50分（徒歩＋電車）」のように、移動手段も文字で表示する。9.7のアイコンもそのまま残す
+- 手段の表示名は `lib/labels.ts` の `TRAVEL_MODE_LABELS`：`walk_train` は「徒歩＋電車」、`walk` は「徒歩」、`train` は「電車」、`bus` は「バス」、`bike` は「自転車」
+
+### 9.10 ボタンの部品
+
+- 5.3のボタンは、`components/ui/button.tsx` に variant を追加済み（副ボタン `brand-outline`、テキストボタン `brand-text`、大きさ `cta`（高さ52px・横幅いっぱい）・`tap`（高さ44px））
+- shadcn の上書き（`npx shadcn@latest add button --overwrite`）はしない。追加した variant が消えるため
