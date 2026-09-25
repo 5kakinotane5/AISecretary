@@ -14,8 +14,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## 作業前に読むもの
 
-- `docs/requirements_final_complete.md`：要件定義書（資料間で食い違う場合はこれを優先）
+- `docs/requirements.md`：要件定義書（資料間で食い違う場合はこれを優先）
 - `docs/codex_人割_タスク細分化_完成版_v2.md`：分担と進め方
+- `docs/rule.md`：push・PR・コミットのルール（Gitの操作はこれに従う）
 - 作業内容に対応する仕様書（例：モックの作業なら `docs/mock-spec.md`）
 - 関連する既存のファイル・型・API
 
@@ -44,6 +45,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - 固定予定・睡眠・移動時間・締切・目標・完了済み・ロック済みの項目を勝手に変更しない
 - 空き時間をすべてタスクで埋めない
 - スケジュール3案の違いを説明文だけにしない
+
+## モックとの関係
+
+- モックの作業（`mocks/` とモックAPI）では、LLM・Supabase は呼ばず、`mocks/` のデータを返す
+- モックAPIのパスとレスポンスの形は本番と同じにする。本物の処理に差し替えるときも、パスと形を変えない（変える場合は `lib/schemas.ts` と同じく事前に報告する）
 
 ## 環境・パッケージ
 
