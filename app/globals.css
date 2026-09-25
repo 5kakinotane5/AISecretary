@@ -144,4 +144,9 @@
   html {
     @apply font-sans;
   }
+  /* 文字を選択したときの色。ブラウザの既定の青を使わず紫にそろえる（design-spec.md 2.0） */
+  ::selection {
+    background-color: var(--brand-purple-pale);
+    color: var(--brand-dark);
+  }
 }

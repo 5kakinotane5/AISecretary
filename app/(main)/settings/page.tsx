@@ -7,7 +7,7 @@ import { CircleAlert, MapPin, RotateCcw } from "lucide-react";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
-import { SEGMENT_LIST, SEGMENT_TRIGGER } from "@/components/common/segment";
+import { SEGMENT_LIST_STANDALONE, SEGMENT_TRIGGER } from "@/components/common/segment";
 import { SurfaceCard } from "@/components/common/SurfaceCard";
 import { DemoNowChip } from "@/components/layout/DemoNowChip";
 import { MainShell } from "@/components/layout/MainShell";
@@ -208,7 +208,7 @@ function DemoClockSwitch({ now, onChanged }: { now: string; onChanged: (now: str
       <p className="text-sm text-muted-foreground" id="demo-clock-label">
         {SETTINGS_LABELS.demoClock}
       </p>
-      <div role="group" aria-labelledby="demo-clock-label" className={cn(SEGMENT_LIST, "flex h-12")}>
+      <div role="group" aria-labelledby="demo-clock-label" className={SEGMENT_LIST_STANDALONE}>
         {DEMO_CLOCK_TIMES.map((time) => {
           const active = now === `${toDateStr(now)}T${time}:00+09:00`;
           return (
