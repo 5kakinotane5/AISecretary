@@ -7,6 +7,8 @@ type PlanCompareTableProps = {
   candidates: ScheduleCandidate[];
   /** 選択中の案（その列を --brand-purple-pale で示す） */
   selectedId: string | null;
+  /** 目標の task_name（GET /api/settings の goal）。目標の行の見出し「目的地（TOEIC学習）」に使う */
+  goalName: string;
   className?: string;
 };
 
@@ -15,21 +17,24 @@ function hours(value: number): string {
 }
 
 /** どの案でも同じ行が同じ位置に来るよう、行の並びはここで固定する（mock-spec.md 2.3） */
-const ROWS: { label: string; format: (s: PlanSummary) => string }[] = [
-  { label: "タスク", format: (s) => hours(s.task_hours) },
-  { label: SCREEN_LABELS.buffer, format: (s) => hours(s.buffer_hours) },
-  { label: "自由時間", format: (s) => hours(s.free_hours) },
-  { label: "移動", format: (s) => hours(s.travel_hours) },
-  { label: SCREEN_LABELS.goal, format: (s) => hours(s.goal_hours) },
-  { label: "締切タスク", format: (s) => `${s.deadline_task_count}件` },
-];
+function buildRows(goalName: string): { label: string; format: (s: PlanSummary) => string }[] {
+  return [
+    { label: "タスク", format: (s) => hours(s.task_hours) },
+    { label: SCREEN_LABELS.buffer, format: (s) => hours(s.buffer_hours) },
+    { label: "自由時間", format: (s) => hours(s.free_hours) },
+    { label: "移動", format: (s) => hours(s.travel_hours) },
+    { label: `${SCREEN_LABELS.goal}（${goalName}）`, format: (s) => hours(s.goal_hours) },
+    { label: "締切タスク", format: (s) => `${s.deadline_task_count}件` },
+  ];
+}
 
 /**
  * 航路プラン3案の比較表（mock-spec.md 2.3、design-spec.md 5.6・6章）。
- * 3案を横に並べ、行はタスク・余白・自由時間・移動・目的地（TOEIC）・締切タスク。
+ * 3案を横に並べ、行はタスク・余白・自由時間・移動・目的地（目標の task_name）・締切タスク。
  * 3案の違いを説明文だけにしないため、数値で並べて見せる。
  */
-export function PlanCompareTable({ candidates, selectedId, className }: PlanCompareTableProps) {
+export function PlanCompareTable({ candidates, selectedId, goalName, className }: PlanCompareTableProps) {
+  const rows = buildRows(goalName);
   return (
     <SurfaceCard className={cn("px-3 py-3", className)}>
       <table className="w-full table-fixed border-collapse text-sm">
@@ -54,7 +59,7 @@ export function PlanCompareTable({ candidates, selectedId, className }: PlanComp
           </tr>
         </thead>
         <tbody>
-          {ROWS.map((row, index) => (
+          {rows.map((row, index) => (
             <tr key={row.label} className="border-t">
               <th scope="row" className="py-2 text-left text-xs font-medium text-muted-foreground">
                 {row.label}
@@ -65,7 +70,7 @@ export function PlanCompareTable({ candidates, selectedId, className }: PlanComp
                   className={cn(
                     "py-2 text-center tabular-nums",
                     c.id === selectedId && "bg-[var(--brand-purple-pale)] font-bold",
-                    c.id === selectedId && index === ROWS.length - 1 && "rounded-b-xl",
+                    c.id === selectedId && index === rows.length - 1 && "rounded-b-xl",
                   )}
                 >
                   {row.format(c.summary)}

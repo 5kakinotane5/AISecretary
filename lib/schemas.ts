@@ -270,6 +270,14 @@ export const PlanCandidatesResponseSchema = z.object({ candidates: z.array(Sched
 /** POST /api/plans/{id}/select */
 export const SelectPlanResponseSchema = z.object({ active_plan_id: z.string() });
 
+/** GET /api/settings */
+export const SettingsResponseSchema = z.object({
+  preferences: UserPreferenceSchema,
+  locations: z.array(LocationSchema),
+  travel_times: z.array(TravelTimeSchema),
+  goal: GoalSchema,
+});
+
 /** GET /api/tasks */
 export const TasksResponseSchema = z.object({ tasks: z.array(TaskSchema) });
 
@@ -300,3 +308,4 @@ export type GoalPlanStyle = z.infer<typeof GoalPlanStyleSchema>;
 export type Level = z.infer<typeof LevelSchema>;
 export type MockLoginResponse = z.infer<typeof MockLoginResponseSchema>;
 export type InterviewConfirmResponse = z.infer<typeof InterviewConfirmResponseSchema>;
+export type SettingsResponse = z.infer<typeof SettingsResponseSchema>;

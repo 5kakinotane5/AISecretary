@@ -7,6 +7,7 @@ import {
   MockLoginResponseSchema,
   PlanCandidatesResponseSchema,
   SelectPlanResponseSchema,
+  SettingsResponseSchema,
   TasksResponseSchema,
   type DayView,
   type InterviewConfirmResponse,
@@ -14,6 +15,7 @@ import {
   type InterviewTurn,
   type MockLoginResponse,
   type ScheduleCandidate,
+  type SettingsResponse,
   type Task,
 } from "./schemas";
 
@@ -104,4 +106,9 @@ export async function fetchTasks(): Promise<Task[]> {
 /** GET /api/calendar/day?date= */
 export function fetchCalendarDay(date: string): Promise<DayView> {
   return request(`/api/calendar/day?date=${encodeURIComponent(date)}`, DayViewSchema);
+}
+
+/** GET /api/settings */
+export function fetchSettings(): Promise<SettingsResponse> {
+  return request("/api/settings", SettingsResponseSchema);
 }

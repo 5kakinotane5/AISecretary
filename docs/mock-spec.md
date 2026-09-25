@@ -1421,5 +1421,5 @@ mocks/
 
 **APIのリクエスト・レスポンスの形の置き場所**
 
-- APIのリクエスト・レスポンスの形（`TasksResponseSchema`・`MockLoginResponseSchema`・`InterviewConfirmResponseSchema`・`GeneratePlansResponseSchema`・`PlanCandidatesResponseSchema`・`SelectPlanResponseSchema` など）は `lib/schemas.ts` に置く
+- APIのリクエスト・レスポンスの形（`TasksResponseSchema`・`MockLoginResponseSchema`・`InterviewConfirmResponseSchema`・`GeneratePlansResponseSchema`・`PlanCandidatesResponseSchema`・`SelectPlanResponseSchema`・`SettingsResponseSchema` など）は `lib/schemas.ts` に置く
 - `app/api/` の Route Handler も `lib/api.ts` も、`lib/schemas.ts` から import する。サーバー側（`app/api/`）は `lib/api.ts` を import しない

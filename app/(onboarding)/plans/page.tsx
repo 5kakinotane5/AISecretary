@@ -14,7 +14,7 @@ import { Timeline } from "@/components/timeline/Timeline";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useApiData } from "@/hooks/use-api-data";
-import { fetchPlanCandidates, fetchTasks, selectPlan } from "@/lib/api";
+import { fetchPlanCandidates, fetchSettings, fetchTasks, selectPlan } from "@/lib/api";
 import { addDays, formatPeriod, getWeekdayJa } from "@/lib/datetime";
 import { ONBOARDING_LABELS, PLAN_STYLE_LABELS, PLAN_STYLE_SHORT_LABELS } from "@/lib/labels";
 import type { PlanStyle } from "@/lib/schemas";
@@ -30,17 +30,19 @@ const SEGMENT_TRIGGER =
 /**
  * /plans：航路プランを選ぶ（mock-spec.md 2.3・10.19、design-spec.md 6章）。
  * 画面を開いたら GET /api/plans/candidates で3案を取得する（generate の結果はブラウザに保存しない）。
+ * 比較表の目標の行の見出しに使う目標名は GET /api/settings の goal から取る。
  * まだ生成していなければ空の表示と「航海の準備へ」を出す。戻るボタン・進行状況は出さない（10.19章）。
  */
 export default function PlansPage() {
   const router = useRouter();
-  const result = useApiData(() => Promise.all([fetchPlanCandidates(), fetchTasks()]), []);
+  const result = useApiData(() => Promise.all([fetchPlanCandidates(), fetchTasks(), fetchSettings()]), []);
   const [style, setStyle] = useState<PlanStyle>(DEFAULT_STYLE);
   const [dayIndex, setDayIndex] = useState(0);
   const [selecting, setSelecting] = useState<"idle" | "loading" | "error">("idle");
 
   const candidates = result.status === "success" ? result.data[0] : [];
   const tasks = result.status === "success" ? result.data[1] : [];
+  const goalName = result.status === "success" ? result.data[2].goal.task_name : "";
   const selected = candidates.find((c) => c.style === style) ?? null;
   const weekStart = candidates[0]?.week_start ?? null;
 
@@ -91,7 +93,7 @@ export default function PlansPage() {
 
         {selected ? (
           <>
-            <PlanCompareTable candidates={candidates} selectedId={selected.id} />
+            <PlanCompareTable candidates={candidates} selectedId={selected.id} goalName={goalName} />
 
             <Tabs value={style} onValueChange={(value) => setStyle(value as PlanStyle)}>
               <TabsList aria-label="航路プラン" className={SEGMENT_LIST}>
