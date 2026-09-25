@@ -6,6 +6,7 @@ import {
   InterviewTurnSchema,
   MockClockResponseSchema,
   MockLoginResponseSchema,
+  MockResetResponseSchema,
   MonthViewSchema,
   PlanCandidatesResponseSchema,
   ReplanResponseSchema,
@@ -159,6 +160,11 @@ export async function fetchDemoNow(): Promise<string> {
 export async function setDemoNow(now: string): Promise<string> {
   const result = await post("/api/mock/clock", MockClockResponseSchema, { now });
   return result.now;
+}
+
+/** POST /api/mock/reset：モックの状態をすべて初期値に戻す */
+export async function resetMock(): Promise<void> {
+  await post("/api/mock/reset", MockResetResponseSchema);
 }
 
 /** POST /api/plans/replan（ReplanProposal か、対応していない入力なら { supported: false, message }） */
