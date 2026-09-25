@@ -113,14 +113,41 @@ export function formatDemoNow(isoStr: string): string {
   return `${formatTime(isoStr)} 現在`;
 }
 
+/** UTC 0時の Date を YYYY-MM-DD にする */
+function formatUtcDate(date: Date): string {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 /** JSTの日付を days 日進める（負数で戻る）。YYYY-MM-DD を返す */
 export function addDays(dateStr: string, days: number): string {
   const base = toUtcMidnight(getJstParts(dateStr));
   base.setUTCDate(base.getUTCDate() + days);
-  const y = base.getUTCFullYear();
-  const m = String(base.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(base.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return formatUtcDate(base);
+}
+
+/** その日を含む月から months か月進めた（負数で戻る）月の1日（YYYY-MM-DD）を返す */
+export function addMonths(dateStr: string, months: number): string {
+  const { year, month } = getJstParts(dateStr);
+  return formatUtcDate(new Date(Date.UTC(year, month - 1 + months, 1)));
+}
+
+/** ISO日時・日付文字列から "YYYY-MM"（JST基準の年月。GET /api/calendar/month の month）を取り出す */
+export function toMonthStr(value: string): string {
+  return toDateStr(value).slice(0, 7);
+}
+
+/** "2026年10月"（month は "YYYY-MM"） */
+export function formatYearMonth(month: string): string {
+  const { year, month: m } = getJstParts(`${month}-01`);
+  return `${year}年${m}月`;
+}
+
+/** JSTの日（1〜31） */
+export function getDayOfMonth(dateStr: string): number {
+  return getJstParts(dateStr).day;
 }
 
 /** その日を含む週の月曜日（YYYY-MM-DD）を返す */

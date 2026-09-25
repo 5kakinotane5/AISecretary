@@ -6,20 +6,24 @@ import {
   InterviewTurnSchema,
   MockClockResponseSchema,
   MockLoginResponseSchema,
+  MonthViewSchema,
   PlanCandidatesResponseSchema,
   ReplanResponseSchema,
   SelectPlanResponseSchema,
   SettingsResponseSchema,
   TasksResponseSchema,
+  WeekViewSchema,
   type DayView,
   type InterviewConfirmResponse,
   type InterviewMessageRequest,
   type InterviewTurn,
   type MockLoginResponse,
+  type MonthView,
   type ReplanResponse,
   type ScheduleCandidate,
   type SettingsResponse,
   type Task,
+  type WeekView,
 } from "./schemas";
 
 // ---------- 画面から呼ぶ fetch 関数（mock-spec.md 1.4・4章・7章） ----------
@@ -128,6 +132,16 @@ export async function fetchTasks(): Promise<Task[]> {
 /** GET /api/calendar/day?date= */
 export function fetchCalendarDay(date: string): Promise<DayView> {
   return request(`/api/calendar/day?date=${encodeURIComponent(date)}`, DayViewSchema);
+}
+
+/** GET /api/calendar/week?start=（start はその週の月曜。月曜以外を渡してもその週の月曜から7日分が返る） */
+export function fetchCalendarWeek(start: string): Promise<WeekView> {
+  return request(`/api/calendar/week?start=${encodeURIComponent(start)}`, WeekViewSchema);
+}
+
+/** GET /api/calendar/month?month=（month は "YYYY-MM"。データのない月は days が空配列） */
+export function fetchCalendarMonth(month: string): Promise<MonthView> {
+  return request(`/api/calendar/month?month=${encodeURIComponent(month)}`, MonthViewSchema);
 }
 
 /** GET /api/settings */

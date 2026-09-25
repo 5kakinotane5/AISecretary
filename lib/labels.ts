@@ -30,6 +30,7 @@ import type {
   GoalPlanStyle,
   ItemKindSchema,
   Level,
+  MonthView,
   PlanStyleSchema,
   ReplanChange,
   TravelModeSchema,
@@ -359,7 +360,39 @@ export function formatDemoChip(isoStr: string): string {
   return `デモ ${formatTime(isoStr)}`;
 }
 
-/** 仮ページ（/calendar・/settings。ステップ7・8で作る） */
+// ---------- 航海図（/calendar）の文言（design-spec.md 4章・6章、mock-spec.md 2.6） ----------
+export type CalendarViewMode = "month" | "week" | "day";
+
+/** 月／週／日 の切り替え（この順に並べる。初期表示は週） */
+export const CALENDAR_VIEW_LABELS: Record<CalendarViewMode, string> = {
+  month: "月",
+  week: "週",
+  day: "日",
+};
+
+export const CALENDAR_LABELS = {
+  title: "あなたの航海図",
+  prev: { month: "前の月", week: "前の週", day: "前の日" } satisfies Record<CalendarViewMode, string>,
+  next: { month: "次の月", week: "次の週", day: "次の日" } satisfies Record<CalendarViewMode, string>,
+  noMonthData: "この月のデータはありません",
+  noWeekData: "この週のデータはありません",
+  noWeekPlan: "この週の計画はまだありません",
+  noPlanHint: TODAY_LABELS.noPlanHint,
+  noDayPlan: TODAY_LABELS.noPlan,
+  conditionTitle: "今週のコンディション",
+  hasPlanLegend: "計画あり",
+  deadlineLegend: "締切",
+} as const;
+
+/** 月表示の小さな点の色（MonthView の kinds。design-spec.md 2.3 の丸印の色） */
+export const MONTH_KIND_DOT_COLORS: Record<MonthView["days"][number]["kinds"][number], string> = {
+  class: "var(--kind-fixed)",
+  work: "var(--kind-fixed)",
+  task: "var(--kind-task)",
+  social: "var(--kind-social)",
+};
+
+/** 仮ページ（/settings。ステップ8で作る） */
 export const PLACEHOLDER_LABEL = "準備中";
 
 /** /settings の見出し（タブバーの「設定」と同じ） */

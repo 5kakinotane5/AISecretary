@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
+import { SEGMENT_LIST, SEGMENT_TRIGGER } from "@/components/common/segment";
 import { SurfaceCard } from "@/components/common/SurfaceCard";
 import { MobileShell } from "@/components/layout/MobileShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -21,11 +22,6 @@ import type { PlanStyle } from "@/lib/schemas";
 
 /** 初期表示はバランス（mock-spec.md 2.3） */
 const DEFAULT_STYLE: PlanStyle = "balanced";
-
-// 3案・曜日の切り替え（design-spec.md 6章：--brand-purple-pale の角丸のセグメント）
-const SEGMENT_LIST = "w-full rounded-full bg-[var(--brand-purple-pale)] p-1 group-data-horizontal/tabs:h-12";
-const SEGMENT_TRIGGER =
-  "h-full min-w-0 rounded-full text-sm font-bold text-primary/70 hover:text-primary data-active:bg-card data-active:text-primary data-active:shadow-sm";
 
 /**
  * /plans：航路プランを選ぶ（mock-spec.md 2.3・10.19、design-spec.md 6章）。
