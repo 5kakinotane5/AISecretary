@@ -384,6 +384,20 @@ export const CALENDAR_LABELS = {
   deadlineLegend: "締切",
 } as const;
 
+/**
+ * 週表示の凡例（mock-spec.md 10.22、design-spec.md 9.12）。色・アイコンはタイムラインと同じ見た目から引く。
+ * 固定予定（授業／バイト）と移動（電車／徒歩）は、ブロックに出るアイコンが複数あるので並べて出す
+ */
+export const WEEK_LEGEND_ITEMS: { label: string; appearance: ItemAppearance; icons: LucideIcon[] }[] = [
+  { label: "タスク", appearance: NON_FIXED_APPEARANCE.task, icons: [NON_FIXED_APPEARANCE.task.icon] },
+  { label: "固定予定", appearance: FIXED_APPEARANCE.class, icons: [School, Briefcase] },
+  { label: "食事", appearance: FIXED_APPEARANCE.meal, icons: [FIXED_APPEARANCE.meal.icon] },
+  { label: "大切な人との時間", appearance: FIXED_APPEARANCE.social, icons: [FIXED_APPEARANCE.social.icon] },
+  { label: "移動", appearance: NON_FIXED_APPEARANCE.travel, icons: [TrainFront, Footprints] },
+  { label: SCREEN_LABELS.buffer, appearance: NON_FIXED_APPEARANCE.buffer, icons: [NON_FIXED_APPEARANCE.buffer.icon] },
+  { label: "自由時間", appearance: NON_FIXED_APPEARANCE.free, icons: [NON_FIXED_APPEARANCE.free.icon] },
+];
+
 /** 月表示の小さな点の色（MonthView の kinds。design-spec.md 2.3 の丸印の色） */
 export const MONTH_KIND_DOT_COLORS: Record<MonthView["days"][number]["kinds"][number], string> = {
   class: "var(--kind-fixed)",
