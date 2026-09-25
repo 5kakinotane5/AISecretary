@@ -249,8 +249,9 @@ function ResetButton() {
     }
   }
 
+  // 確認なしで実行するため、副ボタンの見た目にし、画面の一番下に区切り線をはさんで置く（mock-spec.md 10.23）
   return (
-    <div className="flex flex-col gap-2">
+    <div className="mt-1 flex flex-col gap-2 border-t pt-4">
       <Button variant="brand-outline" size="cta" disabled={pending} onClick={reset}>
         <RotateCcw aria-hidden />
         {pending ? SETTINGS_LABELS.resetting : SETTINGS_LABELS.reset}

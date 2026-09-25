@@ -444,7 +444,8 @@ export const SETTINGS_LABELS = {
   noTravelTimes: "登録されている移動時間はありません",
   goalTitle: SCREEN_LABELS.goal,
   deadline: "期限",
-  consultGoal: "新しい目標を相談する",
+  // design-spec.md 4章：目標（Goal）は画面上「目的地」（mock-spec.md 10.23）
+  consultGoal: `新しい${SCREEN_LABELS.goal}を相談する`,
   demoTitle: "デモ用",
   demoClock: "デモ時刻の切り替え",
   demoClockError: "デモ時刻を切り替えられませんでした。",
