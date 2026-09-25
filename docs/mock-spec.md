@@ -522,6 +522,7 @@ export type MockCheckResult = z.infer<typeof MockCheckResultSchema>;
 | `POST /api/interview/message` | `InterviewMessageRequestSchema`（`text`・`selection`のどちらか一方だけ。両方/どちらもなしは400） | `InterviewTurn`（次のステップ。ユーザー入力を要しないステップは1回の応答にまとめる。10.1参照） | 800ms |
 | `POST /api/interview/confirm` | `{ session_id }` | `{ state: "READY_FOR_PLANNING", goal: Goal }` | 400ms |
 | `POST /api/plans/generate` | `{ session_id }` | `{ candidates: ScheduleCandidate[] }`（3件） | 1500ms |
+| `GET /api/plans/candidates` | — | `{ candidates: ScheduleCandidate[] }`（generate と同じ形。`plans_generated` が `false` なら空配列。10.19参照） | 400ms |
 | `POST /api/plans/{id}/select` | なし | `{ active_plan_id }` | 400ms |
 | `GET /api/calendar/day?date=` | — | `DayView` | 400ms |
 | `GET /api/calendar/week?start=` | — | `{ week_start, days: DayView[] }` | 400ms |
@@ -547,6 +548,7 @@ export type MockCheckResult = z.infer<typeof MockCheckResultSchema>;
 | `interview_step_index` | 0 | ヒアリングの進み具合 |
 | `goal` | 下の G1 | 確定した目標 |
 | `active_plan_style` | `"balanced"` | 選択中のプラン |
+| `plans_generated` | `false` | スケジュール3案を生成したか。`POST /api/plans/generate` で `true` になり、`GET /api/plans/candidates` はこれが `true` のときだけ3案を返す（10.19参照） |
 | `replan_accepted` | `false` | 再計画を確定したか |
 | `demo_now` | `2026-10-05T07:00:00+09:00` | デモ時刻 |
 
@@ -1200,6 +1202,7 @@ lib/
   mock/store.ts, clock.ts, summarize.ts, validate.ts
   mock/http.ts                # モックAPIで共通に使う処理（待ち時間、x-mock-errorのエラー応答）
   mock/calendar.ts            # カレンダーAPIで共通に使う処理（固定予定の展開、日・週・月の組み立て）
+  mock/plans.ts               # スケジュール3案（generate と candidates で共通）
 mocks/
   persona.ts                 # 5.1〜5.3
   goal.ts, tasks.ts, fixed-events.ts
@@ -1400,3 +1403,23 @@ mocks/
 
 - `ChatBubble`・`QuickReplies`・入力欄（`ChatInput`）などのチャット部品は `components/chat/` に置き、`/interview` と `/replan` で共用する
 - 7章のファイル構成を修正済み
+
+### 10.19 `/plans` のデータ・上部の表示、APIの形の置き場所
+
+**`/plans` の3案の受け取り方**
+
+- `GET /api/plans/candidates` を追加する。レスポンスは `POST /api/plans/generate` と同じ `{ candidates: ScheduleCandidate[] }`
+- `lib/mock/store.ts` に `plans_generated`（初期値 `false`）を持つ。`POST /api/plans/generate` で `true` にし、`POST /api/mock/reset` で `false` に戻す
+- `plans_generated` が `false` のときは `{ candidates: [] }` を返す。`/plans` は空の表示「航路プランはまだありません」と「航海の準備へ」ボタン（→ `/interview`）を出す
+- `/plans` は画面を開いたときに `GET /api/plans/candidates` を呼ぶ。`generate` の結果はブラウザ（`sessionStorage` など）に保存しない
+- 4章の表と4.1章に追記済み
+
+**`/plans` の上部**
+
+- 戻るボタンは出さない（`/interview` に戻るとヒアリングが最初からやり直しになるため）
+- 進行状況は出さない（1.2章の「上部に戻るボタンと進行状況」は `/interview` だけに適用する）
+
+**APIのリクエスト・レスポンスの形の置き場所**
+
+- APIのリクエスト・レスポンスの形（`TasksResponseSchema`・`MockLoginResponseSchema`・`InterviewConfirmResponseSchema`・`GeneratePlansResponseSchema`・`PlanCandidatesResponseSchema`・`SelectPlanResponseSchema` など）は `lib/schemas.ts` に置く
+- `app/api/` の Route Handler も `lib/api.ts` も、`lib/schemas.ts` から import する。サーバー側（`app/api/`）は `lib/api.ts` を import しない

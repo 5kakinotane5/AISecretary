@@ -246,6 +246,33 @@ export const MockCheckResultSchema = z.object({
   warnings: z.array(ValidationIssueSchema),
 });
 
+// ---------- APIのリクエスト・レスポンス（mock-spec.md 4章・10.19） ----------
+// app/api/ の Route Handler と lib/api.ts の両方がここから import する（サーバー側は lib/api.ts を import しない）
+
+/** POST /api/auth/mock-login */
+export const MockLoginRequestSchema = z.object({ email: z.string().nullable() });
+export const MockLoginResponseSchema = z.object({ user_id: z.string(), display_name: z.string() });
+
+/** POST /api/interview/confirm */
+export const InterviewConfirmRequestSchema = z.object({ session_id: z.string() });
+export const InterviewConfirmResponseSchema = z.object({
+  state: z.literal("READY_FOR_PLANNING"),
+  goal: GoalSchema,
+});
+
+/** POST /api/plans/generate（3案ちょうど） */
+export const GeneratePlansRequestSchema = z.object({ session_id: z.string() });
+export const GeneratePlansResponseSchema = z.object({ candidates: z.array(ScheduleCandidateSchema).length(3) });
+
+/** GET /api/plans/candidates（generate と同じ形。まだ生成していなければ空配列） */
+export const PlanCandidatesResponseSchema = z.object({ candidates: z.array(ScheduleCandidateSchema) });
+
+/** POST /api/plans/{id}/select */
+export const SelectPlanResponseSchema = z.object({ active_plan_id: z.string() });
+
+/** GET /api/tasks */
+export const TasksResponseSchema = z.object({ tasks: z.array(TaskSchema) });
+
 // ---------- 型 ----------
 export type PlanStyle = z.infer<typeof PlanStyleSchema>;
 export type InterviewState = z.infer<typeof InterviewStateSchema>;
@@ -269,3 +296,7 @@ export type MonthView = z.infer<typeof MonthViewSchema>;
 export type ReplanProposal = z.infer<typeof ReplanProposalSchema>;
 export type ValidationIssue = z.infer<typeof ValidationIssueSchema>;
 export type MockCheckResult = z.infer<typeof MockCheckResultSchema>;
+export type GoalPlanStyle = z.infer<typeof GoalPlanStyleSchema>;
+export type Level = z.infer<typeof LevelSchema>;
+export type MockLoginResponse = z.infer<typeof MockLoginResponseSchema>;
+export type InterviewConfirmResponse = z.infer<typeof InterviewConfirmResponseSchema>;

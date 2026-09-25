@@ -20,7 +20,7 @@ import {
   type LucideProps,
 } from "lucide-react";
 import type { z } from "zod";
-import type { FixedCategorySchema, ItemKindSchema, PlanStyleSchema, TravelModeSchema } from "./schemas";
+import type { FixedCategorySchema, GoalPlanStyle, ItemKindSchema, Level, PlanStyleSchema, TravelModeSchema } from "./schemas";
 import { formatMonthDay, getJstHour } from "./datetime";
 
 type ItemKind = z.infer<typeof ItemKindSchema>;
@@ -251,3 +251,48 @@ export function getGreeting(isoStr: string): string {
   if (hour >= 11 && hour < 17) return "こんにちは、今日の航路は順調ですか。";
   return "おつかれさま、今日の航路をふり返ろう。";
 }
+
+// ---------- 目標時間3案（mock-spec.md 5.8・10.2） ----------
+export const GOAL_PLAN_STYLE_LABELS: Record<GoalPlanStyle, string> = {
+  intensive: "短期集中型",
+  balanced: "バランス標準型",
+  paced: "マイペース型",
+};
+
+/** 目標時間3案の負荷のバッジ */
+export const LOAD_LABELS: Record<Level, string> = {
+  high: "負荷 高め",
+  medium: "負荷 ふつう",
+  low: "負荷 軽め",
+};
+
+/** 3案の選択を送ったときのユーザーの吹き出し「『バランス標準型』週6時間にします」（10.2章） */
+export function formatGoalSelectionMessage(style: GoalPlanStyle, hoursPerWeek: number): string {
+  return `『${GOAL_PLAN_STYLE_LABELS[style]}』週${hoursPerWeek}時間にします`;
+}
+
+/** /plans の3案の切り替え（セグメント）に使う短い表示名 */
+export const PLAN_STYLE_SHORT_LABELS: Record<PlanStyle, string> = {
+  intensive: "集中",
+  balanced: "バランス",
+  relaxed: "ゆとり",
+};
+
+// ---------- オンボーディング（/login・/interview・/plans）の文言（design-spec.md 1章・4章・6章） ----------
+export const ONBOARDING_LABELS = {
+  tagline: "まだ決まっていない未来を、今の自分から航海する。",
+  taglineEn: "Navigate your uncertain future.",
+  start: "はじめる",
+  interviewTitle: "航海の準備",
+  plansTitle: "航路プランを選ぶ",
+  chooseCandidate: "これにする",
+  confirmCandidate: "この内容で確定",
+  confirmGoal: "確定する",
+  generatePlans: "スケジュール作成",
+  generating: "スケジュールを作成しています…",
+  selectPlan: "このプランにする",
+  noPlans: "航路プランはまだありません",
+  backToInterview: "航海の準備へ",
+  inputWhileChoosing: "上の案から選んでください",
+  inputWhileConfirming: "確定ボタンを押してください",
+} as const;
