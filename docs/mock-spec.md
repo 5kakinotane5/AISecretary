@@ -91,7 +91,7 @@ Claude Code がモックを実装するための仕様書。要件は `docs/requ
 | `free` | 自由時間 | `bg-emerald-50` | `Coffee` |
 | `sleep` | 睡眠 | 1行に折りたたみ「睡眠 0:00–7:30」 | `Moon` |
 
-- 締切のあるタスクには赤いバッジ「締切 10/9」を付ける
+- 締切のあるタスクにはバッジ「締切 10/9」を付ける（見た目は `docs/design-spec.md` 9.4参照。赤は使わない）
 - `status: "completed"` の項目は薄く表示し、チェックマークを付ける
 - `locked: true` の項目には小さな鍵アイコンを付ける
 
@@ -109,11 +109,11 @@ Claude Code がモックを実装するための仕様書。要件は `docs/requ
 
 ## 2. 画面ごとの仕様
 
-### 2.1 `/login` ログイン
+### 2.1 `/login` ログイン（スプラッシュ）
 
-- アプリ名「Personal AI Secretary」とひとこと説明「予定を考える負担を、AIが引き受けます」
-- メールアドレス欄（入力しなくても進める）と「ログイン」ボタン
-- 「ログイン」→ `POST /api/auth/mock-login` → `/interview`
+- メールアドレス欄はない。画面はスプラッシュ（見た目・文言は `docs/design-spec.md` 6章参照）
+- 下部に白い主ボタン（1つだけ）
+- ボタンを押す → `POST /api/auth/mock-login`（`{ email: null }`）→ `/interview`（10.11参照）
 
 ### 2.2 `/interview` 目標相談
 
@@ -168,7 +168,7 @@ Claude Code がモックを実装するための仕様書。要件は `docs/requ
 - 現在時刻の位置に赤い横線
 - タスクやバッファのブロックをタップすると、下からシート（shadcn の Sheet または Drawer）で詳細を表示：タイトル、時間、場所、締切、この時間に入れた理由（reason）
 
-**下部**：「予定の変更をAIに伝える…」という入力欄風のボタン → `/replan`。その下にタブバー
+**下部**：タイムラインのカードの下・タブバーの上に、紫の主ボタン（「航路を調整する」）を固定表示 → `/replan`（見た目は `docs/design-spec.md` 5.3・6章参照。10.12参照）
 
 「この計画にする」で再計画を確定すると `/today?updated=1` に遷移する。`/today` は `updated=1` があれば「計画を更新しました」のトーストを1回表示し、`router.replace` で `/today` にしてクエリパラメータを消す（10章参照）
 
@@ -513,7 +513,7 @@ export type MockCheckResult = z.infer<typeof MockCheckResultSchema>;
 
 | メソッド・パス | リクエスト | レスポンス | 待ち時間 |
 |---|---|---|---|
-| `POST /api/auth/mock-login` | `{ email }` | `{ user_id, display_name }` | 400ms |
+| `POST /api/auth/mock-login` | `{ email: string \| null }`（`/login`のボタンからは常に`null`） | `{ user_id, display_name }` | 400ms |
 | `POST /api/interview/start` | なし | `InterviewTurn`（ステップ1） | 400ms |
 | `POST /api/interview/message` | `InterviewMessageRequestSchema`（`text`・`selection`のどちらか一方だけ。両方/どちらもなしは400） | `InterviewTurn`（次のステップ。ユーザー入力を要しないステップは1回の応答にまとめる。10.1参照） | 800ms |
 | `POST /api/interview/confirm` | `{ session_id }` | `{ state: "READY_FOR_PLANNING", goal: Goal }` | 400ms |
@@ -1314,3 +1314,16 @@ mocks/
 ### 10.10 デイリーチェックインの扱い
 
 - モックでは対象外とする（9章に追記済み）。状態の入力は `/replan` の自然言語入力で代用する
+
+### 10.11 `/login` の画面構成とAPI
+
+- メールアドレス欄をなくし、スプラッシュ画面にする（見た目は `docs/design-spec.md` 6章のとおり）
+- 下部の白い主ボタンを押すと `POST /api/auth/mock-login` を呼び、`/interview` へ進む
+- リクエストは `{ email: string | null }`。スプラッシュからは常に `null` を送る
+- 2.1章・4章の表を修正済み
+
+### 10.12 `/today` 下部の導線
+
+- 入力欄風のボタンと「予定の変更をAIに伝える…」の文言はやめ、紫の主ボタン（「航路を調整する」。見た目は `docs/design-spec.md` 5.3参照）に統一する
+- 押すと `/replan` へ遷移する。位置はタイムラインのカードの下・タブバーの上に固定
+- 2.4章を修正済み
