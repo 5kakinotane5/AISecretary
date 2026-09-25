@@ -9,7 +9,11 @@ import {
   Footprints,
   Heart,
   Hourglass,
+  House,
+  Map as MapIcon,
+  MessageCircle,
   Moon,
+  Settings,
   School,
   TrainFront,
   Utensils,
@@ -220,6 +224,14 @@ export const SCREEN_LABELS = {
   goal: "目的地",
   interview: "航海の準備（目的地を決める）",
 } as const;
+
+/** タブバー（design-spec.md 5.2。mock-spec.md 1.2 の表を置き換え） */
+export const TAB_ITEMS: { href: "/today" | "/calendar" | "/replan" | "/settings"; label: string; icon: LucideIcon }[] = [
+  { href: "/today", label: "ホーム", icon: House },
+  { href: "/calendar", label: "航海図", icon: MapIcon },
+  { href: "/replan", label: "AIと対話", icon: MessageCircle },
+  { href: "/settings", label: "設定", icon: Settings },
+];
 
 /** ヘッダーの挨拶文（design-spec.md 4章）。demo_now などのISO日時からJSTの時間帯で出し分ける */
 export function getGreeting(isoStr: string): string {
