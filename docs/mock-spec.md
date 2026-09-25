@@ -26,7 +26,7 @@ Claude Code がモックを実装するための仕様書。要件は `docs/requ
 ```text
 /login でログイン
 → /interview で質問に答える（クイックリプライで進められる）
-→ 目標時間3案から「バランス標準型」を選び、確定
+→ 目標時間3案から「バランス標準型」を6時間のまま選び、確定（3案の選択に関係なく、生成されるスケジュール3案は5.9章の固定データになるため。10章参照）
 → 「スケジュール作成」
 → /plans で3案を比較し、「バランスプラン」を選ぶ
 → /today に今日（10/5 月）の予定が出る
@@ -170,11 +170,13 @@ Claude Code がモックを実装するための仕様書。要件は `docs/requ
 
 **下部**：「予定の変更をAIに伝える…」という入力欄風のボタン → `/replan`。その下にタブバー
 
-再計画を確定したあとは、上部に「計画を更新しました」のトーストを出す
+「この計画にする」で再計画を確定すると `/today?updated=1` に遷移する。`/today` は `updated=1` があれば「計画を更新しました」のトーストを1回表示し、`router.replace` で `/today` にしてクエリパラメータを消す（10章参照）
 
 ### 2.5 `/replan` 予定変更
 
-**上部**：タイトル「予定を変更」、デモ時刻「18:00 現在」
+**上部**：タイトル「予定を変更」、デモ時刻（`demo_now`。例：「18:00 現在」）
+
+画面を開いたら `POST /api/mock/clock` を呼び、`demo_now` が18:00より前なら18:00に進める。時刻表示の下に、その場合だけ小さく「デモのため、時刻を18:00に進めました」と表示する（すでに18:00以降なら何も表示しない）。10章参照
 
 **入力前**
 
@@ -334,6 +336,21 @@ export const GoalTimeCandidateSchema = z.object({
   reason: z.string(),
 });
 
+export const InterviewMessageRequestSchema = z
+  .object({
+    session_id: z.string(),
+    text: z.string().optional(),
+    selection: z
+      .object({
+        style: GoalPlanStyleSchema,
+        hours_per_week: z.number().min(1).max(15).multipleOf(0.5),
+      })
+      .optional(),
+  })
+  .refine((v) => (v.text === undefined) !== (v.selection === undefined), {
+    message: "text と selection はどちらか一方だけを指定する",
+  });
+
 export const InterviewTurnSchema = z.object({
   session_id: z.string(),
   state: InterviewStateSchema,
@@ -439,6 +456,34 @@ export const ReplanProposalSchema = z.object({
   summary_message: z.string(),
 });
 
+// ---------- ダミーデータの検査 ----------
+export const ValidationIssueCodeSchema = z.enum([
+  "START_AFTER_END",
+  "ITEM_OVERLAP",
+  "FIXED_EVENT_OVERLAP",
+  "SLEEP_OVERLAP",
+  "TRAVEL_MISSING",
+  "DEADLINE_VIOLATION",
+  "BUFFER_SHORTAGE",
+  "DAILY_LIMIT_EXCEEDED",
+  "INVALID_REFERENCE",
+  "FIXED_EVENT_MISMATCH",   // モック専用：固定予定の時刻・場所が案によって異なる
+  "GOAL_HOURS_MISMATCH",    // モック専用：目標の週合計時間が案によって異なる
+]);
+
+export const ValidationIssueSchema = z.object({
+  code: ValidationIssueCodeSchema,
+  item_id: z.string().nullable(),
+  message: z.string(),
+  plan_id: z.string().nullable(),
+  date: z.string().nullable(),
+});
+
+export const MockCheckResultSchema = z.object({
+  errors: z.array(ValidationIssueSchema),
+  warnings: z.array(ValidationIssueSchema),
+});
+
 // ---------- 型 ----------
 export type Location = z.infer<typeof LocationSchema>;
 export type TravelTime = z.infer<typeof TravelTimeSchema>;
@@ -446,6 +491,7 @@ export type FixedEvent = z.infer<typeof FixedEventSchema>;
 export type Task = z.infer<typeof TaskSchema>;
 export type Goal = z.infer<typeof GoalSchema>;
 export type GoalTimeCandidate = z.infer<typeof GoalTimeCandidateSchema>;
+export type InterviewMessageRequest = z.infer<typeof InterviewMessageRequestSchema>;
 export type InterviewTurn = z.infer<typeof InterviewTurnSchema>;
 export type ScheduleItem = z.infer<typeof ScheduleItemSchema>;
 export type DayPlan = z.infer<typeof DayPlanSchema>;
@@ -453,7 +499,11 @@ export type ScheduleCandidate = z.infer<typeof ScheduleCandidateSchema>;
 export type DayView = z.infer<typeof DayViewSchema>;
 export type MonthView = z.infer<typeof MonthViewSchema>;
 export type ReplanProposal = z.infer<typeof ReplanProposalSchema>;
+export type ValidationIssue = z.infer<typeof ValidationIssueSchema>;
+export type MockCheckResult = z.infer<typeof MockCheckResultSchema>;
 ```
+
+> 3章のスキーマ定義は、10章で決定した `InterviewMessageRequestSchema`・`ValidationIssueSchema`・`MockCheckResultSchema` を反映済み（10.2・10.8参照）。
 
 ---
 
@@ -465,7 +515,7 @@ export type ReplanProposal = z.infer<typeof ReplanProposalSchema>;
 |---|---|---|---|
 | `POST /api/auth/mock-login` | `{ email }` | `{ user_id, display_name }` | 400ms |
 | `POST /api/interview/start` | なし | `InterviewTurn`（ステップ1） | 400ms |
-| `POST /api/interview/message` | `{ session_id, text?, selection?: { style, hours_per_week } }` | `InterviewTurn`（次のステップ） | 800ms |
+| `POST /api/interview/message` | `InterviewMessageRequestSchema`（`text`・`selection`のどちらか一方だけ。両方/どちらもなしは400） | `InterviewTurn`（次のステップ。ユーザー入力を要しないステップは1回の応答にまとめる。10.1参照） | 800ms |
 | `POST /api/interview/confirm` | `{ session_id }` | `{ state: "READY_FOR_PLANNING", goal: Goal }` | 400ms |
 | `POST /api/plans/generate` | `{ session_id }` | `{ candidates: ScheduleCandidate[] }`（3件） | 1500ms |
 | `POST /api/plans/{id}/select` | なし | `{ active_plan_id }` | 400ms |
@@ -477,7 +527,7 @@ export type ReplanProposal = z.infer<typeof ReplanProposalSchema>;
 | `GET /api/settings` | — | `{ preferences, locations, travel_times, goal }` | 400ms |
 | `POST /api/mock/clock` | `{ now }` | `{ now }` | 0 |
 | `POST /api/mock/reset` | なし | `{ ok: true }` | 0 |
-| `GET /api/mock/check` | — | `{ errors: [...] }`（6章の検査結果） | 0 |
+| `GET /api/mock/check` | — | `MockCheckResultSchema`（`{ errors, warnings }`。6章の検査結果） | 0 |
 
 - `?mock_error=1` の付いた画面からの呼び出しは、`lib/api.ts` がリクエストヘッダー `x-mock-error: 1` を付け、Route Handler は500を返す
 - `interview/message` の `selection` が送られたら、ステップ7→8へ進み、`goal_draft` の `target_hours_per_week` と `user_selected_plan` に反映する
@@ -496,7 +546,7 @@ export type ReplanProposal = z.infer<typeof ReplanProposalSchema>;
 
 初期値でプランが選択済みになっているのは、開発中に `/today` や `/calendar` を直接開いても表示できるようにするため。
 
-- `POST /api/plans/replan` が呼ばれたら、`demo_now` が18:00より前なら18:00に進める（モック専用の動き）
+- `/replan` 画面を開いたら、画面から `POST /api/mock/clock` を呼び、`demo_now` が18:00より前なら18:00に進める（モック専用の動き。10.6参照）。`POST /api/plans/replan` が呼ばれたときも念のため同じ処理をする（二重に呼ばれても副作用はない）
 - `replan_accepted` が `true` のとき、`calendar/day`・`week`・`month` は10/5をAfterの内容で、10/7・10/8を振り替え後の内容で返す
 - `mock/reset` で全項目を初期値に戻す
 
@@ -778,6 +828,255 @@ export type ReplanProposal = z.infer<typeof ReplanProposalSchema>;
 
 TOEICの合計が3案とも360分になっていること（リスニング＋単語）を検査で確認する。`summary` の数値は手で書かず、`lib/mock/summarize.ts` で items から計算する。
 
+#### 火〜日の詳細
+
+10章（10.4・10.5）の手順で、上の割り当て表の分数を変えずに5.6章の「空き」へ配置した結果。時間は5分単位。`場所`は`location_id`（自宅=`loc_home`、大学=`loc_univ`、カフェ=`loc_cafe`）。`travel`は5.6章の固定の移動をそのまま使うため、ここには書かない。
+
+**火曜 10/6**
+
+集中プラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–9:15 | task | ゼミレポート執筆（`task_report`・完了） | 自宅 |
+| 9:15–9:30 | buffer | バッファ | 自宅 |
+| 9:30–10:30 | task | TOEIC リスニング演習（`task_toeic_listening`） | 自宅 |
+| 10:30–11:30 | free | 自由時間 | 自宅 |
+| 16:50–17:05 | buffer | バッファ | カフェ |
+| 17:05–17:35 | task | TOEIC 単語（`task_toeic_vocab`） | カフェ |
+| 17:35–18:00 | free | 自由時間 | カフェ |
+| 22:45–23:00 | buffer | バッファ | 自宅 |
+| 23:00–24:00 | free | 自由時間 | 自宅 |
+
+バランスプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–11:30 | free | 自由時間 | 自宅 |
+| 16:50–17:05 | buffer | バッファ | カフェ |
+| 17:05–17:35 | task | TOEIC 単語（`task_toeic_vocab`） | カフェ |
+| 17:35–18:00 | free | 自由時間 | カフェ |
+| 22:45–23:00 | buffer | バッファ | 自宅 |
+| 23:00–24:00 | free | 自由時間 | 自宅 |
+
+ゆとりプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–11:30 | free | 自由時間 | 自宅 |
+| 16:50–17:05 | buffer | バッファ | カフェ |
+| 17:05–17:35 | task | TOEIC 単語（`task_toeic_vocab`） | カフェ |
+| 17:35–18:00 | free | 自由時間 | カフェ |
+| 22:45–23:00 | buffer | バッファ | 自宅 |
+| 23:00–24:00 | free | 自由時間 | 自宅 |
+
+**水曜 10/7**
+
+集中プラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–8:45 | task | ES下書き（`task_es_a`・完了） | 自宅 |
+| 8:45–9:00 | buffer | バッファ | 自宅 |
+| 9:00–9:45 | free | 自由時間 | 自宅 |
+| 13:00–13:15 | buffer | バッファ | 大学 |
+| 13:15–14:15 | task | TOEIC リスニング演習（`task_toeic_listening`） | 大学 |
+| 14:15–14:30 | free | 自由時間 | 大学 |
+| 17:05–17:20 | buffer | バッファ | 自宅 |
+| 17:20–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–22:00 | task | 企業研究（`task_research`） | 自宅 |
+| 22:00–24:00 | free | 自由時間 | 自宅 |
+
+バランスプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–9:15 | task | TOEIC リスニング演習（`task_toeic_listening`） | 自宅 |
+| 9:15–9:45 | free | 自由時間 | 自宅 |
+| 13:00–14:30 | task | ゼミレポート執筆（`task_report`・完了・大学13:00〜） | 大学 |
+| 17:05–17:20 | buffer | バッファ | 自宅 |
+| 17:20–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–24:00 | free | 自由時間 | 自宅 |
+
+ゆとりプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–9:15 | task | ゼミレポート執筆（`task_report`） | 自宅 |
+| 9:15–9:45 | free | 自由時間 | 自宅 |
+| 13:00–13:15 | buffer | バッファ | 大学 |
+| 13:15–14:15 | task | TOEIC リスニング演習（`task_toeic_listening`） | 大学 |
+| 14:15–14:30 | free | 自由時間 | 大学 |
+| 17:05–17:20 | buffer | バッファ | 自宅 |
+| 17:20–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–24:00 | free | 自由時間 | 自宅 |
+
+**木曜 10/8**
+
+集中プラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 11:25–11:55 | task | 授業資料の整理（`task_notes`） | 自宅 |
+| 11:55–12:00 | free | 自由時間 | 自宅 |
+| 12:45–13:00 | buffer | バッファ | 自宅 |
+| 13:00–14:30 | task | TOEIC リスニング演習（`task_toeic_listening`） | 自宅 |
+| 14:30–14:45 | buffer | バッファ | 自宅 |
+| 14:45–15:15 | task | 企業研究（`task_research`） | 自宅 |
+| 15:15–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–24:00 | free | 自由時間 | 自宅 |
+
+バランスプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 11:25–12:00 | free | 自由時間 | 自宅 |
+| 12:45–13:00 | buffer | バッファ | 自宅 |
+| 13:00–14:00 | task | ES下書き（`task_es_a`・完了） | 自宅 |
+| 14:00–14:15 | buffer | バッファ | 自宅 |
+| 14:15–15:45 | task | TOEIC リスニング演習（`task_toeic_listening`） | 自宅 |
+| 15:45–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–24:00 | free | 自由時間 | 自宅 |
+
+ゆとりプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 11:25–12:00 | free | 自由時間 | 自宅 |
+| 12:45–13:00 | buffer | バッファ | 自宅 |
+| 13:00–14:00 | task | ゼミレポート執筆（`task_report`・完了） | 自宅 |
+| 14:00–14:15 | buffer | バッファ | 自宅 |
+| 14:15–15:45 | task | TOEIC リスニング演習（`task_toeic_listening`） | 自宅 |
+| 15:45–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–24:00 | free | 自由時間 | 自宅 |
+
+**金曜 10/9**
+
+集中プラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ（候補：`task_mail`） | 自宅 |
+| 8:15–9:45 | free | 自由時間 | 自宅 |
+| 15:25–15:40 | buffer | バッファ | 自宅 |
+| 15:40–18:45 | free | 自由時間 | 自宅 |
+| 21:15–21:30 | buffer | バッファ | 自宅 |
+| 21:30–24:00 | free | 自由時間 | 自宅 |
+
+バランスプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ（候補：`task_mail`） | 自宅 |
+| 8:15–9:45 | free | 自由時間 | 自宅 |
+| 15:25–15:40 | buffer | バッファ | 自宅 |
+| 15:40–18:45 | free | 自由時間 | 自宅 |
+| 21:15–21:30 | buffer | バッファ | 自宅 |
+| 21:30–24:00 | free | 自由時間 | 自宅 |
+
+ゆとりプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–9:45 | free | 自由時間 | 自宅 |
+| 15:25–15:40 | buffer | バッファ | 自宅 |
+| 15:40–18:45 | free | 自由時間 | 自宅 |
+| 21:15–21:30 | buffer | バッファ | 自宅 |
+| 21:30–24:00 | free | 自由時間 | 自宅 |
+
+**土曜 10/10**
+
+集中プラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–9:45 | free | 自由時間 | 自宅 |
+| 15:15–15:30 | buffer | バッファ | 自宅 |
+| 15:30–16:00 | task | TOEIC 単語（`task_toeic_vocab`） | 自宅 |
+| 16:00–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–24:00 | free | 自由時間 | 自宅 |
+
+バランスプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–9:45 | free | 自由時間 | 自宅 |
+| 15:15–15:30 | buffer | バッファ | 自宅 |
+| 15:30–16:30 | task | TOEIC リスニング演習（`task_toeic_listening`） | 自宅 |
+| 16:30–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–24:00 | free | 自由時間 | 自宅 |
+
+ゆとりプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–9:15 | task | ES下書き（`task_es_a`） | 自宅 |
+| 9:15–9:45 | free | 自由時間 | 自宅 |
+| 15:15–15:30 | buffer | バッファ | 自宅 |
+| 15:30–16:30 | task | TOEIC リスニング演習（`task_toeic_listening`） | 自宅 |
+| 16:30–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–24:00 | free | 自由時間 | 自宅 |
+
+**日曜 10/11**
+
+集中プラン（タスクなし・休息日）
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–12:00 | free | 自由時間 | 自宅 |
+| 13:30–13:45 | buffer | バッファ | 自宅 |
+| 13:45–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–24:00 | free | 自由時間 | 自宅 |
+
+バランスプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–9:15 | task | TOEIC リスニング演習（`task_toeic_listening`） | 自宅 |
+| 9:15–9:30 | buffer | バッファ | 自宅 |
+| 9:30–10:30 | task | 企業研究（`task_research`） | 自宅 |
+| 10:30–12:00 | free | 自由時間 | 自宅 |
+| 13:30–13:45 | buffer | バッファ | 自宅 |
+| 13:45–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–24:00 | free | 自由時間 | 自宅 |
+
+ゆとりプラン
+
+| 時間 | kind | 内容 | 場所 |
+|---|---|---|---|
+| 8:00–8:15 | buffer | バッファ | 自宅 |
+| 8:15–9:15 | task | ES下書き（`task_es_a`・完了） | 自宅 |
+| 9:15–9:30 | buffer | バッファ | 自宅 |
+| 9:30–11:00 | task | TOEIC リスニング演習（`task_toeic_listening`） | 自宅 |
+| 11:00–12:00 | free | 自由時間 | 自宅 |
+| 13:30–13:45 | buffer | バッファ | 自宅 |
+| 13:45–19:00 | free | 自由時間 | 自宅 |
+| 19:45–20:00 | buffer | バッファ | 自宅 |
+| 20:00–24:00 | free | 自由時間 | 自宅 |
+
 ### 5.10 再計画「今日は疲れた」（バランスプラン・10/5 18:00）
 
 **intent**
@@ -828,19 +1127,24 @@ TOEICの合計が3案とも360分になっていること（リスニング＋�
 
 ## 6. ダミーデータの検査（`lib/mock/validate.ts`）
 
-3案・再計画の After・振り替え後の各日について、以下を検査する関数を作り、`GET /api/mock/check` で結果を返す。**モック完成時にエラー0件であること。**
+3案・再計画の After・振り替え後の各日について、以下を検査する関数を作り、`GET /api/mock/check` で `MockCheckResultSchema`（`{ errors, warnings }`。3章）を返す。**モック完成時に `errors` が0件であること。`warnings` は0件でなくてよいが、内容を作業報告に含める（10.4章のとおり、多くの日で発生する想定）。**
 
-- 各項目の `start_at < end_at`
-- 同じ日の項目同士が重ならない（隣接はOK）
-- 固定予定（5.6）の時刻・場所がどの案でも同じ
-- 場所が変わるとき、間に移動時間表どおりの `travel` がある
-- 睡眠 0:00–7:30 に何も置かれていない
-- 締切を過ぎたタスクがない
-- 1日のタスク合計が360分以下
-- タスクとタスクが（移動や固定予定をはさまずに）続くとき、間に15分以上のバッファがある
-- 1日のバッファ合計が60分以上（タスクの少ない金・日などは、自由時間で代替できるので警告のみ）
-- TOEIC（リスニング＋単語）の週合計が3案とも360分
-- `task_id`・`location_id`・`fixed_event_id` が存在するIDを指している
+各検査は `ValidationIssueSchema`（3章）の1件として `errors` または `warnings` に積む。`item_id` は対象項目の`id`（日・週全体にまたがる検査は`null`）、`plan_id`・`date`は対象の案・日（不要なら`null`）。
+
+| 検査内容 | 区分 | code |
+|---|---|---|
+| 各項目の `start_at < end_at` | error | `START_AFTER_END` |
+| 同じ日の項目同士が重ならない（隣接はOK） | error | `ITEM_OVERLAP` |
+| タスク・バッファ・自由時間が固定予定の時間帯を侵食していない | error | `FIXED_EVENT_OVERLAP` |
+| 固定予定（5.6）の時刻・場所がどの案でも同じ | error | `FIXED_EVENT_MISMATCH` |
+| 睡眠 0:00–7:30 に何も置かれていない | error | `SLEEP_OVERLAP` |
+| `travel` 以外の項目を時刻順に並べたとき、`location_id` が変わる箇所に、移動時間表どおりの長さの `travel` がある（10.5章のとおり、`travel`以外の全項目に`location_id`が入っている前提） | error | `TRAVEL_MISSING` |
+| 締切を過ぎたタスクがない | error | `DEADLINE_VIOLATION` |
+| タスクとタスクが（移動や固定予定をはさまずに）続くとき、間に15分以上のバッファがある | error | `BUFFER_SHORTAGE` |
+| 1日のタスク合計が360分以下 | error | `DAILY_LIMIT_EXCEEDED` |
+| `task_id`・`location_id`・`fixed_event_id`・`suggested_task_id` が存在するIDを指している | error | `INVALID_REFERENCE` |
+| TOEIC（リスニング＋単語）の週合計が3案とも360分 | error | `GOAL_HOURS_MISMATCH` |
+| 1日のバッファ合計が60分以上（タスクの少ない日は自由時間で代替できるため警告扱い） | warning | `BUFFER_SHORTAGE` |
 
 ---
 
@@ -908,3 +1212,105 @@ mocks/
 - カレンダーでのドラッグ・編集
 - タスク・固定予定・場所の登録画面
 - アニメーションや細かなデザインの作り込み
+- デイリーチェックイン（F-07）。状態の入力はモックでは再計画（`/replan`）で代用する
+
+---
+
+## 10. 決定事項
+
+実装前に確認した不明点・矛盾点への回答をまとめる。番号は確認時の質問番号。
+
+### 10.1 ヒアリング：ユーザー入力不要なステップの返し方（案A）
+
+ユーザーの入力を必要としないステップは、直前の応答にまとめて返す。1回の応答で完結させ、画面側から自動で追加のリクエストは送らない。
+
+- ステップ4（conditions）への回答を送ると、`POST /api/interview/message` 1回の応答で次を返す
+  - `step`: `"goal_candidates"`、`step_index`: `6`
+  - `messages`: `[ステップ5のAI発言]`
+  - `goal_candidates`: 5.8章の3案
+  - `quick_replies`: `[]`
+- `selection` を送ると、1回の応答で次を返す
+  - `step`: `"final_confirmation"`、`step_index`: `9`
+  - `messages`: `[ステップ8の要約, ステップ9の確認の発言]`
+  - `goal_draft`: 選択を反映したG1（10.3参照）
+  - `quick_replies`: `[]`
+- ステップ7（user_selection、カードの選択）は画面上の操作だけで、独立したAPI応答はない
+- 画面側は `messages` を順に吹き出しで表示し、`goal_candidates` があればその下にカードを表示する
+
+### 10.2 `POST /api/interview/message` のリクエスト形式
+
+- リクエストは `text` と `selection` のどちらか一方だけを送る。両方ある・両方ない場合は400エラー
+- この条件は `lib/schemas.ts` の `InterviewMessageRequestSchema`（3章）で、Zodの`refine`により検証する
+- `selection.hours_per_week` は1〜15の範囲、0.5刻み（`z.number().min(1).max(15).multipleOf(0.5)`）
+- 応答の `messages` にはAIの発言だけを入れる。ユーザーの吹き出しは画面側で表示する
+  - `text` のとき：入力した文章をそのまま表示
+  - `selection` のとき：`lib/labels.ts` の表示名を使い「『バランス標準型』週6時間にします」の形式で表示
+- 本番でも `selection` はLLMに通さず、そのまま `goal_draft` に反映する想定
+
+### 10.3 台本の固定と3案選択の反映
+
+- クイックリプライで◎以外を選んだ場合も、自由入力の内容に関係なく、台本どおり次のステップに進む
+  - ユーザーの吹き出しには、押した選択肢・入力した文章をそのまま表示する
+  - AIの発言と `goal_draft` の内容（カテゴリ・目標・現状・条件）はG1に固定
+  - クイックリプライは◎の選択肢を先頭に並べる
+- ただし、3案での選択（`selection`）は反映する
+  - `goal_draft` の `user_selected_plan` と `target_hours_per_week` は、選んだ `style` と `hours_per_week` にする
+  - ステップ8の要約の文章「TOEIC学習：週◯時間」「今週の合計目標時間：◯時間」も選んだ時間にする
+- `POST /api/plans/generate` が返すスケジュール3案は、選択に関係なく5.9章の固定データ（TOEIC週6時間）のまま。これはモックの制限として扱い、デモでは「バランス標準型・6時間」を選ぶ（0.2章参照）
+- 3案のカードを表示している間（ステップ6〜7）と、最終確認（ステップ9）の間は自由入力欄を無効にし、それぞれ「上の案から選んでください」「確定ボタンを押してください」と表示する
+
+### 10.4 5.9章「火〜日の詳細」の作成手順
+
+常識的な範囲で埋めてよいが、以下の手順に従う（結果は5.9章に反映済み）。
+
+- 時刻は5分単位
+- 5.6章の各「空き」について、先頭から順に次のように置く
+  1. 空きが45分以上あるときは、先頭に15分のバッファを置く
+  2. その日のタスクを、高集中（レポート・ES・リスニング）→ 軽作業（単語・メール・資料整理）の順に置く
+     - 高集中タスクは60分以上の空きに置く。単語は短い空きやカフェ周辺の空きに置いてよい
+     - タスクとタスクの間には15分のバッファを置く
+  3. 残りは自由時間にする
+- 5.9章の割り当て表（火〜日の分数）は変えない
+- メール返信（15分）のように「バッファ内」と書かれたタスクは、独立した`task`項目にせず、`buffer`項目に`suggested_task_id`を付けて表す（1.3章の表示規則のとおり）
+- この手順どおりに置くと、多くの日で1日のバッファ合計が60分未満になる（6章の`BUFFER_SHORTAGE`警告）。想定では、火（バランス・ゆとり）・水（バランス）・木（集中・バランス・ゆとり）・金（集中・バランス・ゆとり）・土（集中・バランス・ゆとり）・日（集中）で警告が出る。これは意図した結果であり、`errors`が0件であれば問題ない
+
+### 10.5 `location_id` の入れ方
+
+- `travel` 以外のすべての項目に、その時間にいる場所の `location_id` を必ず入れる（`null`にしない）
+  - 睡眠・自宅での作業や自由時間は `loc_home`、大学（図書館含む）は `loc_univ`、カフェ周辺の空きは `loc_cafe` など
+- `travel` 項目は `location_id: null` とし、`travel` オブジェクトに `from_location_id`・`to_location_id`・`mode` を入れる
+- 検査：`travel` 以外の項目を時刻順に並べ、`location_id` が変わる箇所には、その2地点の `travel` が移動時間表（5.3章）どおりの長さで入っていること（6章 `TRAVEL_MISSING`）
+- 5.9章の月曜の表・5.10章の再計画データも同じ規則で `location_id` を入れる（自宅の項目は `loc_home`、大学の項目は `loc_univ`）
+
+### 10.6 `/replan` のデモ時刻
+
+- `/replan` を開いた時点で、画面から `POST /api/mock/clock` を呼び、`demo_now` が18:00より前なら18:00にする
+- ヘッダーは `demo_now` を表示し、その下に小さく「デモのため、時刻を18:00に進めました」と表示する（すでに18:00以降なら表示しない）
+- `POST /api/plans/replan` 側の「18:00に進める」処理は、念のため残す（二重に呼ばれても副作用はない）
+
+### 10.7 「計画を更新しました」トースト
+
+- 「この計画にする」を押すと `/today?updated=1` に遷移する
+- `/today` は `updated=1` があれば「計画を更新しました」のトーストを1回表示し、`router.replace` で `/today` に置き換えてクエリパラメータを消す
+
+### 10.8 検査結果の形（`errors` / `warnings`）
+
+`lib/schemas.ts`（3章）に次のスキーマを追加する（既存のスキーマは変更しない）。
+
+- `ValidationIssueSchema`：`{ code, item_id: string | null, message, plan_id: string | null, date: string | null }`
+  - `code` は要件定義書6.8.5の検査項目に対応する `ValidationIssueCodeSchema`（`START_AFTER_END`、`ITEM_OVERLAP`、`FIXED_EVENT_OVERLAP`、`SLEEP_OVERLAP`、`TRAVEL_MISSING`、`DEADLINE_VIOLATION`、`BUFFER_SHORTAGE`、`DAILY_LIMIT_EXCEEDED`、`INVALID_REFERENCE`）に、モック専用の `FIXED_EVENT_MISMATCH`・`GOAL_HOURS_MISMATCH` を加えたenum
+  - 本番のValidatorも同じ形で返す想定
+- `MockCheckResultSchema`：`{ errors: ValidationIssue[], warnings: ValidationIssue[] }`
+- 完了条件は `errors` が0件。`warnings` は0件でなくてよいが、内容を作業報告に含める（10.4章のとおり想定あり）
+- 1日のバッファ合計60分未満は `warnings` に入れる（`code: "BUFFER_SHORTAGE"`。タスク間15分不足の方はerrorの`BUFFER_SHORTAGE`で、配列（errors/warnings）の違いで区別する）
+
+対応する3章・4章・6章の記述も更新済み。
+
+### 10.9 タスク詳細の表示部品
+
+- shadcnの `Sheet`（`side="bottom"`）に統一する。`Drawer` は使わない
+- Base UI版で `Sheet` が使えない場合は、代わりの部品を使う前に報告する
+
+### 10.10 デイリーチェックインの扱い
+
+- モックでは対象外とする（9章に追記済み）。状態の入力は `/replan` の自然言語入力で代用する
