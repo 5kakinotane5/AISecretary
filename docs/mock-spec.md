@@ -53,7 +53,11 @@ Claude Code がモックを実装するための仕様書。要件は `docs/requ
 ### 1.1 レイアウト
 
 - 基準幅は **390px**。375〜430pxで崩れないこと
-- PCで開いた場合は、幅 `max-w-[430px]` の枠を画面中央に表示し、外側は薄いグレーにする
+- 画面幅が **640px以上** のときは、アプリを「スマホの枠」の中に表示する（`components/layout/MobileShell.tsx`。10.16参照）
+  - 枠：幅390px・高さ844px、角丸40px程度、濃い色（`--brand-dark`）の縁取りと影、画面中央に配置
+  - 枠の外は `docs/design-spec.md` 5.1の背景（`--brand-bg` に紫のぼかし）
+  - 枠の中だけがスクロールし、タブバーや下部の固定要素は枠の下端に固定される
+- **640px未満**（実際のスマホ）では枠を出さず、画面いっぱいに表示する
 - 画面下部の固定要素（タブバー、入力欄、主ボタン）は `env(safe-area-inset-bottom)` の余白をとる
 - タップできる要素は高さ44px以上
 - 文字は本文16px（入力欄は16px未満にしない。iPhoneで勝手にズームされるため）
@@ -525,11 +529,13 @@ export type MockCheckResult = z.infer<typeof MockCheckResultSchema>;
 | `POST /api/plans/replan` | `{ date, text }` | `ReplanProposal` または `{ supported: false, message }` | 1200ms |
 | `POST /api/plans/replan/accept` | `{ proposal_id }` | `DayView` | 400ms |
 | `GET /api/settings` | — | `{ preferences, locations, travel_times, goal }` | 400ms |
+| `GET /api/tasks` | — | `{ tasks: Task[] }`（既存の `TaskSchema`。10.17参照） | 400ms |
 | `POST /api/mock/clock` | `{ now }` | `{ now }` | 0 |
 | `POST /api/mock/reset` | なし | `{ ok: true }` | 0 |
 | `GET /api/mock/check` | — | `MockCheckResultSchema`（`{ errors, warnings }`。6章の検査結果） | 0 |
 
 - `?mock_error=1` の付いた画面からの呼び出しは、`lib/api.ts` がリクエストヘッダー `x-mock-error: 1` を付け、Route Handler は500を返す
+- 画面（`app/` の page や `components/`）は `mocks/` を直接 import せず、必ず `lib/api.ts` 経由でAPIからデータを受け取る。`mocks/` を import してよいのは `app/api/` と `lib/mock/` だけ（10.17参照）
 - `interview/message` の `selection` が送られたら、ステップ7→8へ進み、`goal_draft` の `target_hours_per_week` と `user_selected_plan` に反映する
 
 ### 4.1 モックの状態（`lib/mock/store.ts`）
@@ -1172,21 +1178,24 @@ app/
   (main)/calendar/page.tsx
   (main)/replan/page.tsx
   (main)/settings/page.tsx
-  api/...                    # 4章のRoute Handlers
+  api/...                    # 4章のRoute Handlers（mocks/ を import してよいのはここと lib/mock/ だけ）
   page.tsx                   # /login へリダイレクト
 components/
   layout/MobileShell.tsx, BottomTabBar.tsx
   timeline/Timeline.tsx, ItemBlock.tsx, ItemDetailSheet.tsx
-  interview/ChatBubble.tsx, QuickReplies.tsx, GoalCandidateCard.tsx
+  chat/ChatBubble.tsx, QuickReplies.tsx, ChatInput.tsx   # /interview と /replan で共用（10.18参照）
+  interview/GoalCandidateCard.tsx
   plans/PlanCompareTable.tsx
   replan/ChangeList.tsx
   calendar/MonthGrid.tsx, WeekGrid.tsx
-  common/LoadingState.tsx, ErrorState.tsx, EmptyState.tsx
+  common/LoadingState.tsx, ErrorState.tsx, EmptyState.tsx, SurfaceCard.tsx, SuggestionCard.tsx
   ui/                        # shadcn が生成
+hooks/
+  use-api-data.ts            # lib/api.ts の関数を呼び、ローディング・エラー・成功の状態と再試行を返す（1.4）
 lib/
   schemas.ts                 # 3章
   labels.ts                  # 表示名・色・アイコン（1.3、6.3・6.8.4の表示名）
-  api.ts                     # 画面から呼ぶ fetch 関数（mock_error 対応）
+  api.ts                     # 画面から呼ぶ fetch 関数（mock_error 対応）。画面が mocks/ の代わりに使う（10.17参照）
   datetime.ts                # JSTでの表示・計算
   mock/store.ts, clock.ts, summarize.ts, validate.ts
   mock/http.ts                # モックAPIで共通に使う処理（待ち時間、x-mock-errorのエラー応答）
@@ -1370,3 +1379,24 @@ mocks/
   - ステップ6（`selection` を待つ状態）で `text` が送られた、または `selection` が無い
   - ステップ9（最終確認。`POST /api/interview/confirm` の「確定する」ボタンを待つ状態）に `text`・`selection` のどちらが送られても、`message` は受け付けない
 - 「画面側で入力を無効にする」＋「サーバー側でも間違った送り方は400で断る」の二重の防御とする。画面の実装が万が一この前提を破っても、サーバー側でおかしな状態遷移が起きないようにするため
+
+### 10.16 スマホの枠（PC表示）
+
+- 画面幅640px以上では、幅390px・高さ844px・角丸40px程度の枠を画面中央に置く。縁取りは `--brand-dark`、影あり。枠の外は `docs/design-spec.md` 5.1の背景
+- 640px未満では枠を出さず、画面いっぱいに表示する
+- どちらの場合も、本文は枠（画面）の中だけでスクロールし、タブバー・入力欄・主ボタンなどの固定要素は枠の下端に固定される
+- `components/layout/MobileShell.tsx` に実装する。下部の固定要素は `position: fixed` を使わず、`MobileShell` の `bottom` に渡す
+- 1.1章を修正済み
+
+### 10.17 画面から `mocks/` を直接 import しない・`GET /api/tasks`
+
+- 画面（`app/` の page や `components/`）は `mocks/` を直接 import しない。データは必ず `lib/api.ts` 経由でAPIから受け取る
+- `mocks/` を import してよいのは `app/api/` と `lib/mock/` だけ（`AGENTS.md` の「モックとの関係」にも記載）
+- タスクの情報（締切バッジ、バッファの候補タスク名など）を画面で使うため、`GET /api/tasks` を追加する。レスポンスは `{ tasks: Task[] }`（既存の `TaskSchema`。`lib/schemas.ts` の変更なし）
+- `Timeline` は `tasks` を外から受け取る。画面側は `GET /api/tasks` で取得して渡す
+- 4章の表を修正済み
+
+### 10.18 チャット部品の置き場所
+
+- `ChatBubble`・`QuickReplies`・入力欄（`ChatInput`）などのチャット部品は `components/chat/` に置き、`/interview` と `/replan` で共用する
+- 7章のファイル構成を修正済み

@@ -51,6 +51,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 - モックの作業（`mocks/` とモックAPI）では、LLM・Supabase は呼ばず、`mocks/` のデータを返す
 - モックAPIのパスとレスポンスの形は本番と同じにする。本物の処理に差し替えるときも、パスと形を変えない（変える場合は `lib/schemas.ts` と同じく事前に報告する）
+- 画面（`app/` の page や `components/`）は `mocks/` を直接 import しない。データは必ず `lib/api.ts` 経由でAPIから受け取る。`mocks/` を import してよいのは `app/api/` と `lib/mock/` だけ
 
 ## 環境・パッケージ
 

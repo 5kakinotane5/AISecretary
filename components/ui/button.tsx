@@ -17,6 +17,11 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        // design-spec.md 5.3：副ボタン（白の塗り、紫の文字と枠線）
+        "brand-outline":
+          "border-primary bg-card text-primary hover:bg-[var(--brand-purple-pale)] aria-expanded:bg-[var(--brand-purple-pale)]",
+        // design-spec.md 5.3：テキストボタン（紫の文字だけ）
+        "brand-text": "text-primary hover:opacity-70",
       },
       size: {
         default:
@@ -30,6 +35,10 @@ const buttonVariants = cva(
         "icon-sm":
           "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
         "icon-lg": "size-9",
+        // design-spec.md 2.4・5.3：主ボタン・副ボタンの大きさ（高さ52px、横幅いっぱい、完全な丸）
+        cta: "h-[52px] w-full gap-2 rounded-full px-6 text-base font-bold",
+        // タップ領域44px以上（AGENTS.md）を満たす小さめのボタン
+        tap: "h-11 gap-1.5 rounded-full px-5 text-sm font-bold",
       },
     },
     defaultVariants: {
