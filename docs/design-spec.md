@@ -83,6 +83,21 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 | `free` | `#5EC4A8` | `#EDF9F5` | イメージの「散歩」。「自由時間」 |
 | `sleep` | `#4B4577` | 1行に折りたたみ | |
 
+**色の値は `app/globals.css` だけに書く。** `lib/labels.ts` を含むコード側は、色の値を直接持たず、下のCSS変数名だけを参照する（`style={{ backgroundColor: "var(--kind-task)" }}` のように使う）。9.6参照。
+
+| kind / category | 丸印の変数名 | ブロック背景の変数名 |
+|---|---|---|
+| `task` | `--kind-task` | `--kind-task-bg` |
+| `fixed`（class / work / other） | `--kind-fixed` | `--kind-fixed-bg` |
+| `fixed`（meal） | `--kind-meal` | `--kind-meal-bg` |
+| `fixed`（social / family） | `--kind-social` | `--kind-social-bg` |
+| `travel` | `--kind-travel` | （透明のため変数なし） |
+| `buffer` | `--kind-buffer` | `--kind-buffer-bg` |
+| `free` | `--kind-free` | `--kind-free-bg` |
+| `sleep` | `--kind-sleep` | （1行折りたたみのため変数なし） |
+
+締切バッジ（5.4・9.3参照）の色は `--deadline-bg`・`--deadline-fg`。
+
 ### 2.4 形・影・余白
 
 | 項目 | 値 |
@@ -273,5 +288,20 @@ PURCHARTにする範囲：
 - `README.md` の見出し（「PURCHART（Personal AI Secretary）」）
 
 変えない範囲：`package.json` の `name`、リポジトリ名、ディレクトリ名、コード内の変数名・ファイル名、`AGENTS.md` の見出し。
+
+### 9.6 予定の種類ごとの色はCSS変数で管理する
+
+- 色の値（`#7B61FF` など）は `app/globals.css` だけに書く。`lib/labels.ts` を含むコード側は変数名だけを持ち、`style={{ backgroundColor: "var(--kind-task)" }}` のように参照する
+- 変数名は次のとおり（値は `app/globals.css` に定義する。2.3参照）
+  - 丸印の色：`--kind-task`、`--kind-fixed`、`--kind-meal`、`--kind-social`、`--kind-travel`、`--kind-buffer`、`--kind-free`、`--kind-sleep`
+  - ブロック背景：上の名前に `-bg` を付ける（例：`--kind-task-bg`）
+  - 締切バッジ：`--deadline-bg`、`--deadline-fg`
+- 2.3章に反映済み
+
+### 9.7 アイコンの確定
+
+- 固定予定の `other` は `CalendarClock`（`School`／`Briefcase`と紛らわしいため区別する）
+- 移動のアイコンは移動手段（`TravelMode`）で決める：`train`・`walk_train` → `TrainFront` ／ `walk` → `Footprints` ／ `bus` → `Bus` ／ `bike` → `Bike`
+- 5.4章・9.3章の「TrainFront / Footprints」の記述を上記のとおり確定する
 
 `app/layout.tsx`・`README.md` 自体の編集は、モック実装の作業の中で行う（本項は方針の記録のみ）。
