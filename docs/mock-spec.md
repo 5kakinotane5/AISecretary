@@ -1189,11 +1189,14 @@ lib/
   api.ts                     # 画面から呼ぶ fetch 関数（mock_error 対応）
   datetime.ts                # JSTでの表示・計算
   mock/store.ts, clock.ts, summarize.ts, validate.ts
+  mock/http.ts                # モックAPIで共通に使う処理（待ち時間、x-mock-errorのエラー応答）
+  mock/calendar.ts            # カレンダーAPIで共通に使う処理（固定予定の展開、日・週・月の組み立て）
 mocks/
   persona.ts                 # 5.1〜5.3
   goal.ts, tasks.ts, fixed-events.ts
   interview-script.ts, goal-candidates.ts
   plans/intensive.ts, balanced.ts, relaxed.ts
+  plans/shared.ts             # 3案のデータ定義で共通に使う補助関数
   replan-tired.ts
 ```
 
@@ -1225,6 +1228,7 @@ mocks/
 - タスク・固定予定・場所の登録画面
 - アニメーションや細かなデザインの作り込み
 - デイリーチェックイン（F-07）。状態の入力はモックでは再計画（`/replan`）で代用する
+- `POST /api/plans/replan` の再計画は 10/5（デモの今日）だけ対応する。5.10章のデータが月曜分しかないため、`date` が10/5以外のときは「疲れた」と送っても `{ supported: false, ... }` を返す
 
 ---
 
@@ -1357,3 +1361,12 @@ mocks/
 - 睡眠は固定予定にしない（`UserPreference` から作る）
 - 移動は固定予定にしない（計画の項目 `kind: travel` として、ステップ3で作る）
 - `recurrence: "weekly"` の予定も `start_at`・`end_at` には今週（10/5〜10/11）の日時を入れ、それを基準に毎週繰り返す。10月の他の週への展開はステップ4のカレンダーAPIで行う
+
+### 10.15 `POST /api/interview/message` の誤った送り方の扱い
+
+- ステップ6〜7（3案のカード表示中）と最終確認（ステップ9）の間は、画面側で自由入力欄を無効にし、それぞれ「上の案から選んでください」「確定ボタンを押してください」と表示する（10.3章）
+- 加えて、サーバー側（Route Handler）でも現在のステップに合わない送り方は400エラーで断る。具体的には次の場合に400を返す
+  - ステップ1〜4（`text` を待つ状態）で `selection` が送られた、または `text` が無い
+  - ステップ6（`selection` を待つ状態）で `text` が送られた、または `selection` が無い
+  - ステップ9（最終確認。`POST /api/interview/confirm` の「確定する」ボタンを待つ状態）に `text`・`selection` のどちらが送られても、`message` は受け付けない
+- 「画面側で入力を無効にする」＋「サーバー側でも間違った送り方は400で断る」の二重の防御とする。画面の実装が万が一この前提を破っても、サーバー側でおかしな状態遷移が起きないようにするため
