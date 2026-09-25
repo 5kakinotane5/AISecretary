@@ -623,6 +623,11 @@ export type MockCheckResult = z.infer<typeof MockCheckResultSchema>;
 
 `task_stats_hw` と `task_es_b` は今週の計画には入れない（月表示の締切に出すためのデータ）。
 
+`task_toeic_listening`・`task_toeic_vocab` の「残り」欄の `—` は、10.13章の読み替えにより次の値にする。
+
+- `task_toeic_listening`：`estimated_minutes` 60、`remaining_minutes` 360
+- `task_toeic_vocab`：`estimated_minutes` 30、`remaining_minutes` 360
+
 ### 5.6 固定予定（毎週）と生活の骨組み
 
 今週（10/5〜10/11）の各日の骨組み。**移動は計画の項目（kind: travel）としてデータに入れる**。「空き」はタスク・バッファ・自由時間を置ける時間帯。10月の他の週も、授業・バイトは毎週同じ曜日・時刻に繰り返す（計画のない週は移動を表示しない）。
@@ -1326,4 +1331,13 @@ mocks/
 
 - 入力欄風のボタンと「予定の変更をAIに伝える…」の文言はやめ、紫の主ボタン（「航路を調整する」。見た目は `docs/design-spec.md` 5.3参照）に統一する
 - 押すと `/replan` へ遷移する。位置はタイムラインのカードの下・タブバーの上に固定
+
+### 10.13 目標に紐づく継続タスクの所要時間・残り時間（5.5章）
+
+`TaskSchema` の `estimated_minutes`・`remaining_minutes` は必須の数値（null不可）のため、`goal_id` を持つ継続タスク（締切なし。5.5章で「残り」が `—` のもの）は次のとおり読み替える。スキーマ自体は変更しない。
+
+- `estimated_minutes`：1回あたりの標準時間
+- `remaining_minutes`：今週その目標で残っている時間。同じ `goal_id` のタスクで共有する値で、目標の `target_hours_per_week` × 60 から今週すでに実施した分を引いたもの
+
+値は5.5章の追記のとおり（`task_toeic_listening`：60／360、`task_toeic_vocab`：30／360）。`docs/requirements.md` 6.6にも同じ内容を追記済み。
 - 2.4章を修正済み
