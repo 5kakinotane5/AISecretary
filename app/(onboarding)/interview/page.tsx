@@ -9,7 +9,7 @@ import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { GoalCandidateCard } from "@/components/interview/GoalCandidateCard";
 import { MobileShell } from "@/components/layout/MobileShell";
-import { OnboardingHeader } from "@/components/layout/OnboardingHeader";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { confirmInterview, generatePlans, sendInterviewMessage, startInterview } from "@/lib/api";
 import { ONBOARDING_LABELS, formatGoalSelectionMessage } from "@/lib/labels";
@@ -168,7 +168,7 @@ export default function InterviewPage() {
 
   return (
     <MobileShell bottom={bottom}>
-      <OnboardingHeader
+      <PageHeader
         title={ONBOARDING_LABELS.interviewTitle}
         backHref="/login"
         gradient="deep"

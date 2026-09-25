@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type OnboardingHeaderProps = {
+type PageHeaderProps = {
   title: string;
   /** タイトルの下の補足（期間など） */
   subtitle?: ReactNode;
@@ -17,10 +17,11 @@ type OnboardingHeaderProps = {
 };
 
 /**
- * 初回設定（オンボーディング）の画面上部（mock-spec.md 1.2：タブバーなし。上部に戻るボタンと進行状況）。
+ * 画面上部の見出し（グラデーションの帯とタイトル）。
+ * 初回設定（オンボーディング）では戻るボタンと進行状況も出す（mock-spec.md 1.2：タブバーなし。上部に戻るボタンと進行状況）。
  * 進行状況バーは紫（design-spec.md 2.0：既定色の青を使わない）。
  */
-export function OnboardingHeader({ title, subtitle, backHref, progress, gradient, className }: OnboardingHeaderProps) {
+export function PageHeader({ title, subtitle, backHref, progress, gradient, className }: PageHeaderProps) {
   const ratio = progress ? Math.min(Math.max(progress.current / progress.total, 0), 1) : 0;
 
   return (

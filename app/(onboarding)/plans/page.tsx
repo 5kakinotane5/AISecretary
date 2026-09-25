@@ -8,7 +8,7 @@ import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { SurfaceCard } from "@/components/common/SurfaceCard";
 import { MobileShell } from "@/components/layout/MobileShell";
-import { OnboardingHeader } from "@/components/layout/OnboardingHeader";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { PlanCompareTable } from "@/components/plans/PlanCompareTable";
 import { Timeline } from "@/components/timeline/Timeline";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -72,7 +72,7 @@ export default function PlansPage() {
 
   return (
     <MobileShell bottom={bottom}>
-      <OnboardingHeader
+      <PageHeader
         title={ONBOARDING_LABELS.plansTitle}
         subtitle={weekStart ? formatPeriod(weekStart, addDays(weekStart, 6)) : undefined}
         gradient="header"
