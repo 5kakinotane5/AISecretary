@@ -2,13 +2,12 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter), var(--font-noto-sans-jp), "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo,
+    sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, monospace;
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -49,30 +48,69 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* ブランド基本色（design-spec.md 2.1） */
+  --brand-purple: #7b61ff;
+  --brand-purple-light: #a78bfa;
+  --brand-purple-pale: #e9d8ff;
+  --brand-dark: #0f172a;
+  --brand-bg: #f8fafc;
+  --surface: #ffffff;
+  --purple-gray: #8b85ad;
+  --purple-gray-light: #dcd8ee;
+
+  /* グラデーション（design-spec.md 2.2。推定） */
+  --gradient-night: linear-gradient(180deg, #0f172a 0%, #2e2170 45%, #5b45c9 75%, #c9a7f5 100%);
+  --gradient-header: linear-gradient(160deg, #2e2170 0%, #5b45c9 60%, #7b61ff 100%);
+  --gradient-deep: linear-gradient(180deg, #1e1b4b 0%, #312e81 100%);
+
+  /* 予定の種類ごとの色（design-spec.md 2.3・9.6。値は本ファイルだけに持ち、他は変数名だけを参照する） */
+  --kind-task: #7b61ff;
+  --kind-task-bg: #f3efff;
+  --kind-fixed: #f59e6b;
+  --kind-fixed-bg: #fff4ec;
+  --kind-meal: #f7a38b;
+  --kind-meal-bg: #fff1ec;
+  --kind-social: #f472b6;
+  --kind-social-bg: #fdf0f7;
+  --kind-travel: var(--purple-gray);
+  --kind-buffer: #a78bfa;
+  --kind-buffer-bg: #f6f2ff;
+  --kind-free: #5ec4a8;
+  --kind-free-bg: #edf9f5;
+  --kind-sleep: #4b4577;
+
+  /* 締切バッジ（design-spec.md 2.3・9.3・9.6。赤は使わない） */
+  --deadline-bg: var(--brand-purple-pale);
+  --deadline-fg: #5b45c9;
+
+  /* カードの影（design-spec.md 2.4） */
+  --shadow-card: 0 8px 24px rgba(91, 69, 201, 0.1);
+
+  /* shadcn/ui との対応（design-spec.md 2.1） */
+  --background: var(--brand-bg);
+  --foreground: var(--brand-dark);
+  --card: var(--surface);
+  --card-foreground: var(--brand-dark);
+  --popover: var(--surface);
+  --popover-foreground: var(--brand-dark);
+  --primary: var(--brand-purple);
+  --primary-foreground: #ffffff;
+  --secondary: #f1f0fb;
+  --secondary-foreground: var(--brand-dark);
+  --muted: #f1f0fb;
+  --muted-foreground: var(--purple-gray);
+  --accent: #f1f0fb;
+  --accent-foreground: var(--brand-dark);
+  --destructive: #e5484d;
+  --border: var(--purple-gray-light);
+  --input: var(--purple-gray-light);
+  --ring: var(--brand-purple-light);
+  --radius: 0.625rem;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -83,38 +121,8 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+@utility shadow-card {
+  box-shadow: var(--shadow-card);
 }
 
 @layer base {
