@@ -16,6 +16,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 - `docs/requirements.md`：要件定義書（資料間で食い違う場合はこれを優先）
 - `docs/codex_人割_タスク細分化_完成版_v2.md`：分担と進め方
+- `docs/design-spec.md`：見た目・言葉づかいの仕様（画面の見た目はこれを優先。）
 - `docs/rule.md`：push・PR・コミットのルール（Gitの操作はこれに従う）
 - 作業内容に対応する仕様書（例：モックの作業なら `docs/mock-spec.md`）
 - 関連する既存のファイル・型・API
