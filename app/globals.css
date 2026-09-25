@@ -83,7 +83,7 @@
   --deadline-bg: var(--brand-purple-pale);
   --deadline-fg: #5b45c9;
 
-  /* スマホの枠の外の背景（design-spec.md 5.1。--brand-bg に重ねる、ごく薄い紫のぼかし） */
+  /* 画面幅が広いときの、中央の列の外の背景（design-spec.md 5.1。--brand-bg に重ねる、ごく薄い紫のぼかし） */
   --shell-backdrop: radial-gradient(ellipse 60% 50% at 20% 10%, rgba(123, 97, 255, 0.08), transparent 70%),
     radial-gradient(ellipse 55% 45% at 85% 90%, rgba(167, 139, 250, 0.1), transparent 70%);
 
@@ -91,9 +91,6 @@
   --splash-sea-glow: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 255, 255, 0.55), transparent 70%),
     linear-gradient(180deg, rgba(201, 167, 245, 0.35) 0%, rgba(91, 69, 201, 0.55) 100%);
   --splash-horizon: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.9) 50%, transparent 100%);
-
-  /* スマホの枠（画面幅640px以上）の影（mock-spec.md 1.1） */
-  --shadow-frame: 0 24px 64px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(15, 23, 42, 0.4);
 
   /* カードの影（design-spec.md 2.4） */
   --shadow-card: 0 8px 24px rgba(91, 69, 201, 0.1);

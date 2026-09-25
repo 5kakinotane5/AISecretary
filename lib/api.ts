@@ -40,12 +40,31 @@ function mockErrorRequested(): boolean {
   return new URLSearchParams(window.location.search).get("mock_error") === "1";
 }
 
+/**
+ * 応答を待つ上限。応答が返らないまま読み込み中の表示が続かないよう、超えたらエラーにして「再試行」を出す。
+ * 開発サーバーで API を初めて呼ぶとき（コンパイル待ち）も収まるよう、長めにとる
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 async function request<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body !== undefined) headers.set("content-type", "application/json");
   if (mockErrorRequested()) headers.set("x-mock-error", "1");
 
-  const response = await fetch(path, { ...init, headers, cache: "no-store" });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      ...init,
+      headers,
+      cache: "no-store",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new ApiError(0, "応答がありませんでした。時間をおいて再試行してください");
+    }
+    throw error;
+  }
   if (!response.ok) {
     throw new ApiError(response.status, `APIの呼び出しに失敗しました（${response.status}）`);
   }

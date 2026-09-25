@@ -35,16 +35,18 @@ const SEGMENT_TRIGGER =
  */
 export default function PlansPage() {
   const router = useRouter();
-  const result = useApiData(() => Promise.all([fetchPlanCandidates(), fetchTasks(), fetchSettings()]), []);
+  const result = useApiData(() => Promise.all([fetchPlanCandidates(), fetchTasks(), fetchSettings()]), [], {
+    // 3案をまだ生成していなければ { candidates: [] } が返る（10.19章）→ データなし
+    isEmpty: ([candidates]) => candidates.length === 0,
+  });
   const [style, setStyle] = useState<PlanStyle>(DEFAULT_STYLE);
   const [dayIndex, setDayIndex] = useState(0);
   const [selecting, setSelecting] = useState<"idle" | "loading" | "error">("idle");
 
-  const candidates = result.status === "success" ? result.data[0] : [];
-  const tasks = result.status === "success" ? result.data[1] : [];
-  const goalName = result.status === "success" ? result.data[2].goal.task_name : "";
-  const selected = candidates.find((c) => c.style === style) ?? null;
-  const weekStart = candidates[0]?.week_start ?? null;
+  const [candidates, tasks, settings] = result.status === "success" ? result.data : [[], [], null];
+  // 初期表示はバランス。万一その案がなければ先頭の案にする（データがあるのに何も出ない状態を作らない）
+  const selected = candidates.find((c) => c.style === style) ?? candidates[0] ?? null;
+  const weekStart = selected?.week_start ?? null;
 
   async function handleSelect() {
     if (!selected) return;
@@ -79,8 +81,7 @@ export default function PlansPage() {
       <div className="flex flex-col gap-4 px-4 py-4">
         {result.status === "loading" ? <LoadingState rows={5} /> : null}
         {result.status === "error" ? <ErrorState onRetry={result.retry} /> : null}
-
-        {result.status === "success" && candidates.length === 0 ? (
+        {result.status === "empty" ? (
           <EmptyState
             message={ONBOARDING_LABELS.noPlans}
             action={
@@ -91,11 +92,11 @@ export default function PlansPage() {
           />
         ) : null}
 
-        {selected ? (
+        {selected && settings ? (
           <>
-            <PlanCompareTable candidates={candidates} selectedId={selected.id} goalName={goalName} />
+            <PlanCompareTable candidates={candidates} selectedId={selected.id} goalName={settings.goal.task_name} />
 
-            <Tabs value={style} onValueChange={(value) => setStyle(value as PlanStyle)}>
+            <Tabs value={selected.style} onValueChange={(value) => setStyle(value as PlanStyle)}>
               <TabsList aria-label="航路プラン" className={SEGMENT_LIST}>
                 {candidates.map((c) => (
                   <TabsTrigger key={c.id} value={c.style} className={SEGMENT_TRIGGER}>
