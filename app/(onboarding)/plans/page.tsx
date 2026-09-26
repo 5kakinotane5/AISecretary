@@ -17,7 +17,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useApiData } from "@/hooks/use-api-data";
 import { fetchPlanCandidates, fetchSettings, fetchTasks, selectPlan } from "@/lib/api";
 import { addDays, formatPeriod, getWeekdayJa } from "@/lib/datetime";
-import { ONBOARDING_LABELS, PLAN_STYLE_LABELS, PLAN_STYLE_SHORT_LABELS } from "@/lib/labels";
+import { ONBOARDING_LABELS, PLAN_STYLE_LABELS, PLAN_STYLE_SHORT_LABELS, SCREEN_LABELS } from "@/lib/labels";
 import type { PlanStyle } from "@/lib/schemas";
 
 /** 初期表示はバランス（mock-spec.md 2.3） */
@@ -90,7 +90,7 @@ export default function PlansPage() {
 
         {selected && settings ? (
           <>
-            <PlanCompareTable candidates={candidates} selectedId={selected.id} goalName={settings.goal.task_name} />
+            <PlanCompareTable candidates={candidates} selectedId={selected.id} goalName={settings.goal?.task_name ?? SCREEN_LABELS.goal} />
 
             <Tabs value={selected.style} onValueChange={(value) => setStyle(value as PlanStyle)}>
               <TabsList aria-label="航路プラン" className={SEGMENT_LIST}>
