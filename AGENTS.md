@@ -15,6 +15,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## 作業前に読むもの
 
 - `docs/requirements.md`：要件定義書（資料間で食い違う場合はこれを優先）
+- `docs/design/README.md`：本番実装の設計書の目次。作業に対応するファイル（`common.md` と、`backend.md`・`planning.md`・`plans-replan.md`・`frontend.md` のどれか）も読む
 - `docs/codex_人割_タスク細分化_完成版_v2.md`：分担と進め方
 - `docs/design-spec.md`：見た目・言葉づかいの仕様（画面の見た目はこれを優先。）
 - `docs/rule.md`：push・PR・コミットのルール（Gitの操作はこれに従う）
@@ -51,7 +52,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 - モックの作業（`mocks/` とモックAPI）では、LLM・Supabase は呼ばず、`mocks/` のデータを返す
 - モックAPIのパスとレスポンスの形は本番と同じにする。本物の処理に差し替えるときも、パスと形を変えない（変える場合は `lib/schemas.ts` と同じく事前に報告する）
-- 画面（`app/` の page や `components/`）は `mocks/` を直接 import しない。データは必ず `lib/api.ts` 経由でAPIから受け取る。`mocks/` を import してよいのは `app/api/` と `lib/mock/` だけ
+- 画面（`app/` の page や `components/`）は `mocks/` を直接 import しない。データは必ず `lib/api.ts` 経由でAPIから受け取る。`mocks/` を import してよいのは `app/api/`、`lib/mock/`、`lib/server/seed.ts`、`lib/server/interview-script.ts`、`lib/planning/__tests__/` だけ（docs/design/common.md 1.8）
 
 ## 環境・パッケージ
 
@@ -70,4 +71,5 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 1. `npm run typecheck`
 2. `npm run lint`
-3. 変更したファイル、実装内容、確認結果、未実装、残っているリスクを報告する
+3. `npm test`（Planning Engine を変更した場合。`test` スクリプトは担当B が vitest と一緒に追加する。docs/design/common.md 1.7）
+4. 変更したファイル、実装内容、確認結果、未実装、残っているリスクを報告する
