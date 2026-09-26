@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI秘書 Planning Engine 数学モデル・3候補生成アルゴリズム</title>
+<script>
+window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]},svg:{fontCache:'global'}};
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<style>
+body{margin:0;background:#f6f8fb;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",Meiryo,sans-serif;line-height:1.75}
+main{max-width:1050px;margin:auto;padding:36px 22px 70px}header,.card{background:#fff;border:1px solid #dbe3ee;border-radius:16px;padding:26px;margin:18px 0}
+header{background:linear-gradient(135deg,#eff6ff,#fff)}h1{margin:0 0 10px;font-size:30px}h2{margin-top:42px;border-bottom:2px solid #dbe3ee;padding-bottom:8px}h3{margin-top:26px}
+.formula{background:#fbfdff;border:1px solid #d9e6f5;border-radius:10px;padding:16px;overflow-x:auto;margin:16px 0}
+.note{background:#eff6ff;border-left:5px solid #2563eb;padding:15px 18px;border-radius:8px;margin:18px 0}
+.green{background:#f0fdf4;border-left:5px solid #15803d;padding:15px 18px;border-radius:8px}
+.orange{background:#fff7ed;border-left:5px solid #c2410c;padding:15px 18px;border-radius:8px}
+table{width:100%;border-collapse:collapse;background:#fff;margin:16px 0}th,td{border:1px solid #dbe3ee;padding:9px 11px;text-align:left;vertical-align:top}th{background:#f1f5f9}
+pre{background:#111827;color:#e5e7eb;padding:18px;border-radius:10px;overflow:auto;line-height:1.5}.small{color:#64748b;font-size:13px}
+.tag{display:inline-block;background:#e0ecff;color:#1d4ed8;border-radius:999px;padding:3px 9px;margin:2px;font-size:13px}
+</style>
+</head>
+<body><main>
+<header>
+<h1>AI秘書 Planning Engine<br>数学モデル・3候補生成アルゴリズム</h1>
+<p>AI秘書が、実行可能なスケジュールを探索し、トレードオフの異なる3候補をユーザーへ提示するための数学モデル・アルゴリズム仕様。</p>
+<span class="tag">Hard Constraints</span><span class="tag">Task × Slot Fit</span><span class="tag">Beam Search</span><span class="tag">Pareto</span><span class="tag">Diversity</span><span class="tag">Preference Learning</span>
+</header>
+
+<h2>1. 設計思想</h2>
+<div class="note"><strong>Task ≠ Objective</strong><br>
+Taskは「ESをやる」「TOEICを勉強する」などの実行対象。Objectiveは「重要タスクを進める」「締切リスクを下げる」「余裕を残す」など、スケジュールを評価する観点。</div>
+<p>AIは唯一の「正解」を決めるのではなく、ハード制約を守りながら合理的な選択肢を生成し、ユーザーがその日の時間の使い方を選択する。</p>
+
+<h2>2. Planning Engine全体構造</h2>
+<div class="card" style="text-align:center;font-weight:700">
+Input → Free Slots → Task × Slot Fit → Beam Search → Hard Constraint → Objective Evaluation → Pareto Frontier → 3方向選択 → Diversity Check → <strong>3候補</strong>
+</div>
+<div class="formula">
+\[
+\boxed{
+\text{Tasks}
+\rightarrow
+\text{Slots}
+\rightarrow
+\text{Task-Slot Fit}
+\rightarrow
+\text{Beam Search}
+\rightarrow
+\text{Feasible Set}
+\rightarrow
+\text{Pareto Frontier}
+\rightarrow
+\text{3 Representative Plans}
+}
+\]
+</div>
+
+<h2>3. 入力と変数</h2>
+<h3>3.1 ユーザー状態</h3>
+<div class="formula">\[
+\mathbf{s}_t=
+[
+Fatigue,\,
+Concentration,\,
+Mood,\,
+Motivation,\,
+AvailableEnergy
+]^T
+\]</div>
+<p>主に「今日の状態」を表す短期変数。</p>
+
+<h3>3.2 タスクベクトル</h3>
+<div class="formula">\[
+\mathbf{t}_i=
+[
+Importance,\,
+CognitiveLoad,\,
+Duration,\,
+Splittability,\,
+Interruptibility,\,
+DeadlineUrgency,\,
+UserDesire
+]^T
+\]</div>
+
+<h2>4. タスク優先度</h2>
+<div class="formula">\[
+W_i=
+\alpha P_i+
+\beta D_i+
+\gamma U_i+
+\delta W_i^{user}
+\]</div>
+<table><tr><th>変数</th><th>意味</th></tr>
+<tr><td>\(P_i\)</td><td>重要度</td></tr><tr><td>\(D_i\)</td><td>締切の緊急度</td></tr>
+<tr><td>\(U_i\)</td><td>未完了・進捗状態</td></tr><tr><td>\(W_i^{user}\)</td><td>ユーザー自身のやりたい度</td></tr>
+<tr><td>\(\alpha,\beta,\gamma,\delta\)</td><td>重み</td></tr></table>
+<p><strong>優先度</strong>は「何を優先するか」であり、<strong>Fit</strong>は「いつやるのが適しているか」。両者を分離する。</p>
+
+<h2>5. Task × Slot Fit</h2>
+<div class="formula">\[
+\mathbf{x}^{fit}_{i,t}
+=
+[
+DurationFit,\,
+TimeOfDayFit,\,
+ConcentrationFit,\,
+FatigueFit,\,
+Interruptibility,\,
+Splittability
+]^T
+\]</div>
+<div class="formula">\[
+Fit(i,t)=\mathbf{w}^{fitT}\mathbf{x}^{fit}_{i,t}
+\]</div>
+<div class="note">例えば朝の集中力が高いユーザーなら、高認知負荷のESは朝のFitが高く、夜のFitが低くなる。</div>
+
+<h2>6. ハード制約</h2>
+<ul>
+<li>固定予定との重複禁止</li><li>睡眠時間への侵入禁止</li><li>同一時刻への複数タスク配置禁止</li>
+<li>開始時刻 &lt; 終了時刻</li><li>最低バッファ量の確保</li><li>1日の最大作業時間を超えない</li>
+<li>締切後にタスクを配置しない</li><li>過去の時刻へ新規タスクを配置しない</li>
+<li>完了済み・ロック済み予定を勝手に変更しない</li>
+</ul>
+<div class="formula">\[
+\mathcal{S}_{feasible}
+=
+\{
+S\mid
+S\text{ satisfies all hard constraints}
+\}
+\]</div>
+<div class="orange"><strong>Hard ConstraintとObjectiveを混ぜない。</strong> 睡眠や固定予定の重複は、通常は「どれくらい重視するか」ではなく、候補から除外する制約として扱う。</div>
+
+<h2>7. 目的関数</h2>
+<div class="formula">\[
+\mathbf{F}(S)
+=
+[
+Achievement,\,
+DeadlineSafety,\,
+TaskFit,\,
+Buffer,\,
+FreeTime,\,
+Control,\,
+Recovery
+]^T
+\]</div>
+<table><tr><th>目的</th><th>意味</th></tr>
+<tr><td>Achievement</td><td>重要タスクをどれだけ進めるか</td></tr>
+<tr><td>DeadlineSafety</td><td>締切遅延リスクをどれだけ下げるか</td></tr>
+<tr><td>TaskFit</td><td>タスクと時間帯・状態の適合度</td></tr>
+<tr><td>Buffer</td><td>予定変更・遅延への余裕</td></tr>
+<tr><td>FreeTime</td><td>自由・個人時間の確保</td></tr>
+<tr><td>Control</td><td>時間を自分でコントロールできる構造</td></tr>
+<tr><td>Recovery</td><td>疲労・過負荷を抑える度合い</td></tr></table>
+
+<h3>7.1 Overload</h3>
+<div class="formula">\[
+O(S)=
+\max\left(0,T_s-T_{\mathrm{comfortable}}\right)^2
+\]</div>
+
+<h3>7.2 時間分解とバッファ</h3>
+<div class="formula">\[
+T=T_s+T_b+T_f
+\]</div>
+<div class="formula">\[
+T_b\ge B_{\min}
+\]</div>
+
+<h2>8. 候補生成：Beam Search</h2>
+<h3>8.1 15分単位</h3>
+<div class="formula">\[
+\Delta t=15\text{ minutes}
+\]</div>
+<p>90分のESなら6スロット、60分のTOEICなら4スロット。</p>
+
+<h3>8.2 部分スケジュールの展開</h3>
+<div class="formula">\[
+Expand(S)=
+\{
+S+(i,t)\mid(i,t)\text{ is feasible}
+\}
+\]</div>
+<p>タスク配置だけでなく、「何もしない」「休憩・自由時間にする」選択肢も含める。</p>
+
+<h3>8.3 Beam Width</h3>
+<div class="formula">\[
+Beam_k=
+TopK\left(Expand(Beam_{k-1})\right)
+\]</div>
+<p>MVPでは \(K=30\sim100\) 程度から実データで調整する。</p>
+
+<h3>8.4 探索用部分評価</h3>
+<div class="formula">\[
+Score_{partial}(S)=
+w_1Achievement+
+w_2Fit+
+w_3DeadlineSafety+
+w_4Buffer+
+w_5FreeTime-
+w_6Overload
+\]</div>
+<div class="note"><strong>役割分担：</strong>Beam Searchは探索を効率化するため。最終的なトレードオフの保持はPareto Optimizationが担当する。</div>
+
+<h3>8.5 タスク分割</h3>
+<p>Splittabilityが高いタスクは、120分を「120分一括」「60+60」「45+45+30」など複数パターンで生成する。</p>
+
+<h3>8.6 今日やらない選択</h3>
+<p>すべてのタスクを今日実行する必要はない。実行しないことによる締切リスクは <code>DeadlineSafety</code> に反映する。</p>
+
+<h2>9. Pareto Frontier</h2>
+<p>候補AがBを支配する条件：</p>
+<div class="formula">\[
+A\succ B
+\iff
+\left[
+f_k(A)\ge f_k(B)\ \forall k
+\right]
+\land
+\left[
+\exists j,\ f_j(A)>f_j(B)
+\right]
+\]</div>
+<div class="formula">\[
+\mathcal{P}
+=
+\{
+S\mid S\text{ is non-dominated}
+\}
+\]</div>
+<div class="green">タスク達成・自由時間・バッファ・回復などは同時に最大化できないため、単一の固定重みだけで一つに決めず、合理的なトレードオフを残す。</div>
+
+<h2>10. Pareto Frontierから3候補を抽出</h2>
+<h3>10.1 3方向</h3>
+<p><strong>Achievement型</strong></p>
+<div class="formula">\[
+D_A=[1.0,1.0,0.6,0.3,0.2,0.7,0.2]
+\]</div>
+<p><strong>Balanced型</strong></p>
+<div class="formula">\[
+D_B=[0.75,0.80,0.85,0.70,0.65,0.90,0.70]
+\]</div>
+<p><strong>Recovery型</strong></p>
+<div class="formula">\[
+D_C=[0.55,0.60,0.80,0.95,0.90,0.90,1.00]
+\]</div>
+<p class="small">数値はMVPの初期値。実運用データで調整するパラメータ。</p>
+
+<h3>10.2 各方向に近いPareto解</h3>
+<div class="formula">\[
+d(S,D_k)=
+\left\|\mathbf{F}(S)-D_k\right\|_2
+\]</div>
+<div class="formula">\[
+S_A^*=
+\arg\min_{S\in\mathcal P}d(S,D_A)
+\]</div>
+<div class="formula">\[
+S_B^*=
+\arg\min_{S\in\mathcal P}d(S,D_B)
+\]</div>
+<div class="formula">\[
+S_C^*=
+\arg\min_{S\in\mathcal P}d(S,D_C)
+\]</div>
+
+<h2>11. 候補間の多様性</h2>
+<h3>11.1 目的空間距離</h3>
+<div class="formula">\[
+d_F(S_i,S_j)=
+\left\|\mathbf{F}(S_i)-\mathbf{F}(S_j)\right\|_2
+\]</div>
+<h3>11.2 構造的距離</h3>
+<div class="formula">\[
+d_S(S_i,S_j)=
+\lambda_1|\mathrm{WorkTime}_i-\mathrm{WorkTime}_j|
++\lambda_2|\mathrm{Buffer}_i-\mathrm{Buffer}_j|
++\lambda_3|\mathrm{FreeTime}_i-\mathrm{FreeTime}_j|
++\lambda_4|\mathrm{TaskCount}_i-\mathrm{TaskCount}_j|
+\]</div>
+<h3>11.3 統合距離</h3>
+<div class="formula">\[
+D(S_i,S_j)=
+\lambda_Fd_F(S_i,S_j)+
+\lambda_Sd_S(S_i,S_j)
+\]</div>
+<div class="formula">\[
+D(S_i,S_j)\ge D_{\min}
+\]</div>
+<p>候補が近すぎる場合、各方向の第2候補、第3候補へ切り替える。</p>
+
+<h2>12. ユーザー状態による適応</h2>
+<div class="formula">\[
+D_k=D_k(\mathbf{s}_t)
+\]</div>
+<p>例えば、</p>
+<div class="formula">\[
+Fatigue\uparrow
+\quad\Rightarrow\quad
+OverloadPenalty\uparrow
+\]</div>
+<div class="formula">\[
+Concentration\downarrow
+\quad\Rightarrow\quad
+HighCognitiveLoad\ Fit\downarrow
+\]</div>
+<div class="formula">\[
+DeadlineUrgency\uparrow
+\quad\Rightarrow\quad
+DeadlineSafety\text{ の重要性}\uparrow
+\]</div>
+<p>したがって、3候補は固定的な「頑張る・普通・休む」ではなく、その日の状況に意味のある3つのトレードオフになる。</p>
+
+<h2>13. ユーザー選択からの学習</h2>
+<div class="formula">\[
+\mathbf{w}_t=
+\mathbf{w}_{base}+
+\mathbf{w}_{user}+
+\mathbf{w}_{state}
+\]</div>
+<ul><li>\(\mathbf{w}_{base}\)：AI秘書の基本方針</li><li>\(\mathbf{w}_{user}\)：長期的なユーザー嗜好</li><li>\(\mathbf{w}_{state}\)：今日の状態による変化</li></ul>
+
+<h3>13.1 初期重み例</h3>
+<div class="formula">\[
+\mathbf{w}_{base}=
+[0.25,0.25,0.15,0.15,0.20]
+\]</div>
+
+<h3>13.2 選択からのPreference Learning</h3>
+<div class="formula">\[
+\mathbf{w}_{user}^{T}
+\left[
+\mathbf{F}(S_A)-\mathbf{F}(S_B)
+\right]>0
+\]</div>
+<div class="formula">\[
+P(S_A\succ S_B)
+=
+\sigma\left(
+\mathbf{w}^{T}
+[\mathbf{F}(S_A)-\mathbf{F}(S_B)]
+\right)
+\]</div>
+<div class="formula">\[
+\sigma(x)=\frac{1}{1+e^{-x}}
+\]</div>
+
+<h3>13.3 長期嗜好と一時状態の分離</h3>
+<div class="formula">\[
+w_{new}=(1-\eta)w_{old}+\eta w_{feedback}
+\]</div>
+<table><tr><th>フィードバック</th><th>学習率例</th></tr>
+<tr><td>「今後は朝に勉強したい」</td><td>\(\eta\approx0.15\)</td></tr>
+<tr><td>今回の候補Aを選択</td><td>\(\eta\approx0.03\)</td></tr>
+<tr><td>「今日は疲れた」</td><td>長期嗜好は更新しない</td></tr></table>
+
+<h2>14. 実装用擬似コード</h2>
+<pre><code>def generate_three_plans(tasks, fixed_events, user_state):
+
+    slots = calculate_free_slots(fixed_events)
+    slots = split_into_15min_slots(slots)
+
+    for task in tasks:
+        task.priority = calculate_priority(task, user_state)
+
+    fit_matrix = {}
+    for task in tasks:
+        for slot in slots:
+            fit_matrix[(task.id, slot.id)] = calculate_fit(
+                task, slot, user_state
+            )
+
+    beam = [empty_schedule()]
+
+    for time_slot in slots:
+        expanded = []
+
+        for schedule in beam:
+            expanded.append(
+                add_free_time(schedule, time_slot)
+            )
+
+            for task in tasks:
+                if can_place(task, time_slot, schedule):
+                    expanded.append(
+                        place_task(schedule, task, time_slot)
+                    )
+
+        for schedule in expanded:
+            schedule.score = partial_score(
+                schedule, tasks, user_state
+            )
+
+        beam = top_k(expanded, k=50)
+
+    feasible = [
+        s for s in beam
+        if validate_hard_constraints(s)
+    ]
+
+    for schedule in feasible:
+        schedule.features = evaluate_objectives(
+            schedule, tasks, user_state
+        )
+
+    pareto = pareto_filter(feasible)
+
+    directions = generate_directions(
+        user_state, tasks
+    )
+
+    selected = []
+
+    for direction in directions:
+        ranked = sorted(
+            pareto,
+            key=lambda s: distance(
+                s.features, direction
+            )
+        )
+
+        for candidate in ranked:
+            if all(
+                schedule_distance(candidate, x) >= MIN_DISTANCE
+                for x in selected
+            ):
+                selected.append(candidate)
+                break
+
+    return selected</code></pre>
+
+<h2>15. 最終モデル</h2>
+<div class="formula">\[
+\boxed{
+S^*
+=
+Select_3
+\left(
+Pareto
+\left(
+BeamSearch
+\left(
+Generate(T,F,\mathbf{s}_t)
+\right)
+\right)
+\right)
+}
+\]</div>
+<div class="formula">\[
+\boxed{
+\begin{aligned}
+\mathcal{S}_0
+&=Generate(T,F,\mathbf{s}_t)\\
+\mathcal{S}_1
+&=\{S\in\mathcal{S}_0:S\text{ satisfies hard constraints}\}\\
+\mathcal{P}
+&=Pareto(\mathcal{S}_1)\\
+S_k^*
+&=\arg\min_{S\in\mathcal{P}}d(F(S),D_k)\quad(k=1,2,3)\\
+D(S_i,S_j)&\ge D_{\min}
+\end{aligned}
+}
+\]</div>
+
+<h3>役割分担</h3>
+<table><tr><th>機能</th><th>担当</th></tr>
+<tr><td>自然言語理解・インタビュー</td><td>LLM</td></tr>
+<tr><td>タスク・条件抽出</td><td>LLM</td></tr>
+<tr><td>空き時間計算</td><td>Planning Engine</td></tr>
+<tr><td>Task × Slot Fit</td><td>Planning Engine</td></tr>
+<tr><td>候補生成</td><td>Beam Search</td></tr>
+<tr><td>制約チェック</td><td>Validator</td></tr>
+<tr><td>多目的評価</td><td>Objective Engine</td></tr>
+<tr><td>トレードオフ抽出</td><td>Pareto Optimization</td></tr>
+<tr><td>3候補選択</td><td>Direction + Diversity</td></tr>
+<tr><td>説明文</td><td>LLM</td></tr>
+<tr><td>ユーザー嗜好学習</td><td>Preference Learning</td></tr>
+</table>
+
+<div class="note"><strong>核心：</strong>
+LLMが自由に予定を作文するのではなく、
+<strong>LLM → 構造化データ → Planning Engine → 数学的探索 → 3候補 → ユーザー選択</strong>
+という流れにすることで、再現性・検証可能性・ユーザー主体性を両立する。</div>
+
+<footer class="small">※ 数式中の重み・閾値・Beam Width等はMVPの初期パラメータであり、実データによる検証・チューニングを前提とする。</footer>
+</main></body></html>
