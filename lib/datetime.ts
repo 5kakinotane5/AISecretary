@@ -162,16 +162,12 @@ export function diffMinutes(startIso: string, endIso: string): number {
   return Math.round((toJstInstant(endIso).getTime() - toJstInstant(startIso).getTime()) / 60000);
 }
 
-/** 現在時刻を +09:00 付きのISO 8601（JST）で返す（チャットメッセージの created_at など） */
-export function nowIsoJst(): string {
-  const parts = isoFieldFormatter.formatToParts(new Date());
-  const get = (type: string) => parts.find((p) => p.type === type)?.value;
-  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}+09:00`;
-}
-
-/** ISO日時を、実行環境のタイムゾーンに依存せずJST（秒精度）に変換する。 */
-export function toJstIso(value: string): string {
-  const parts = isoFieldFormatter.formatToParts(toJstInstant(value));
+/**
+ * 日時を +09:00 付きのISO 8601（JST）にする。DB の timestamptz（UTC で返る）の変換に使う。
+ * 秒より細かい部分は切り捨てる
+ */
+export function toJstIso(value: string | Date): string {
+  const parts = isoFieldFormatter.formatToParts(typeof value === "string" ? new Date(value) : value);
   const get = (type: string) => parts.find((p) => p.type === type)?.value;
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}+09:00`;
 }
@@ -198,8 +194,16 @@ export function ceilToMinutes(value: string, stepMinutes: number): string {
   if (!Number.isInteger(stepMinutes) || stepMinutes <= 0) {
     throw new RangeError("切り上げの単位は正の整数（分）にしてください");
   }
+
   const stepMs = stepMinutes * 60000;
   const midnight = toJstInstant(atJstTime(toDateStr(value), "00:00")).getTime();
-  const rounded = midnight + Math.ceil((toJstInstant(value).getTime() - midnight) / stepMs) * stepMs;
+  const rounded =
+    midnight + Math.ceil((toJstInstant(value).getTime() - midnight) / stepMs) * stepMs;
+
   return toJstIso(new Date(rounded).toISOString());
+}
+
+/** 現在時刻を +09:00 付きのISO 8601（JST）で返す（チャットメッセージの created_at など） */
+export function nowIsoJst(): string {
+  return toJstIso(new Date());
 }

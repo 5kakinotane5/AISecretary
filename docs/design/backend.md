@@ -347,6 +347,8 @@ POST /api/interview/message（text）
 残り R = max(0, W − D)
 ```
 
+残り日数は、目標を作った日（created_at の日付、JST）から日曜までの日数とする（計算する日ではない。W は作った週の間は変わらない）
+
 - 目標の `created_at` は、confirm のときの `getNow()`（デモ時刻）を入れる
 - 時間帯の希望：slots の `weekday_time_band`・`weekend_time_band` を `goals` の同名の列に保存し、PlanningContext の `goal_time_bands` で Engine に渡す（**補正 C-21**。`GoalSchema` は変えない）
 - **実施済みの記録**：完了の操作（ボタン）は作らず、「終了時刻を過ぎた計画のタスクは実施済み」とみなす。計画を選び直すと前の計画は discarded になるため、`select_plan` が切り替えの前に、前の計画の実施済みの分を `task_done_logs` に写す。作り直した案に写した過去の項目（`carried = true`）は数えない（二重計上を防ぐ）
@@ -421,6 +423,8 @@ POST /api/interview/message（text）
 
 入力の検証：`estimated_minutes` は5〜600の5の倍数、`remaining_minutes` は0〜6000の5の倍数、`deadline_at` は `now` より後。
 
+PATCH で remaining_minutes を変えたときは、入力値 ＋ そのタスクの実施済み（8.3 と同じ数え方）を DB に保存する（GET で返る値が入力値と一致するように）
+
 ### 9.3 デイリーチェックイン（F-07）
 
 | ID | 要件 |
@@ -430,3 +434,5 @@ POST /api/interview/message（text）
 | FR-07-3 | `text` がある場合の抽出は MVP では行わず、`note` に保存するだけにする（選択式の値だけを計画に使う） |
 | FR-07-4 | チェックインは、その日の計画の生成（P4の Fit・9.1 の適応）と再計画の入力になる |
 | FR-07-5 | **画面は作らない**（mock-spec 10.10 の決定を維持）。再計画の `state_change` で、その日の `fatigue` を保存する（12.2） |
+
+FR-07-1 の「上書き」は、省略した項目は前の値を残す（部分更新）
