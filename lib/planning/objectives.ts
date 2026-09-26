@@ -57,7 +57,7 @@ export function evaluateObjectives(context: PlanningContext, days: readonly DayP
   }, 0) ?? 0;
   const taskFit = taskMinutes === 0 ? 1 : fitMinutes > 0 ? clip(fitWeighted / fitMinutes) : 1;
   const buffer = taskMinutes === 0 ? 1 : clip(bufferMinutes / (0.5 * taskMinutes));
-  const slotMinutes = options.slots?.reduce((sum, slot) => sum + activeMinutes(slot.start, slot.work_end, context.now), 0) ?? 0;
+  const slotMinutes = options.slots?.reduce((sum, slot) => sum + activeMinutes(slot.start, slot.end, context.now), 0) ?? 0;
   const freeTime = slotMinutes === 0 ? 1 : clip(freeMinutes / slotMinutes);
 
   const dates: string[] = [];
