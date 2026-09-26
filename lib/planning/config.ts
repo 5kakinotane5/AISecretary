@@ -1,25 +1,25 @@
 import type { ObjectiveVector, PlanStyle } from "@/lib/schemas";
 
-/** docs/design/planning.md P12 の初期値。調整はまだ行わない。 */
+/** docs/design/planning.md P12。探索量の3項目はP13の順で性能調整済み。 */
 export const CONFIG = {
   comfortableTaskMinutes: 240,
   // P3.1・P3.2
   allocationGrid: {
     rho: [0.3, 0.45, 0.85],
     kappa: [0, 0.35, 1.0],
-    goalOrder: ["early", "free_desc"],
+    goalOrder: ["early"] as readonly ("early" | "free_desc")[],
   },
   optionalMaxPerDay: 120,
   // P4.2: Duration, TimeOfDay, Concentration, Fatigue, Interrupt, Split の順。
   fitWeights: [0.15, 0.25, 0.2, 0.2, 0.1, 0.1],
   lastDayFitFloor: 0.3, // P4.1: 締切の最終日にだけ使う。
   // P5.2・P5.3（単位: 分）
-  lengths: [30, 45, 60, 75, 90, 105, 120],
+  lengths: [30, 45, 60, 90, 120],
   bufferOptions: [15, 30],
   freeOptions: [30, 60],
   headBufferMinGap: 45,
   headBuffer: 15,
-  beam: { width: 30, maxSteps: 60 },
+  beam: { width: 8, maxSteps: 60 },
   // P5.4: [w1 Ach, w2 Fit, w3 DS, w4 Buf, w5 Free, w6 Over]。
   // P8.1 の7次元ベクトルとは成分数・順序が異なる。
   beamWeights: {

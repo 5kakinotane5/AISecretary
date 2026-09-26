@@ -6,13 +6,29 @@ import {
   type ScheduleItem,
   type ValidationIssue,
   type ValidationResult,
+  type EnginePlan,
 } from "@/lib/schemas";
+import { CONFIG } from "./config";
+import { integratedDistance } from "./select";
 
 export type ValidationMode = "generate" | "replan" | "stored";
 
 export type ValidatePlanOptions = {
   before?: readonly DayPlan[];
 };
+
+/** 10.11: 3案をまとめて検査する多様性warning。1案のvalidatePlanとは分離する。 */
+export function validateCandidateDiversity(context: PlanningContext, plans: readonly EnginePlan[], mode: ValidationMode): ValidationResult {
+  const warnings: ValidationIssue[] = [];
+  if (mode !== "replan") {
+    for (let i = 0; i < plans.length; i++) for (let j = i + 1; j < plans.length; j++) {
+      const left = { key: plans[i].style, days: plans[i].days, features: plans[i].features };
+      const right = { key: plans[j].style, days: plans[j].days, features: plans[j].features };
+      if (integratedDistance(left, right, context.now) < CONFIG.diversity.minDistance) warnings.push(makeIssue("CANDIDATES_TOO_SIMILAR", `${plans[i].label}と${plans[j].label}の違いが小さすぎます`, null, null));
+    }
+  }
+  return ValidationResultSchema.parse({ valid: true, errors: [], warnings: sortAndDedupe(warnings) });
+}
 
 const ISSUE_ORDER: Readonly<Record<ValidationIssue["code"], number>> = {
   START_AFTER_END: 0,
