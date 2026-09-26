@@ -347,6 +347,8 @@ POST /api/interview/message（text）
 残り R = max(0, W − D)
 ```
 
+残り日数は、目標を作った日（created_at の日付、JST）から日曜までの日数とする（計算する日ではない。W は作った週の間は変わらない）
+
 - 目標の `created_at` は、confirm のときの `getNow()`（デモ時刻）を入れる
 - 時間帯の希望：slots の `weekday_time_band`・`weekend_time_band` を `goals` の同名の列に保存し、PlanningContext の `goal_time_bands` で Engine に渡す（**補正 C-21**。`GoalSchema` は変えない）
 - **実施済みの記録**：完了の操作（ボタン）は作らず、「終了時刻を過ぎた計画のタスクは実施済み」とみなす。計画を選び直すと前の計画は discarded になるため、`select_plan` が切り替えの前に、前の計画の実施済みの分を `task_done_logs` に写す。作り直した案に写した過去の項目（`carried = true`）は数えない（二重計上を防ぐ）
