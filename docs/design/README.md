@@ -109,8 +109,8 @@
 | 変数 | 例 | 使う場所 |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | | 既存 |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | | 既存 |
-| `SUPABASE_SERVICE_ROLE_KEY` | | デモ用アカウントの作成だけ（`supabase-admin.ts`）。画面に出さない |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_...` | 利用者用クライアント（`supabase.ts`・`proxy.ts`）。旧称 anon key |
+| `SUPABASE_SECRET_KEY` | `sb_secret_...` | デモ用アカウントの作成だけ（`supabase-admin.ts`）。`NEXT_PUBLIC_` を付けない。画面に出さない。旧称 service_role key |
 | `OPENAI_API_KEY` | | サーバーのみ。空なら `LLM_MODE=off` として動く |
 | `OPENAI_MODEL` | | サーバーのみ（2.4） |
 | `LLM_MODE` | `on` | `on` / `off`（1.4） |
