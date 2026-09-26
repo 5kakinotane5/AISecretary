@@ -236,7 +236,10 @@ export const ValidationIssueCodeSchema = z.enum([
   "DAILY_LIMIT_EXCEEDED",
   "INVALID_REFERENCE",
   "FIXED_EVENT_MISMATCH",   // モック専用：固定予定の時刻・場所が案によって異なる
-  "GOAL_HOURS_MISMATCH",    // モック専用：目標の週合計時間が案によって異なる
+  "GOAL_HOURS_MISMATCH",    // 目標の週合計時間が確定値と異なる（docs/design/planning.md 10.11）
+  "PAST_PLACEMENT",         // now より前に新しく置いた項目がある
+  "LOCKED_ITEM_CHANGED",    // 再計画で、ロック済み・完了済みの項目が変わった
+  "CANDIDATES_TOO_SIMILAR", // 3案の違いが足りない（warnings だけで使う）
 ]);
 
 export const ValidationIssueSchema = z.object({
@@ -281,7 +284,7 @@ export const SettingsResponseSchema = z.object({
   preferences: UserPreferenceSchema,
   locations: z.array(LocationSchema),
   travel_times: z.array(TravelTimeSchema),
-  goal: GoalSchema,
+  goal: GoalSchema.nullable(), // 目標の確定前は null（docs/design/common.md 3.2）
 });
 
 /** GET /api/tasks */
@@ -300,6 +303,181 @@ export const MockClockResponseSchema = z.object({ now: z.string() });
 
 /** POST /api/mock/reset */
 export const MockResetResponseSchema = z.object({ ok: z.literal(true) });
+
+// ---------- 本番化で追加（docs/design/common.md 3章） ----------
+
+/** GET /api/clock：画面が「今」を知る唯一の口 */
+export const ClockResponseSchema = z.object({ now: z.string(), demo_mode: z.boolean() });
+
+/** すべてのAPIのエラー応答 */
+export const ApiErrorCodeSchema = z.enum([
+  "INVALID_REQUEST", "UNAUTHORIZED", "NOT_FOUND", "INVALID_STATE", "PROPOSAL_EXPIRED",
+  "INFEASIBLE", "LLM_ERROR", "INTERNAL",
+]);
+export const ApiErrorSchema = z.object({ error: z.object({ code: ApiErrorCodeSchema, message: z.string() }) });
+
+/** POST /api/auth/logout・DELETE /api/tasks/{id} */
+export const OkResponseSchema = z.object({ ok: z.literal(true) });
+
+// ----- チェックイン・タスク登録（画面は作らない。API だけ。docs/design/backend.md 9章） -----
+export const DailyCheckinSchema = z.object({
+  date: z.string(),                          // YYYY-MM-DD
+  mood: LevelSchema.nullable(),              // low=落ち込み気味 / medium / high=良い
+  fatigue: LevelSchema.nullable(),
+  concentration: LevelSchema.nullable(),     // 集中できそうか
+  want_task_ids: z.array(z.string()),
+  avoid_task_ids: z.array(z.string()),
+  note: z.string().nullable(),               // 自由入力の原文
+});
+export const CheckinRequestSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  mood: LevelSchema.nullable().optional(),
+  fatigue: LevelSchema.nullable().optional(),
+  concentration: LevelSchema.nullable().optional(),
+  text: z.string().max(500).optional(),
+});
+export const CheckinResponseSchema = z.object({ checkin: DailyCheckinSchema.nullable() });
+
+export const TaskCreateRequestSchema = TaskSchema.omit({ id: true, status: true, goal_id: true });
+export const TaskUpdateRequestSchema = TaskSchema.omit({ id: true, goal_id: true }).partial();
+export const TaskResponseSchema = z.object({ task: TaskSchema });
+
+// ----- Planning Engine の入出力（docs/design/planning.md） -----
+/** 時間帯。morning 6:00〜12:00、daytime 12:00〜18:00、evening 18:00〜就寝の30分前 */
+export const TimeBandSchema = z.enum(["morning", "daytime", "evening"]);
+/** 目標タスクを置きたい時間帯（利用者が言った場合だけ。平日＝月〜金、週末＝土日） */
+export const GoalTimeBandsSchema = z.object({ weekday: TimeBandSchema.nullable(), weekend: TimeBandSchema.nullable() });
+
+export const PlanningContextSchema = z.object({
+  now: z.string(),                           // 計画の基準時刻（5分単位に切り上げる前の値）
+  week_start: z.string(),                    // now を含む週の月曜
+  style: PlanStyleSchema.nullable(),         // 再計画のとき：有効な計画の案。生成のときは null
+  preferences: UserPreferenceSchema,
+  home_location_id: z.string(),
+  locations: z.array(LocationSchema),
+  travel_times: z.array(TravelTimeSchema),
+  fixed_events: z.array(FixedEventSchema),   // 今週に展開済み。id は元の id のまま
+  goals: z.array(GoalSchema),                // 有効な目標（MVP では0件か1件）
+  goal_week_target_minutes: z.record(z.string(), z.number().int()), // goal_id → 今週の目標分 W
+  goal_done_minutes: z.record(z.string(), z.number().int()),        // goal_id → 実施済みの分 D
+  goal_time_bands: z.record(z.string(), GoalTimeBandsSchema),       // goal_id → 時間帯の希望
+  tasks: z.array(TaskSchema),                // 未完了。remaining_minutes は実施済みを引いた値
+  checkin: DailyCheckinSchema.nullable(),    // 今日の分
+  locked_items: z.array(ScheduleItemSchema), // 変更してはいけない既存の項目
+});
+
+export const ReasonCodeSchema = z.enum([
+  "DEADLINE_EARLY", "DEADLINE_NEAR", "DEADLINE_STEADY", "GOAL_ROUTINE", "OPTIONAL_EXTRA",
+  "LIGHT_TASK", "LIGHT_IN_BUFFER", "REST", "TIRED_LIGHT", "TIRED_MOVED", "GOAL_CARRYOVER",
+  "BUFFER_MERGED", "FREE_EXTENDED", "FIXED_EVENT_ADDED", "USER_POSTPONED", "USER_SKIPPED", "USER_SHORTENED",
+  "NEXT_WEEK",
+]);
+
+/** Engine が出す項目。API で返すときは ScheduleItemSchema.parse() で reason_code が落ちる */
+export const PlannedItemSchema = ScheduleItemSchema.extend({ reason_code: ReasonCodeSchema.nullable() });
+
+/** 目的ベクトル F(S)（すべて 0〜1。docs/design/planning.md 6章） */
+export const ObjectiveVectorSchema = z.object({
+  achievement: z.number(),
+  deadline_safety: z.number(),
+  task_fit: z.number(),
+  buffer: z.number(),
+  free_time: z.number(),
+  control: z.number(),
+  recovery: z.number(),
+});
+
+/** Engine が出す1案（id は API が DB に保存して付ける） */
+export const EnginePlanSchema = z.object({
+  style: PlanStyleSchema,
+  label: z.string(),
+  week_start: z.string(),
+  days: z.array(z.object({ date: z.string(), items: z.array(PlannedItemSchema) })).length(7),
+  summary: PlanSummarySchema,
+  features: ObjectiveVectorSchema,           // API では返さず、weekly_plans.features に保存する
+});
+
+export const InfeasibleSchema = z.object({
+  feasible: z.literal(false),
+  reason: z.string(),
+  required_changes: z.array(z.string()),
+});
+
+export const ValidationResultSchema = z.object({
+  valid: z.boolean(),                        // errors が0件なら true
+  errors: z.array(ValidationIssueSchema),
+  warnings: z.array(ValidationIssueSchema),
+});
+
+export const EngineGenerateResultSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), plans: z.array(EnginePlanSchema).length(3), warnings: z.array(ValidationIssueSchema) }),
+  z.object({ ok: z.literal(false), infeasible: InfeasibleSchema }),
+]);
+
+/** Engine の再計画の結果。proposal は proposal_id 以外の ReplanProposal */
+export const EngineReplanResultSchema = z.discriminatedUnion("ok", [
+  z.object({
+    ok: z.literal(true),
+    proposal: ReplanProposalSchema.omit({ proposal_id: true }),
+    // accept で置き換える日（今日を含む）
+    updated_days: z.array(z.object({ date: z.string(), items: z.array(PlannedItemSchema) })),
+  }),
+  z.object({ ok: z.literal(false), infeasible: InfeasibleSchema }),
+]);
+
+// ----- LLM（docs/design/backend.md）-----
+// *LlmSchema は LLM に渡す形（型だけ。制約を付けない）、*CheckedSchema は受け取った後の検証用
+export const INTERVIEW_CATEGORIES = ["資格・テスト勉強", "筋トレ・運動", "大学の課題・レポート", "就活", "その他"] as const;
+
+/** 6.2.3 ヒアリングの抽出＋次の発言 */
+export const InterviewLlmSchema = z.object({
+  extracted: z.object({
+    category: z.enum(INTERVIEW_CATEGORIES).nullable(),
+    task_name: z.string().nullable(),
+    goal_text: z.string().nullable(),
+    current_status: z.string().nullable(),
+    deadline: z.string().nullable(),
+    conditions: z.array(z.string()),
+    explicit_hours_per_week: z.number().nullable(),
+    frequency_per_week: z.number().nullable(),    // 「週3回」→ 3
+    weekday_time_band: TimeBandSchema.nullable(), // 「平日は夜が中心」→ evening
+    weekend_time_band: TimeBandSchema.nullable(),
+  }),
+  user_said_unknown: z.boolean(),
+  next_message: z.string(),
+  quick_replies: z.array(z.string()),
+});
+/** 検証に通らない項目は、その項目だけ null（conditions は通るものだけ残す）にして続行する */
+export const InterviewExtractedCheckedSchema = z.object({
+  category: z.enum(INTERVIEW_CATEGORIES).nullable(),
+  task_name: z.string().min(1).max(15).nullable(),
+  goal_text: z.string().max(200).nullable(),
+  current_status: z.string().max(200).nullable(),
+  deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  conditions: z.array(z.string().min(1).max(30)).max(5),
+  explicit_hours_per_week: z.number().min(0.5).max(40).nullable(),
+  frequency_per_week: z.number().int().min(1).max(14).nullable(),
+  weekday_time_band: TimeBandSchema.nullable(),
+  weekend_time_band: TimeBandSchema.nullable(),
+});
+
+/** 7.2.3 3案の文章（intensive / balanced / paced の順で3件） */
+export const GoalCandidateTextsLlmSchema = z.object({
+  candidates: z.array(z.object({ characteristics: z.string(), merit: z.string(), caution: z.string(), reason: z.string() })),
+});
+
+/** 8.2 目標タスクの名前 */
+export const GoalTaskNamesLlmSchema = z.object({ main: z.string(), light: z.string().nullable() });
+
+/** 12.3 再計画の意図（サーバーが ReplanningIntentSchema に変換する） */
+export const ReplanIntentLlmSchema = z.object({
+  type: z.enum(["state_change", "task_change", "new_fixed_event", "preference_change", "unknown"]),
+  fatigue: LevelSchema.nullable(),
+  task_changes: z.array(z.object({ task_id: z.string(), action: z.enum(["postpone", "skip", "shorten"]) })),
+  // 時刻は "HH:MM"
+  new_fixed_events: z.array(z.object({ title: z.string().nullable(), start_time: z.string(), end_time: z.string().nullable() })),
+  preference_changes: z.array(z.string()),
+});
 
 // ---------- 型 ----------
 export type PlanStyle = z.infer<typeof PlanStyleSchema>;
@@ -332,3 +510,17 @@ export type InterviewConfirmResponse = z.infer<typeof InterviewConfirmResponseSc
 export type SettingsResponse = z.infer<typeof SettingsResponseSchema>;
 export type ReplanChange = z.infer<typeof ReplanChangeSchema>;
 export type ReplanResponse = z.infer<typeof ReplanResponseSchema>;
+export type ClockResponse = z.infer<typeof ClockResponseSchema>;
+export type ApiErrorCode = z.infer<typeof ApiErrorCodeSchema>;
+export type DailyCheckin = z.infer<typeof DailyCheckinSchema>;
+export type TimeBand = z.infer<typeof TimeBandSchema>;
+export type GoalTimeBands = z.infer<typeof GoalTimeBandsSchema>;
+export type PlanningContext = z.infer<typeof PlanningContextSchema>;
+export type ReasonCode = z.infer<typeof ReasonCodeSchema>;
+export type PlannedItem = z.infer<typeof PlannedItemSchema>;
+export type ObjectiveVector = z.infer<typeof ObjectiveVectorSchema>;
+export type EnginePlan = z.infer<typeof EnginePlanSchema>;
+export type Infeasible = z.infer<typeof InfeasibleSchema>;
+export type ValidationResult = z.infer<typeof ValidationResultSchema>;
+export type EngineGenerateResult = z.infer<typeof EngineGenerateResultSchema>;
+export type EngineReplanResult = z.infer<typeof EngineReplanResultSchema>;

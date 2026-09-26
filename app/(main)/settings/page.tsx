@@ -144,31 +144,35 @@ function SettingsSections({ data }: { data: SettingsResponse }) {
       </Section>
 
       <Section title={SETTINGS_LABELS.goalTitle}>
-        <div className="flex flex-col gap-2">
-          <p className="text-base font-bold">
-            {goal.task_name}
-            {goal.target_hours_per_week !== null ? (
-              <span className="text-primary">
-                {"　"}
-                {formatHoursPerWeek(goal.target_hours_per_week)}
-              </span>
-            ) : null}
-          </p>
-          {goal.deadline ? (
-            <p className="text-sm text-muted-foreground">
-              {SETTINGS_LABELS.deadline} {formatDateLong(goal.deadline)}
+        {goal === null ? (
+          <p className="text-sm text-muted-foreground">{SETTINGS_LABELS.noGoal}</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <p className="text-base font-bold">
+              {goal.task_name}
+              {goal.target_hours_per_week !== null ? (
+                <span className="text-primary">
+                  {"　"}
+                  {formatHoursPerWeek(goal.target_hours_per_week)}
+                </span>
+              ) : null}
             </p>
-          ) : null}
-          {goal.conditions.length > 0 ? (
-            <ul className="flex flex-wrap gap-1.5">
-              {goal.conditions.map((condition) => (
-                <li key={condition} className="rounded-xl bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                  {condition}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
+            {goal.deadline ? (
+              <p className="text-sm text-muted-foreground">
+                {SETTINGS_LABELS.deadline} {formatDateLong(goal.deadline)}
+              </p>
+            ) : null}
+            {goal.conditions.length > 0 ? (
+              <ul className="flex flex-wrap gap-1.5">
+                {goal.conditions.map((condition) => (
+                  <li key={condition} className="rounded-xl bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                    {condition}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        )}
         <Link href="/interview" className={cn(buttonVariants({ variant: "brand-outline", size: "cta" }))}>
           {SETTINGS_LABELS.consultGoal}
         </Link>

@@ -443,6 +443,8 @@ export const SETTINGS_LABELS = {
   travelTitle: "移動時間",
   noTravelTimes: "登録されている移動時間はありません",
   goalTitle: SCREEN_LABELS.goal,
+  // 目標の確定前（GET /api/settings の goal が null。docs/design/frontend.md 14.2）
+  noGoal: `まだ${SCREEN_LABELS.goal}がありません`,
   deadline: "期限",
   // design-spec.md 4章：目標（Goal）は画面上「目的地」（mock-spec.md 10.23）
   consultGoal: `新しい${SCREEN_LABELS.goal}を相談する`,
