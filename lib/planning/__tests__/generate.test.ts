@@ -50,4 +50,16 @@ describe("generatePlans（planning.md P11）", () => {
     if (!result.ok) expect(result.infeasible.required_changes.length).toBeGreaterThan(0);
   });
 
+  it("fatigue=highの今日は締切最終日以外の高集中タスクを置かない", () => {
+    const context = createPlanningContext();
+    context.checkin = { date: "2026-10-05", mood: null, fatigue: "high", concentration: null, want_task_ids: [], avoid_task_ids: [], note: null };
+    const result = generatePlans(context);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const highIds = new Set(context.tasks.filter((task) => task.concentration === "high" || (task.goal_id && task.concentration === "medium")).map((task) => task.id));
+    for (const plan of result.plans) {
+      expect(plan.days[0].items.some((item) => item.kind === "task" && item.task_id && highIds.has(item.task_id))).toBe(false);
+    }
+  }, 30_000);
+
 });
