@@ -1,13 +1,17 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import { TasksResponseSchema } from "@/lib/schemas";
-import { isMockError, mockDelay, mockErrorResponse } from "@/lib/mock/http";
-import { TASKS } from "@/mocks/tasks";
+import { handle } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/auth";
+import { getNow } from "@/lib/server/clock";
+import { loadTaskProgress } from "@/lib/server/task-progress";
 
-// GET /api/tasks（4章・10.17章）：{ tasks: Task[] }
-// 締切バッジやバッファの候補タスク名など、画面がタスクの情報を必要とするときに使う
+// GET /api/tasks（backend.md 9.2・8.3）：{ tasks: Task[] }
+// status != completed のタスク。remaining_minutes は実施済みを引いた値（目標タスクは今週の残り R）
 export async function GET(request: NextRequest) {
-  if (isMockError(request)) return mockErrorResponse();
-  await mockDelay(400);
-
-  return NextResponse.json(TasksResponseSchema.parse({ tasks: TASKS }));
+  return handle(request, async () => {
+    const { user, supabase } = await requireUser();
+    const now = await getNow(user.id, supabase);
+    const { tasks } = await loadTaskProgress(supabase, now);
+    return TasksResponseSchema.parse({ tasks });
+  });
 }
