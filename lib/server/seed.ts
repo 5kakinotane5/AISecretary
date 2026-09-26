@@ -66,3 +66,18 @@ export async function seedDemoUser(supabase: SupabaseClient, userId: string): Pr
 
   return PERSONA_DISPLAY_NAME;
 }
+
+// 外部キーの都合で、この順に消す（backend.md 4.5）。
+// daily_plan_items・interview_messages・task_done_logs は連鎖で消える
+const RESET_ORDER = [
+  "replan_proposals", "weekly_plans", "interview_sessions", "daily_checkins", "tasks",
+  "goals", "fixed_events", "travel_times", "user_settings", "locations",
+] as const;
+
+// ログイン中の利用者のデータを全部消して seed を入れ直す（POST /api/mock/reset。backend.md 4.5）
+export async function resetDemoUser(supabase: SupabaseClient, userId: string): Promise<void> {
+  for (const table of RESET_ORDER) {
+    check((await supabase.from(table).delete().eq("user_id", userId)).error);
+  }
+  await seedDemoUser(supabase, userId);
+}
