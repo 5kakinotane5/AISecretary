@@ -172,6 +172,37 @@ export function toJstIso(value: string | Date): string {
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}+09:00`;
 }
 
+/** JSTの日付とHH:MMからISO日時を作る。24:00は翌日00:00に正規化する。 */
+export function atJstTime(date: string, time: string): string {
+  return time === "24:00"
+    ? `${addDays(date, 1)}T00:00:00+09:00`
+    : `${date}T${time}:00+09:00`;
+}
+
+/** ISO日時をminutes分進める（負数で戻る）。丸めず、JSTで返す。 */
+export function addMinutes(value: string, minutes: number): string {
+  return toJstIso(new Date(toJstInstant(value).getTime() + minutes * 60000).toISOString());
+}
+
+/** ISO日時の差分（分）。15分未満の判定など、秒・ミリ秒を丸めたくない計算に使う。 */
+export function diffMinutesExact(startIso: string, endIso: string): number {
+  return (toJstInstant(endIso).getTime() - toJstInstant(startIso).getTime()) / 60000;
+}
+
+/** 指定した分単位に切り上げ、JSTで返す。秒・ミリ秒と日付境界も考慮する。 */
+export function ceilToMinutes(value: string, stepMinutes: number): string {
+  if (!Number.isInteger(stepMinutes) || stepMinutes <= 0) {
+    throw new RangeError("切り上げの単位は正の整数（分）にしてください");
+  }
+
+  const stepMs = stepMinutes * 60000;
+  const midnight = toJstInstant(atJstTime(toDateStr(value), "00:00")).getTime();
+  const rounded =
+    midnight + Math.ceil((toJstInstant(value).getTime() - midnight) / stepMs) * stepMs;
+
+  return toJstIso(new Date(rounded).toISOString());
+}
+
 /** 現在時刻を +09:00 付きのISO 8601（JST）で返す（チャットメッセージの created_at など） */
 export function nowIsoJst(): string {
   return toJstIso(new Date());
