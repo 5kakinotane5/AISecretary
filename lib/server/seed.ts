@@ -2,8 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { LOCATIONS, LOCATION_IDS, PERSONA_DISPLAY_NAME, TRAVEL_TIMES, USER_PREFERENCE } from "@/mocks/persona";
 import { FIXED_EVENTS } from "@/mocks/fixed-events"; // ← FIXED_EVENTS があるファイルに合わせる
 import { TASKS } from "@/mocks/tasks";
-
-const DEMO_NOW = "2026-10-05T07:00:00+09:00";
+import { DEFAULT_DEMO_NOW } from "./clock";
 
 // Supabase の { data, error } で、error があれば投げる
 function check(error: unknown) {
@@ -62,7 +61,7 @@ export async function seedDemoUser(supabase: SupabaseClient, userId: string): Pr
     display_name: PERSONA_DISPLAY_NAME,
     ...USER_PREFERENCE,
     home_location_id: toLoc(LOCATION_IDS.home),
-    demo_now: DEMO_NOW,
+    demo_now: DEFAULT_DEMO_NOW,
   })).error);
 
   return PERSONA_DISPLAY_NAME;

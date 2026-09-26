@@ -162,9 +162,17 @@ export function diffMinutes(startIso: string, endIso: string): number {
   return Math.round((toJstInstant(endIso).getTime() - toJstInstant(startIso).getTime()) / 60000);
 }
 
-/** 現在時刻を +09:00 付きのISO 8601（JST）で返す（チャットメッセージの created_at など） */
-export function nowIsoJst(): string {
-  const parts = isoFieldFormatter.formatToParts(new Date());
+/**
+ * 日時を +09:00 付きのISO 8601（JST）にする。DB の timestamptz（UTC で返る）の変換に使う。
+ * 秒より細かい部分は切り捨てる
+ */
+export function toJstIso(value: string | Date): string {
+  const parts = isoFieldFormatter.formatToParts(typeof value === "string" ? new Date(value) : value);
   const get = (type: string) => parts.find((p) => p.type === type)?.value;
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}+09:00`;
+}
+
+/** 現在時刻を +09:00 付きのISO 8601（JST）で返す（チャットメッセージの created_at など） */
+export function nowIsoJst(): string {
+  return toJstIso(new Date());
 }
