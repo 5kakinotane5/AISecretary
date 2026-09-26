@@ -39,7 +39,17 @@ export async function handle(request: Request, fn: () => Promise<unknown>): Prom
 
 // リクエストの JSON を Zod で検証する。失敗したら 400
 export async function parseBody<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  return parseValue(await readJson(request), schema);
+}
+
+// リクエストの JSON をそのまま読む（読めなければ null）。スキーマにないキーも見たいときに使う
+export async function readJson(request: Request): Promise<unknown> {
+  return request.json().catch(() => null);
+}
+
+// 読んだ値を Zod で検証する。失敗したら 400
+export function parseValue<T>(value: unknown, schema: z.ZodType<T>): T {
+  const parsed = schema.safeParse(value);
   if (!parsed.success) throw new HttpError(400, "INVALID_REQUEST", "リクエストの形が正しくありません");
   return parsed.data;
 }

@@ -28,6 +28,26 @@ export function goalWeekTargetMinutes(record: ActiveGoalRecord, weekStart: strin
   return round15((full * remainingDays) / 7);
 }
 
+const itemMinutes = (item: ElapsedTaskItem) => diffMinutes(item.start_at, item.end_at);
+
+// 締切・任意・軽作業の実施済み（task_id → 分）：task_done_logs の全期間 ＋ 経過した計画の項目
+function sumDoneByTask(doneLogs: TaskDoneLog[], elapsedItems: ElapsedTaskItem[]): Map<string, number> {
+  const doneByTask = new Map<string, number>();
+  const add = (taskId: string, minutes: number) => doneByTask.set(taskId, (doneByTask.get(taskId) ?? 0) + minutes);
+  for (const log of doneLogs) add(log.task_id, log.minutes);
+  for (const item of elapsedItems) add(item.task_id, itemMinutes(item));
+  return doneByTask;
+}
+
+// 目標タスク以外の1件の実施済み（分）。PATCH の remaining_minutes の保存と、POST・PATCH の応答に使う
+export async function loadTaskDoneMinutes(supabase: SupabaseClient, now: string, taskId: string): Promise<number> {
+  const [doneLogs, elapsedItems] = await Promise.all([
+    listTaskDoneLogs(supabase),
+    listElapsedActivePlanTaskItems(supabase, now),
+  ]);
+  return sumDoneByTask(doneLogs, elapsedItems).get(taskId) ?? 0;
+}
+
 // 読み込んだ値から残り時間を計算する（DB に触れない）
 export function computeTaskProgress(input: {
   tasks: Task[];               // completed を含む全件（remaining_minutes は DB の値）
@@ -38,13 +58,7 @@ export function computeTaskProgress(input: {
 }): TaskProgress {
   const { tasks, goal, doneLogs, elapsedItems, now } = input;
   const weekStart = getWeekStart(toDateStr(now));
-  const itemMinutes = (item: ElapsedTaskItem) => diffMinutes(item.start_at, item.end_at);
-
-  // 締切・任意・軽作業の実施済み：task_done_logs の全期間 ＋ 経過した計画の項目
-  const doneByTask = new Map<string, number>();
-  const add = (taskId: string, minutes: number) => doneByTask.set(taskId, (doneByTask.get(taskId) ?? 0) + minutes);
-  for (const log of doneLogs) add(log.task_id, log.minutes);
-  for (const item of elapsedItems) add(item.task_id, itemMinutes(item));
+  const doneByTask = sumDoneByTask(doneLogs, elapsedItems);
 
   // 目標の W と D。D は今週の分だけ（task_done_logs も計画の項目も date ≥ week_start）
   const goalWeekTarget: Record<string, number> = {};
