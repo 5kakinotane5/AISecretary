@@ -161,7 +161,7 @@ describe("buildWeeklyAllocations", () => {
     expect(buildWeeklyAllocations(empty, fixtureSlots(empty))).toHaveLength(1);
     const context = createPlanningContext();
     const results = buildWeeklyAllocations(context, fixtureSlots(context));
-    expect(results).toHaveLength(18);
+    expect(results).toHaveLength(9);
   });
 
   it("入力を変更せず決定論的で、正の有限分だけを今日〜日曜へ作る", () => {

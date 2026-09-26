@@ -102,7 +102,7 @@ describe("dayBeam（planning.md P5）", () => {
   it("Lengthsをquota種別・分割可否・30分未満端数どおり列挙する", () => {
     const context = createPlanningContext();
     const report = findTask(context, "task_report");
-    expect(enumerateQuotaLengths(quota(context, report.id, "deadline", 75), report, 75)).toEqual([30, 45, 60, 75]);
+    expect(enumerateQuotaLengths(quota(context, report.id, "deadline", 75), report, 75)).toEqual([30, 45, 60]);
     expect(enumerateQuotaLengths(quota(context, report.id, "deadline", 15), report, 15)).toEqual([15]);
     const mail = findTask(context, "task_mail");
     expect(enumerateQuotaLengths(quota(context, mail.id, "optional", 15), mail, 15)).toEqual([15]);

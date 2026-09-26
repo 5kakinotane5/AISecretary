@@ -39,6 +39,7 @@ export type DayBeamInput = {
   priorities?: readonly TaskPriority[];
   /** 例: intensive。最終style別IDへの変換前の決定論的な仮IDに使う。 */
   id_prefix: string;
+  buffer_options?: readonly number[];
 };
 
 export type DayBeamResult = {
@@ -134,8 +135,8 @@ export function enumerateQuotaLengths(quota: AllocationQuota, task: Task, remain
   return [...new Set(values)].sort((a, b) => a - b);
 }
 
-export function enumerateTaskBuffers(hasTaskInGap: boolean): number[] {
-  return hasTaskInGap ? [...CONFIG.bufferOptions] : [0];
+export function enumerateTaskBuffers(hasTaskInGap: boolean, options: readonly number[] = CONFIG.bufferOptions): number[] {
+  return hasTaskInGap ? [...options] : [0];
 }
 
 export function enumerateFreeLengths(availableMinutes: number): number[] {
@@ -319,7 +320,7 @@ function expand(input: DayBeamInput, normalized: readonly NormalizedQuota[], tas
     const task = tasks.get(normalized[index].quota.task_id);
     if (!task) continue;
     for (const length of enumerateQuotaLengths(normalized[index].quota, task, state.remaining[index])) {
-      const buffers = enumerateTaskBuffers(state.hasTaskInGap);
+      const buffers = enumerateTaskBuffers(state.hasTaskInGap, input.buffer_options);
       for (const buffer of buffers) {
         const placed = placeTask(input, normalized, tasks, state, index, length, buffer);
         if (placed) next.push(placed);
@@ -340,6 +341,22 @@ export function dayBeam(input: DayBeamInput): DayBeamResult {
   const tasks = new Map(input.context.tasks.map((task) => [task.id, task]));
   const priorityList = input.priorities ?? computeTaskPriorities(input.context, input.date);
   const priorities = new Map(priorityList.map((entry) => [entry.task_id, entry.score]));
+  const evaluationCache = new WeakMap<BeamState, BeamEvaluation>();
+  const itemStringCache = new WeakMap<BeamState, string>();
+  const evaluateState = (state: BeamState) => {
+    const cached = evaluationCache.get(state);
+    if (cached) return cached;
+    const value = evaluate(input, normalized, priorities, state);
+    evaluationCache.set(state, value);
+    return value;
+  };
+  const stateItems = (state: BeamState) => {
+    const cached = itemStringCache.get(state);
+    if (cached !== undefined) return cached;
+    const value = itemString(state.items);
+    itemStringCache.set(state, value);
+    return value;
+  };
   let initial: BeamState = {
     gapIndex: 0,
     cursor: input.slots[0]?.start ?? atJstTime(input.date, "00:00"),
@@ -372,12 +389,12 @@ export function dayBeam(input: DayBeamInput): DayBeamResult {
       if (!current) unique.set(key, candidate);
       else {
         deduplicatedStates += 1;
-        const left = evaluate(input, normalized, priorities, candidate).score;
-        const right = evaluate(input, normalized, priorities, current).score;
-        if (left > right || (left === right && itemString(candidate.items) < itemString(current.items))) unique.set(key, candidate);
+        const left = evaluateState(candidate).score;
+        const right = evaluateState(current).score;
+        if (left > right || (left === right && stateItems(candidate) < stateItems(current))) unique.set(key, candidate);
       }
     }
-    beam = [...unique.values()].sort((a, b) => evaluate(input, normalized, priorities, b).score - evaluate(input, normalized, priorities, a).score || compareText(itemString(a.items), itemString(b.items))).slice(0, CONFIG.beam.width);
+    beam = [...unique.values()].sort((a, b) => evaluateState(b).score - evaluateState(a).score || compareText(stateItems(a), stateItems(b))).slice(0, CONFIG.beam.width);
     maxBeamSize = Math.max(maxBeamSize, beam.length);
   }
   const forcedClose = beam.some((state) => !state.done);
@@ -389,7 +406,7 @@ export function dayBeam(input: DayBeamInput): DayBeamResult {
   const best = finished.sort((a, b) => {
     const requiredA = normalized.reduce((sum, entry, index) => sum + (entry.quota.required ? a.remaining[index] : 0), 0);
     const requiredB = normalized.reduce((sum, entry, index) => sum + (entry.quota.required ? b.remaining[index] : 0), 0);
-    return requiredA - requiredB || evaluate(input, normalized, priorities, b).score - evaluate(input, normalized, priorities, a).score || compareText(itemString(a.items), itemString(b.items));
+    return requiredA - requiredB || evaluateState(b).score - evaluateState(a).score || compareText(stateItems(a), stateItems(b));
   })[0] ?? initial;
   return {
     ok: true,
@@ -397,7 +414,7 @@ export function dayBeam(input: DayBeamInput): DayBeamResult {
     items: best.items,
     remaining: normalized.map((entry, index) => ({ quota_key: entry.key, quota: entry.quota, initial_minutes: entry.quota.minutes, remaining_minutes: best.remaining[index] })),
     dayTaskMinutes: best.dayTaskMinutes,
-    evaluation: evaluate(input, normalized, priorities, best),
+    evaluation: evaluateState(best),
     steps,
     forced_close: forcedClose,
     required_complete: normalized.every((entry, index) => !entry.quota.required || best.remaining[index] === 0),
@@ -416,10 +433,11 @@ export type BuildWeekOptions = {
   slots?: readonly FreeSlot[];
   priorities?: readonly TaskPriority[];
   cache?: Map<string, DayBeamResult>;
+  bufferOptions?: readonly number[];
 };
 
 function stableDayInput(input: DayBeamInput): string {
-  return JSON.stringify({ date: input.date, slots: input.slots, quotas: input.quotas, weights: input.weights, context: input.context, existing_items: input.existing_items, priorities: input.priorities, id_prefix: input.id_prefix });
+  return JSON.stringify({ date: input.date, slots: input.slots, quotas: input.quotas, weights: input.weights, context: input.context, existing_items: input.existing_items, priorities: input.priorities, id_prefix: input.id_prefix, buffer_options: input.buffer_options });
 }
 
 /** planning.md P3.3・P5.6: 1つのallocationと方向から今日〜日曜を組み立てる。 */
@@ -451,6 +469,7 @@ export function buildWeekFromAllocation(
       existing_items: existing,
       priorities,
       id_prefix: direction,
+      buffer_options: options.bufferOptions,
     };
     const run = (value: DayBeamInput) => {
       const key = stableDayInput(value);
