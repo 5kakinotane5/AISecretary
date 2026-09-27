@@ -3,10 +3,7 @@ import {
   ReplanProposalSchema,
   ReplanRequestSchema,
   ReplanResponseSchema,
-  ScheduleItemSchema,
   type DayPlan,
-  type PlannedItem,
-  type ReplanChange,
   type ScheduleItem,
 } from "@/lib/schemas";
 import { addDays, ceilToMinutes, formatTime, getWeekStart, toDateStr } from "@/lib/datetime";
@@ -17,8 +14,9 @@ import { withDisplayState } from "@/lib/server/calendar";
 import { getNow } from "@/lib/server/clock";
 import { buildPlanningContext } from "@/lib/server/planning-context";
 import { PROVISIONAL_END_NOTE, toReplanningIntent } from "@/lib/server/replan-intent";
+import { buildReplanRows } from "@/lib/server/replan-rows";
 import { upsertCheckin } from "@/lib/server/repositories/daily-checkins";
-import { getActivePlan, listPlanItems, type PlanItemRow } from "@/lib/server/repositories/plans";
+import { getActivePlan, listPlanItems } from "@/lib/server/repositories/plans";
 import {
   getPlanVersion,
   insertReplanProposal,
@@ -155,59 +153,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 8. updated_days の全項目に新しい UUID を振る。after 側（proposal.after・changes の after）も同じ対応で置き換える。
-    // before 側は元の id のまま（画面が before の id で「変更なし」を数える）。
-    // 今日の locked な項目は Before の値のまま、carried は保存されている値を引き継ぐ
+    // 8. updated_days の全項目に新しい UUID を振り、保存する行と after 側の id を組み立てる（lib/server/replan-rows.ts）。
+    // 行の中身は Engine の項目のまま（Engine が now で切った進行中のタスクを Before の値で戻さない。FR-12-4 の例外）
     const storedRows = await listPlanItemRows(supabase, active.id);
-    const lockedBefore = new Map(
-      beforeToday.filter((item) => item.locked).map((item) => [item.id, item]),
-    );
-    const idMap = new Map<string, string>();
-    const newId = (oldId: string) => {
-      let id = idMap.get(oldId);
-      if (!id) {
-        id = crypto.randomUUID();
-        idMap.set(oldId, id);
-      }
-      return id;
-    };
-    const toRow = (item: PlannedItem, date: string): PlanItemRow => {
-      const stored = storedRows.get(item.id);
-      const base = lockedBefore.get(item.id) ?? ScheduleItemSchema.parse(item);
-      return {
-        ...ScheduleItemSchema.parse(base),
-        id: newId(item.id),
-        user_id: user.id,
-        weekly_plan_id: active.id,
-        date,
-        // Engine は Before（reason_code なし）から写した項目の reason_code を知らないので、理由が同じなら保存されている値を使う
-        reason_code:
-          item.reason_code ?? (stored && stored.reason === base.reason ? stored.reason_code : null),
-        carried: stored?.carried ?? false,
-      };
-    };
-    const updatedDays = result.updated_days.map((day) => ({
-      date: day.date,
-      items: day.items.map((item) => toRow(item, day.date)),
-    }));
-    const remap = (item: ScheduleItem): ScheduleItem => ({ ...item, id: newId(item.id) });
-    const remapChange = (change: ReplanChange): ReplanChange => ({
-      ...change,
-      after: change.after.map(remap),
+    const rows = buildReplanRows({
+      result,
+      storedRows,
+      userId: user.id,
+      weeklyPlanId: active.id,
+      newId: () => crypto.randomUUID(),
     });
+    const updatedDays = rows.updatedDays;
 
     const proposalId = crypto.randomUUID();
     const proposal = ReplanProposalSchema.parse({
-      ...result.proposal,
+      ...rows.proposal,
       proposal_id: proposalId,
-      after: { date: result.proposal.after.date, items: result.proposal.after.items.map(remap) },
-      changes: result.proposal.changes.map(remapChange),
-      other_day_changes: result.proposal.other_day_changes.map(remapChange),
       // 終わりの時刻を仮置きした予定があれば、そのことを伝える（補正 C-10）
       summary_message:
-        converted.provisional_end && !result.proposal.summary_message.includes(PROVISIONAL_END_NOTE)
-          ? `${result.proposal.summary_message}${PROVISIONAL_END_NOTE}`
-          : result.proposal.summary_message,
+        converted.provisional_end && !rows.proposal.summary_message.includes(PROVISIONAL_END_NOTE)
+          ? `${rows.proposal.summary_message}${PROVISIONAL_END_NOTE}`
+          : rows.proposal.summary_message,
     });
 
     // 9. 保存（base_version ＝有効な計画の version、expires_at ＝実際の現在時刻＋30分）
