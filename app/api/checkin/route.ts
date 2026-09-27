@@ -1,23 +1,8 @@
 import type { NextRequest } from "next/server";
 import { CheckinRequestSchema, CheckinResponseSchema } from "@/lib/schemas";
-import { handle, HttpError, parseBody } from "@/lib/server/http";
+import { handle, parseBody, requireValidDate } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
 import { getCheckin, upsertCheckin, type CheckinWrite } from "@/lib/server/repositories/daily-checkins";
-
-// YYYY-MM-DD の実在する日付か（2026-02-30 などは不可）
-function isValidDate(date: string): boolean {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (!m) return false;
-  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  return d.toISOString().slice(0, 10) === date;
-}
-
-function requireValidDate(date: string | null): string {
-  if (date === null || !isValidDate(date)) {
-    throw new HttpError(400, "INVALID_REQUEST", "日付は YYYY-MM-DD の形で指定してください");
-  }
-  return date;
-}
 
 // GET /api/checkin?date=YYYY-MM-DD（backend.md 9.3）：{ checkin }。なければ checkin: null
 export async function GET(request: NextRequest) {

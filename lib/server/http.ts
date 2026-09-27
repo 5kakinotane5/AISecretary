@@ -53,3 +53,18 @@ export function parseValue<T>(value: unknown, schema: z.ZodType<T>): T {
   if (!parsed.success) throw new HttpError(400, "INVALID_REQUEST", "リクエストの形が正しくありません");
   return parsed.data;
 }
+// YYYY-MM-DD の実在する日付か（2026-02-30 などは不可）
+function isValidDate(date: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return false;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.toISOString().slice(0, 10) === date;
+}
+
+// クエリ・本文の日付を検証する。YYYY-MM-DD の実在する日付でなければ 400
+export function requireValidDate(date: string | null): string {
+  if (date === null || !isValidDate(date)) {
+    throw new HttpError(400, "INVALID_REQUEST", "日付は YYYY-MM-DD の形で指定してください");
+  }
+  return date;
+}

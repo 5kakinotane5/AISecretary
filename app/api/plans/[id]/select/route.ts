@@ -4,8 +4,6 @@ import { handle, HttpError } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
 import { getNow } from "@/lib/server/clock";
 import { getPlan, selectPlan } from "@/lib/server/repositories/plans";
-import { setActivePlanStyle } from "@/lib/mock/store";
-
 // POST /api/plans/{id}/select（plans-replan.md 11.1 FR-08-13）：{ active_plan_id }
 // select_plan(id, getNow())。候補でない id は404。
 // preference_weights の学習（P9.2、優先度B）は作らない
@@ -17,11 +15,6 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/plans/[
     const plan = await getPlan(supabase, id);
     if (!plan || plan.status !== "candidate") throw new HttpError(404, "NOT_FOUND", "選べる案が見つかりません");
     await selectPlan(supabase, plan.id, await getNow(user.id, supabase));
-
-    // TODO: calendar を本番化したら削除。/today・/calendar がまだモックの状態（lib/mock/store の active_plan_style）を
-    // 見てモックの計画を出すため、選んだ案の style をそちらにも入れる（common.md 1.6「モックの状態と DB を混ぜない」の一時的な例外）
-    setActivePlanStyle(plan.style);
-
     return SelectPlanResponseSchema.parse({ active_plan_id: plan.id });
   });
 }
