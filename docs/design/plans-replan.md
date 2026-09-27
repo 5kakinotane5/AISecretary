@@ -92,7 +92,7 @@ generate の手順：
 7. replan(context, beforeDays, intent)
      { ok: false } → { supported: false, message: reason ＋ required_changes }
 8. updated_days の全項目に新しい UUID を振り、proposal の after と、changes・other_day_changes の after の項目も同じ対応で置き換える。
-   **before と changes[].before の項目は元の id のまま**（画面が before の id で「変更なし」を数えるため）。今日の locked な項目・carried の値は Before のまま引き継ぐ
+   **before と changes[].before の項目は元の id のまま**（画面が before の id で「変更なし」を数えるため）。行の中身は Engine の項目のまま（locked な項目を変えていないことは Validator の LOCKED_ITEM_CHANGED で確かめる。FR-12-4 の例外で now で切ったタスクがあるため）。carried は保存されている行の値を引き継ぐ（Engine が新しく作った項目は false）
 9. replan_proposals に保存（base_version = 有効な計画の version、expires_at = 実際の現在時刻 + 30分）
 10. ReplanProposal（proposal_id = 保存した行の id）を返す
 ```
