@@ -155,17 +155,12 @@ export function replanReason(
   });
 }
 
-export type ReplanSummaryOptions = {
-  fixedEventEndWasAssumed?: boolean;
-};
-
 export function buildReplanSummary(
   context: PlanningContext,
   intent: ReplanProposal["intent"],
   changes: readonly ReplanChange[],
   otherChanges: readonly ReplanChange[],
   todayItems: readonly ScheduleItem[],
-  options: ReplanSummaryOptions = {},
 ): string {
   const rawMovedChanges = intent.type === "new_fixed_event"
     ? [...otherChanges, ...changes.filter((change) => change.change_type === "moved" && change.moved_to_date !== null)]
@@ -212,9 +207,7 @@ export function buildReplanSummary(
   if (intent.type === "new_fixed_event") {
     const fixed = [...intent.new_fixed_events].sort((a, b) => a.start_at.localeCompare(b.start_at) || a.id.localeCompare(b.id))[0];
     const time = fixed?.start_at.slice(11, 16) ?? "時刻未定";
-    const lead = moved.length ? `${time}からの予定を入れ、${[...new Set(moved)].join("、")}に移しました。` : `${time}からの予定を入れました。`;
-    const assumed = options.fixedEventEndWasAssumed ? "終わりの時刻が分からないため、1時間で仮置きしました。" : "";
-    return `${lead}${assumed}`;
+    return moved.length ? `${time}からの予定を入れ、${[...new Set(moved)].join("、")}に移しました。` : `${time}からの予定を入れました。`;
   }
   if (intent.type === "task_change") {
     const descriptions = changes.map((change) => {

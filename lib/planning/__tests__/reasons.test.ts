@@ -109,7 +109,6 @@ describe("reasons", () => {
     const fixed = { id: "fx_added", title: "面談", category: "other" as const, location_id: null, start_at: "2026-10-05T20:00:00+09:00", end_at: "2026-10-05T21:00:00+09:00", recurrence: null };
     const fixedIntent: ReplanProposal["intent"] = { type: "new_fixed_event", fatigue: null, task_changes: [], new_fixed_events: [fixed], preference_changes: [] };
     expect(buildReplanSummary(context, fixedIntent, [], [], [])).toBe("20:00からの予定を入れました。");
-    expect(buildReplanSummary(context, fixedIntent, [], [], [], { fixedEventEndWasAssumed: true })).toBe("20:00からの予定を入れました。終わりの時刻が分からないため、1時間で仮置きしました。");
 
     const before = item({ kind: "task", title: "レポート", task_id: "task_report" });
     const after = item({ id: "short", kind: "task", title: "レポート", task_id: "task_report", end_at: "2026-10-05T08:30:00+09:00" });
