@@ -96,7 +96,7 @@ vitest.config.mts            # 1.7
 | `on` | LLM（6.2.3） | LLM（7.2.3） | LLM（8.2） | LLM（12.3）。失敗時はキーワード |
 | `off` | 台本（モックと同じ動き。6.2.6） | テンプレート | テンプレート | キーワード（12.3.2） |
 
-- `OPENAI_API_KEY` が空なら、`LLM_MODE` の値にかかわらず `off` として動く
+- `OPENAI_API_KEY` か `OPENAI_MODEL` が空なら、`LLM_MODE` の値にかかわらず `off` として動く
 - `off` は、LLM の実装が遅れたときと、発表中に OpenAI が不調なときの**退避用**。Demo Path は `off` でも最後まで通ること（受け入れテスト 16.3）
 
 ### 1.5 用語
@@ -247,7 +247,7 @@ callStructured<T>(options: {
 |---|---|
 | 呼び方 | `fetch("https://api.openai.com/v1/chat/completions")`。`response_format: { type: "json_schema", json_schema: { name, strict: true, schema } }` |
 | モデル | 環境変数 `OPENAI_MODEL`（Structured Outputs に対応したモデル。コードに直書きしない） |
-| JSON Schema | `z.toJSONSchema(schema)` で作り、`toStrictJsonSchema()`（`client.ts` 内）で、すべてのオブジェクトに `additionalProperties: false` と全キーの `required` を付ける |
+| JSON Schema | `z.toJSONSchema(schema)` で作り、`toStrictJsonSchema()`（`client.ts` 内）で、すべてのオブジェクトに `additionalProperties: false` と全キーの `required` を付ける。先頭の `$schema` は消して渡す |
 | LLM に渡すスキーマ | **型だけ**にする（`.max()`・`.regex()`・`.min()` などの制約を付けない。strict モードで使えない指定があるため）。制約は、受け取ったあとに別の Zod スキーマ（3.3）で検証する |
 | 呼び出しごとの設定 | 下表 |
 | ログ | 入力・出力の文章と APIキーはログに出さない。出してよいのは name・所要時間・成否・エラー種別 |
@@ -258,6 +258,8 @@ callStructured<T>(options: {
 | 3案の文章（7.2.3） | 5000 | 0 | 0.7 | テンプレート文 |
 | 目標タスクの名前（8.2） | 4000 | 0 | 0.3 | テンプレート名 |
 | 再計画の意図（12.3） | 5000 | 0 | 0 | キーワード（12.3.2） |
+
+「失敗」は `LlmError` が投げられたとき。`LlmError` の `kind` は `disabled`（LLM が無効）・`timeout`・`network`（通信エラー）・`http`（2xx 以外）・`refusal`（応答拒否）・`invalid_json`（JSON でない・本文がない）・`invalid_shape`（スキーマに合わない）。
 
 生成（`plans/generate`）では LLM を呼ばない（説明文はテンプレート。13章）。これにより要件定義 10章の「10秒以内」を守る。
 

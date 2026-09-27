@@ -111,8 +111,8 @@
 | `NEXT_PUBLIC_SUPABASE_URL` | | 既存 |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_...` | 利用者用クライアント（`supabase.ts`・`proxy.ts`）。旧称 anon key |
 | `SUPABASE_SECRET_KEY` | `sb_secret_...` | デモ用アカウントの作成だけ（`supabase-admin.ts`）。`NEXT_PUBLIC_` を付けない。画面に出さない。旧称 service_role key |
-| `OPENAI_API_KEY` | | サーバーのみ。空なら `LLM_MODE=off` として動く |
-| `OPENAI_MODEL` | | サーバーのみ（2.4） |
+| `OPENAI_API_KEY` | | サーバーのみ。空なら `LLM_MODE` にかかわらず `off` として動く |
+| `OPENAI_MODEL` | `gpt-4.1-nano` | サーバーのみ（2.4）。空なら `LLM_MODE` にかかわらず `off` として動く。推奨は `gpt-4.1-nano`（temperature を指定するため、推論モデルは使えない） |
 | `LLM_MODE` | `on` | `on` / `off`（1.4） |
 | `DEMO_MODE` | `1` | 1.3 |
 | `DEMO_USER_EMAIL` | `demo@example.com` | 4.5 |

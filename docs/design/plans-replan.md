@@ -107,7 +107,7 @@ generate の手順：
   - `task_changes[].task_id` が入力の一覧にない → その要素を捨てる
   - `new_fixed_events`：`start_time`・`end_time` を今日の日時にする。`end_time` が null → 開始＋60分（**補正 C-10**。要約で「終わりの時刻が分からないため、1時間で仮置きしました。」と伝える）。`title` が null →「予定」。`category: "other"`、`location_id: null`、`recurrence: null`、`id`：UUID。開始が `now` より前・開始 ≥ 終了・終了が24:00を超える → 捨てる
   - 捨てた結果、その type の中身が空 → `unknown` として扱う
-- 失敗（タイムアウト・形が違う）→ 12.3.2 のキーワードで取り出す
+- 失敗（`LlmError`：タイムアウト・HTTP エラー・通信エラー・応答拒否・形が違う。変換中の例外も含む）→ 12.3.2 のキーワードで取り出す。LLM が `unknown` を返したときはそのまま使う
 
 #### 12.3.2 キーワード（`lib/llm/replan-keywords.ts`。`LLM_MODE=off` と失敗時）
 
