@@ -3,8 +3,8 @@ import type { z } from "zod";
 import { INTERVIEW_CATEGORIES, type Goal, type InterviewLlmSchema, type InterviewStep } from "@/lib/schemas";
 import { LlmError } from "@/lib/llm/client";
 import { buildGoalCandidates } from "@/lib/server/goal-candidates";
-import { answerByLlm, checkExtracted, decideNext } from "@/lib/server/interview-llm";
-import { buildSummaryMessage, PROVISIONAL_NOTE } from "@/lib/server/interview-summary";
+import { answerByLlm, checkExtracted, decideNext, dropDeadlineConditions } from "@/lib/server/interview-llm";
+import { buildGoalDraft, buildSummaryMessage, PROVISIONAL_NOTE } from "@/lib/server/interview-summary";
 import { EMPTY_SLOTS, type InterviewSession, type InterviewSlots } from "@/lib/server/repositories/interview";
 
 // LLM_MODE=on のヒアリング（backend.md 6.2.2・6.2.3）。
@@ -124,6 +124,29 @@ describe("checkExtracted", () => {
   });
 });
 
+describe("dropDeadlineConditions", () => {
+  const withDeadline = (conditions: string[], deadline: string | null = "2026-12-13") =>
+    dropDeadlineConditions({ ...EMPTY_SLOTS, deadline, conditions }).conditions;
+
+  it("deadline と同じ日付の条件だけ落ちる", () => {
+    expect(withDeadline(["12月13日の試験まで", "平日の夜に勉強したい"])).toEqual(["平日の夜に勉強したい"]);
+  });
+
+  it("全角「１２/１３まで」・「12/13」も落ちる。別の日付「11月1日に模試」は残る", () => {
+    expect(withDeadline(["１２/１３まで", "12/13", "11月1日に模試"])).toEqual(["11月1日に模試"]);
+  });
+
+  it("先頭の0あり（「01月05日」「1/05」）も落ちる。「12/130」「2/13」は別の日付なので残る", () => {
+    expect(withDeadline(["01月05日まで", "1/05に受験", "1月5日"], "2027-01-05")).toEqual([]);
+    expect(withDeadline(["12/130", "2/13"])).toEqual(["12/130", "2/13"]);
+    expect(withDeadline(["12/13"], "2027-02-13")).toEqual(["12/13"]);
+  });
+
+  it("deadline が null なら何もしない（「年内に」は残る）", () => {
+    expect(withDeadline(["年内に", "12月13日まで"], null)).toEqual(["年内に", "12月13日まで"]);
+  });
+});
+
 describe("decideNext", () => {
   it("ステップ1：category なし → 聞き直し、もう一度なし → その他で進む", () => {
     expect(decideNext(1, 0, EMPTY_SLOTS)).toEqual({ advance: false, slots: EMPTY_SLOTS });
@@ -195,6 +218,27 @@ describe("answerByLlm", () => {
     });
     expect(answer.ai_message).toContain("ありがとうございます。12/13まで約10週間です。登録済みの");
     expect(answer.slots).toMatchObject({ deadline: "2026-12-13", weekday_time_band: "evening", weekend_time_band: "evening" });
+  });
+
+  it("前のターンの deadline と同じ日付の条件は、マージ後の conditions に残らない。要約に期限は1回だけ", async () => {
+    enableLlm();
+    mockLlm({
+      interview: interviewReply({ conditions: ["12月13日まで", "平日の夜に勉強したい"] }, { next_message: "次の質問です。" }),
+    });
+
+    const answer = await answerByLlm({
+      session: session(3, "current_status", { category: "資格・テスト勉強", task_name: "TOEIC学習", deadline: "2026-12-13" }),
+      stepIndex: 3,
+      text: "12月13日までに、平日の夜に勉強したい",
+      recentMessages: [],
+      today: TODAY,
+      loadGoalCandidates: noCandidates,
+    });
+    expect(answer.slots.deadline).toBe("2026-12-13");
+    expect(answer.slots.conditions).toEqual(["平日の夜に勉強したい"]);
+
+    const goal = buildGoalDraft(answer.slots, { style: "balanced", hours_per_week: 6 });
+    expect(buildSummaryMessage(goal, [], TODAY)).toContain("・TOEIC学習：週6時間（12/13まで・平日の夜に勉強したい）");
   });
 
   it("ステップ3の回答 → LLM の質問。クイックリプライは21文字の案を落とし、最大5個で末尾が「未定」", async () => {

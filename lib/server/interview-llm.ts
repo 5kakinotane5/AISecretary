@@ -99,6 +99,16 @@ export function checkExtracted(raw: ExtractedRaw, today: string): InterviewSlots
   };
 }
 
+// deadline と同じ月・日を表す条件（「12月13日の試験まで」「12/13」）を conditions から落とす。
+// 要約で期限が「12/13まで」と条件の両方に出ないようにするため。deadline が null なら何もしない。
+// NFKC で正規化して「M月D日」「M/D」（先頭の0あり・なし）を探す。別の日付の条件は残す
+export function dropDeadlineConditions(slots: InterviewSlots): InterviewSlots {
+  if (slots.deadline === null) return slots;
+  const [, month, day] = slots.deadline.split("-").map(Number);
+  const md = new RegExp(`(?<!\\d)0?${month}(月0?${day}日|/0?${day}(?!\\d))`);
+  return { ...slots, conditions: slots.conditions.filter((c) => !md.test(c.normalize("NFKC"))) };
+}
+
 // 進むか聞き直すか（6.2.2 の表）。slots はマージ後。retryCount はこのステップで今までに聞き直した回数。
 // ステップ1で上限に達したら category を「その他」にして進む。ステップ2で上限に達したら task_name は null のまま進む
 // （buildGoalDraft が taskNameOf で仮置きする）
@@ -157,7 +167,8 @@ export async function answerByLlm(args: {
     today,
   });
 
-  const merged = mergeSlots(session.slots, checkExtracted(llm.extracted, today));
+  // マージ後にかける（前のターンの deadline と、今回の同じ日付の条件の組み合わせも落とすため）
+  const merged = dropDeadlineConditions(mergeSlots(session.slots, checkExtracted(llm.extracted, today)));
   const decision = decideNext(stepIndex, session.retry_count, merged);
   const slots = decision.slots;
 
