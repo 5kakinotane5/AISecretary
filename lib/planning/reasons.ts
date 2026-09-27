@@ -138,8 +138,8 @@ export function addIntensiveLightTask(context: PlanningContext, days: readonly D
 
 /** plans-replan.md 13.2 の再計画用テンプレート。 */
 export function replanReason(
-  code: Extract<ReasonCode, "REST" | "TIRED_LIGHT" | "TIRED_MOVED" | "GOAL_CARRYOVER" | "BUFFER_MERGED" | "FREE_EXTENDED" | "FIXED_EVENT_ADDED" | "USER_POSTPONED" | "NEXT_WEEK">,
-  values: { task?: Task; replacement?: Task; date?: string; time?: string; context: PlanningContext },
+  code: Extract<ReasonCode, "REST" | "TIRED_LIGHT" | "TIRED_MOVED" | "GOAL_CARRYOVER" | "BUFFER_MERGED" | "FREE_EXTENDED" | "FIXED_EVENT_ADDED" | "USER_POSTPONED" | "USER_SKIPPED" | "USER_SHORTENED" | "NEXT_WEEK">,
+  values: { task?: Task; replacement?: Task; date?: string; time?: string; minutes?: number; context: PlanningContext },
 ): string {
   const task = values.task;
   const goal = task?.goal_id ? values.context.goals.find((entry) => entry.id === task.goal_id) : null;
@@ -151,6 +151,7 @@ export function replanReason(
     replacementTaskName: values.replacement?.title,
     date: values.date,
     time: values.time,
+    minutes: values.minutes,
   });
 }
 
@@ -219,9 +220,12 @@ export function buildReplanSummary(
     const descriptions = changes.map((change) => {
       const source = change.before ?? change.after[0];
       if (!source) return null;
+      if (source.kind !== "task") return null;
       if (change.change_type === "shortened") {
         const minutes = change.after.filter((entry) => entry.kind === "task").reduce((sum, entry) => sum + diffMinutesExact(entry.start_at, entry.end_at), 0);
-        return formatReason("USER_SHORTENED", { taskName: source.title, minutes });
+        const movedRemainder = otherChanges.find((entry) => entry.change_type === "moved" && entry.before?.id === change.before?.id && entry.moved_to_date);
+        const movedPart = movedRemainder?.moved_to_date ? `。残りは${getWeekdayJa(movedRemainder.moved_to_date)}曜に回しました` : "";
+        return `${formatReason("USER_SHORTENED", { taskName: source.title, minutes })}${movedPart}`;
       }
       if (change.change_type === "removed") return formatReason("USER_SKIPPED", { taskName: source.title });
       if (change.moved_to_date) return formatReason("USER_POSTPONED", { taskName: source.title, date: change.moved_to_date });

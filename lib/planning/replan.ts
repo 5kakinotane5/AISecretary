@@ -317,6 +317,123 @@ function replanNewFixedEvent(
   return EngineReplanResultSchema.parse({ ok: true, proposal, updated_days: updated });
 }
 
+function taskChangeFailure(message: string): EngineReplanResult {
+  return fail(message, []);
+}
+
+function replanTaskChange(
+  context: PlanningContext,
+  days: PlannedDay[],
+  intent: Intent & { type: "task_change" },
+): EngineReplanResult {
+  const today = toDateStr(context.now);
+  const todayDay = days.find((day) => day.date === today);
+  if (!todayDay) return fail("今日の計画がありません。");
+  if (intent.task_changes.length === 0) return taskChangeFailure("変更するタスクを指定してください。");
+
+  const actionsByTask = new Map<string, Set<string>>();
+  for (const change of intent.task_changes) {
+    const actions = actionsByTask.get(change.task_id) ?? new Set<string>();
+    actions.add(change.action);
+    actionsByTask.set(change.task_id, actions);
+  }
+  const conflict = [...actionsByTask.entries()].find(([, actions]) => actions.size > 1);
+  if (conflict) return taskChangeFailure("同じタスクに複数の変更が指定されています。変更内容を1つにしてください。");
+
+  const normalizedChanges = [...actionsByTask.entries()]
+    .map(([task_id, actions]) => ({ task_id, action: [...actions][0] as "postpone" | "skip" | "shorten" }))
+    .sort((a, b) => a.task_id.localeCompare(b.task_id));
+  for (const change of normalizedChanges) {
+    const task = findTask(context, change.task_id);
+    if (!task) return taskChangeFailure("指定されたタスクが見つかりません。");
+    const hasAnyToday = todayDay.items.some((item) => item.kind === "task" && item.task_id === task.id);
+    if (!hasAnyToday) return taskChangeFailure(`${task.title}は今日の計画にありません。`);
+    const modifiable = todayDay.items.some((item) => item.kind === "task" && item.task_id === task.id && item.start_at >= context.now && !item.locked && item.status !== "completed");
+    if (!modifiable) return taskChangeFailure(`${task.title}には変更できる今後の予定がありません。`);
+  }
+
+  const beforeSnapshot = structuredClone(days);
+  const diff = new ReplanDiffBuilder();
+  const orderedTargets = normalizedChanges.flatMap((change) => todayDay.items
+    .filter((item) => item.kind === "task" && item.task_id === change.task_id && item.start_at >= context.now && !item.locked && item.status !== "completed")
+    .map((item) => ({ change, item })))
+    .sort((a, b) => compare(a.item, b.item));
+
+  for (const { change, item: source } of orderedTargets) {
+    const task = findTask(context, change.task_id)!;
+    const currentIndex = todayDay.items.findIndex((item) => item.id === source.id);
+    if (currentIndex < 0) continue;
+    const current = todayDay.items[currentIndex] as PlannedItem;
+    const following = todayDay.items[currentIndex + 1] as PlannedItem | undefined;
+    const followingBuffer = following?.kind === "buffer" && !following.locked && following.start_at === current.end_at ? following : null;
+    const originalMinutes = duration(current);
+    const shortenedMinutes = change.action === "shorten" ? Math.floor((originalMinutes / 2) / 5) * 5 : 0;
+    const keptMinutes = change.action === "shorten" && shortenedMinutes >= 30 ? shortenedMinutes : 0;
+    const remainingMinutes = originalMinutes - keptMinutes;
+    const sourceEnd = followingBuffer?.end_at ?? current.end_at;
+    const sourceItems = new Set([current.id, ...(followingBuffer ? [followingBuffer.id] : [])]);
+    todayDay.items = todayDay.items.filter((item) => !sourceItems.has(item.id));
+
+    let shortened: PlannedItem | null = null;
+    if (keptMinutes > 0) {
+      const shortenedEnd = addMinutes(current.start_at, keptMinutes);
+      const shortenReason = replanReason("USER_SHORTENED", { context, task, minutes: keptMinutes });
+      shortened = withReason({ ...current, end_at: shortenedEnd }, "USER_SHORTENED", shortenReason);
+      const bufferEnd = addMinutes(shortenedEnd, CONFIG.replan.buffer_minutes);
+      const buffer = planned(current, "buffer", shortenedEnd, bufferEnd, "バッファ");
+      todayDay.items.push(shortened, buffer);
+      if (bufferEnd < sourceEnd) todayDay.items.push(planned(current, "free", bufferEnd, sourceEnd, "自由時間"));
+      diff.record("today", { change_type: "shortened", before: current, after: [shortened], reason: shortenReason });
+    } else {
+      todayDay.items.push(planned(current, "free", current.start_at, sourceEnd, "自由時間"));
+      if (change.action === "shorten") {
+        const shortenReason = replanReason("USER_SHORTENED", { context, task, minutes: 0 });
+        diff.record("today", { change_type: "shortened", before: current, after: [], reason: shortenReason });
+      }
+    }
+    if (followingBuffer) diff.record("today", { change_type: "removed", before: followingBuffer, reason: replanReason("BUFFER_MERGED", { context }) });
+    todayDay.items = mergeAdjacentFree(todayDay.items as PlannedItem[]);
+
+    const kind = classifyTask(task);
+    const optional = kind === "optional" || kind === "light";
+    const skipOptional = change.action === "skip" && optional;
+    if (skipOptional) {
+      const skippedReason = replanReason("USER_SKIPPED", { context, task });
+      diff.record("today", { change_type: "removed", before: current, reason: skippedReason });
+      continue;
+    }
+
+    if (task.deadline_at && toDateStr(task.deadline_at) > addDays(context.week_start, 6)) {
+      const nextWeekReason = replanReason("NEXT_WEEK", { context, task });
+      diff.record("today", { change_type: "removed", before: current, reason: nextWeekReason });
+      continue;
+    }
+
+    const moveReason: MoveReason = kind === "goal" ? "GOAL_CARRYOVER" : "USER_POSTPONED";
+    const moved = moveFuture(context, days, task, remainingMinutes, current, moveReason, diff);
+    if (!moved) {
+      if (optional) {
+        const skippedReason = replanReason("USER_SKIPPED", { context, task });
+        diff.record("today", { change_type: "removed", before: current, reason: skippedReason });
+        continue;
+      }
+      return fail(kind === "goal" ? "今週の目標時間を置く空き時間が足りません。" : `${task.title}を締切までに移せる空き時間がありません。`, [`${task.title}の予定を調整する`]);
+    }
+    const todayReason = replanReason("USER_POSTPONED", { context, task, date: moved.date });
+    if (change.action !== "shorten") diff.record("today", { change_type: "moved", before: current, after: [], moved_to_date: moved.date, reason: todayReason });
+  }
+
+  const finalDays = stableIds(days, context.style!);
+  const validation = validatePlan(context, finalDays, "replan", { before: beforeSnapshot });
+  if (validation.errors.length) return fail(`再計画後の検証に失敗しました：${validation.errors[0].message}`);
+  const changes = resolveRecordedItems(diff.build(), finalDays);
+  const finalToday = finalDays.find((day) => day.date === today)!;
+  const summary = buildReplanSummary(context, intent, changes.changes, changes.other_day_changes, finalToday.items);
+  const proposal = { date: today, intent, before: beforeSnapshot.find((day) => day.date === today)!, after: finalToday, ...changes, summary_message: summary };
+  const updated = finalDays.filter((day) => day.date === today || changes.other_day_changes.some((entry) => entry.moved_to_date === day.date));
+  return EngineReplanResultSchema.parse({ ok: true, proposal, updated_days: updated });
+}
+
 /** plans-replan.md 12.4: 今日を直接作り直し、必要分だけ明日以降へ移す。 */
 export function replan(inputContext: PlanningContext, inputDays: readonly DayPlan[], inputIntent: Intent): EngineReplanResult {
   const context = PlanningContextSchema.parse(structuredClone(inputContext));
@@ -324,6 +441,7 @@ export function replan(inputContext: PlanningContext, inputDays: readonly DayPla
   if (context.style === null) return fail("先にプランを選んでください。");
   const days = normalizeBefore(structuredClone(inputDays), context.now);
   if (intent.type === "new_fixed_event") return replanNewFixedEvent(context, days, intent as Intent & { type: "new_fixed_event" });
+  if (intent.type === "task_change") return replanTaskChange(context, days, intent as Intent & { type: "task_change" });
   if ((intent.type as string) !== "state_change") {
     return fail("ごめんなさい、この内容はまだ計画に反映できません。『今日は疲れた』『20時から1時間予定が入った』『今日はもう勉強したくない』のように教えてください。", []);
   }
