@@ -11,7 +11,7 @@ import { GoalCandidateCard } from "@/components/interview/GoalCandidateCard";
 import { MobileShell } from "@/components/layout/MobileShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { confirmInterview, generatePlans, sendInterviewMessage, startInterview } from "@/lib/api";
+import { ApiError, confirmInterview, generatePlans, sendInterviewMessage, startInterview } from "@/lib/api";
 import { ONBOARDING_LABELS, formatGoalSelectionMessage } from "@/lib/labels";
 import type { GoalPlanStyle, GoalTimeCandidate, InterviewTurn } from "@/lib/schemas";
 
@@ -74,6 +74,8 @@ export default function InterviewPage() {
   const [latestTurn, setLatestTurn] = useState<InterviewTurn | null>(null);
   const [pending, setPending] = useState<"message" | "generate" | null>(null);
   const [failedTask, setFailedTask] = useState<(() => void) | null>(null);
+  const [failedTaskKind, setFailedTaskKind] = useState<"message" | "generate" | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<{ style: GoalPlanStyle; hours: number } | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
@@ -90,10 +92,16 @@ export default function InterviewPage() {
   /** API呼び出しを実行し、失敗したら同じ呼び出しをやり直せるように覚えておく */
   async function run(kind: "message" | "generate", task: () => Promise<void>) {
     setFailedTask(null);
+    setFailedTaskKind(null);
+    setGenerateError(null);
     setPending(kind);
     try {
       await task();
-    } catch {
+    } catch (error) {
+      setFailedTaskKind(kind);
+      if (kind === "generate") {
+        setGenerateError(error instanceof ApiError ? error.message : ONBOARDING_LABELS.generateError);
+      }
       setFailedTask(() => () => void run(kind, task));
     } finally {
       setPending(null);
@@ -152,6 +160,11 @@ export default function InterviewPage() {
 
   const bottom = confirmed ? (
     <div className="border-t bg-card px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      {generateError ? (
+        <p role="alert" className="mb-3 text-sm font-medium text-destructive">
+          {generateError}
+        </p>
+      ) : null}
       <Button size="cta" onClick={createSchedule} disabled={busy}>
         {pending === "generate" ? ONBOARDING_LABELS.generating : ONBOARDING_LABELS.generatePlans}
       </Button>
@@ -219,7 +232,9 @@ export default function InterviewPage() {
 
         {pending === "message" ? <ChatTypingBubble /> : null}
         {pending === "generate" ? <LoadingState message={ONBOARDING_LABELS.generating} rows={3} /> : null}
-        {failedTask ? <ErrorState message="送信に失敗しました。" onRetry={failedTask} /> : null}
+        {failedTask && failedTaskKind === "message" ? (
+          <ErrorState message={ONBOARDING_LABELS.sendFailed} onRetry={failedTask} />
+        ) : null}
 
         <div ref={endRef} />
       </div>

@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useApiData } from "@/hooks/use-api-data";
-import { fetchCalendarDay, fetchCalendarMonth, fetchCalendarWeek, fetchDemoNow, fetchSettings, fetchTasks } from "@/lib/api";
+import { fetchCalendarDay, fetchCalendarMonth, fetchCalendarWeek, fetchClock, fetchSettings, fetchTasks } from "@/lib/api";
 import {
   addDays,
   addMonths,
@@ -37,15 +37,15 @@ const VIEW_MODES: CalendarViewMode[] = ["month", "week", "day"];
 const DEFAULT_MODE: CalendarViewMode = "week";
 
 /**
- * /calendar：あなたの航海図（mock-spec.md 2.6、design-spec.md 6章・9.2）。
- * GET /api/mock/clock でデモ時刻を読み、その日を含む週から表示する。
+ * /calendar：あなたの予定表（mock-spec.md 2.6、design-spec.md 6章・9.2）。
+ * GET /api/clock で現在時刻を読み、その日を含む週から表示する。
  * 日表示のタイムライン・詳細シートに使うタスクと場所は GET /api/tasks・GET /api/settings から取る。
  * 週・日・月のデータは表示を切り替えるたびに GET /api/calendar/week・day・month で取る
  * （再計画の確定後は 10/5・10/7・10/8 が振り替え後の内容で返る。4.1章）。
  */
 export default function CalendarPage() {
   const base = useApiData(async () => {
-    const [now, tasks, settings] = await Promise.all([fetchDemoNow(), fetchTasks(), fetchSettings()]);
+    const [now, tasks, settings] = await Promise.all([fetchClock().then((clock) => clock.now), fetchTasks(), fetchSettings()]);
     return { now, tasks, locations: settings.locations };
   }, []);
 

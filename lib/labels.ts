@@ -298,14 +298,16 @@ export const ONBOARDING_LABELS = {
   taglineEn: "Navigate your uncertain future.",
   start: "はじめる",
   interviewTitle: "航海の準備",
-  plansTitle: "航路プランを選ぶ",
+  plansTitle: "予定プランを選ぶ",
   chooseCandidate: "これにする",
   confirmCandidate: "この内容で確定",
   confirmGoal: "確定する",
   generatePlans: "スケジュール作成",
   generating: "スケジュールを作成しています…",
+  generateError: "スケジュールを作成できませんでした。",
+  sendFailed: "送信に失敗しました。",
   selectPlan: "このプランにする",
-  noPlans: "航路プランはまだありません",
+  noPlans: "予定プランはまだありません",
   backToInterview: "航海の準備へ",
   inputWhileChoosing: "上の案から選んでください",
   inputWhileConfirming: "確定ボタンを押してください",
@@ -318,13 +320,14 @@ export const TODAY_LABELS = {
   freeTotal: "自由時間",
   noPlan: "この日の計画はまだありません",
   noPlanHint: "固定の予定だけを表示しています",
+  consultGoal: `${SCREEN_LABELS.goal}を相談する`,
   updated: "計画を更新しました",
 } as const;
 
 export const REPLAN_LABELS = {
   prompt: "予定の変更や、今の状態を教えてください",
   advancedClock: "デモのため、時刻を18:00に進めました",
-  adjusting: "航路を調整しています…",
+  adjusting: "予定を調整しています…",
   changesTitle: "変更点",
   unchanged: (count: number) => `変更なし ${count}件`,
   otherDaysTitle: "ほかの日への影響",
@@ -341,9 +344,8 @@ export const REPLAN_LABELS = {
 /** /replan のクイックリプライ（mock-spec.md 2.5） */
 export const REPLAN_QUICK_REPLIES = [
   "今日は疲れた",
-  "18時から予定が入った",
-  "このタスクを明日に回したい",
-  "今から30分だけ何かやりたい",
+  "20時から1時間予定が入った",
+  "今日はもう勉強したくない",
 ];
 
 /** 再計画の変更の種類（ReplanChange の change_type）ごとの表示名とアイコン */

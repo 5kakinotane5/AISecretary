@@ -16,7 +16,7 @@ import { ChangeList } from "@/components/replan/ChangeList";
 import { Timeline } from "@/components/timeline/Timeline";
 import { Button } from "@/components/ui/button";
 import { useApiData } from "@/hooks/use-api-data";
-import { acceptReplan, fetchDemoNow, requestReplan, setDemoNow } from "@/lib/api";
+import { acceptReplan, fetchClock, requestReplan, setDemoNow } from "@/lib/api";
 import { toDateStr } from "@/lib/datetime";
 import { REPLAN_LABELS, REPLAN_QUICK_REPLIES, SCREEN_LABELS } from "@/lib/labels";
 import type { ReplanProposal } from "@/lib/schemas";
@@ -28,7 +28,7 @@ type SendState = { status: "idle" } | { status: "sending" } | { status: "error";
 
 /**
  * /replan：AIとの対話（mock-spec.md 2.5・10.6・10.20、design-spec.md 6章・9.4）。
- * 開いたら GET /api/mock/clock で時刻を読み、18:00より前なら POST /api/mock/clock で18:00を明示して送る。
+ * 開いたら GET /api/clock で時刻を読み、デモモードで18:00より前なら POST /api/mock/clock で18:00を明示して送る。
  * 「この計画にする」→ POST /api/plans/replan/accept → /today?updated=1。「やめておく」→ /today（何も変えない）。
  */
 export default function ReplanPage() {
@@ -36,13 +36,14 @@ export default function ReplanPage() {
   // 開発時の Strict Mode では読み込みが2回走り、2回目は18:00以降になっているため、進めたことをここに残す
   const advancedRef = useRef(false);
   const clock = useApiData(async () => {
-    const now = await fetchDemoNow();
+    const currentClock = await fetchClock();
+    const now = currentClock.now;
     const eighteen = `${toDateStr(now)}T18:00:00+09:00`;
-    if (now < eighteen) {
+    if (currentClock.demo_mode && now < eighteen) {
       advancedRef.current = true;
-      return { now: await setDemoNow(eighteen), advanced: true };
+      return { now: await setDemoNow(eighteen), advanced: true, demoMode: true };
     }
-    return { now, advanced: advancedRef.current };
+    return { now, advanced: advancedRef.current, demoMode: currentClock.demo_mode };
   }, []);
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -122,8 +123,12 @@ export default function ReplanPage() {
 
   return (
     <MainShell bottom={bottom}>
-      <PageHeader title={SCREEN_LABELS.replan} gradient="deep" trailing={now ? <DemoNowChip now={now} /> : null} />
-      {clock.status === "success" && clock.data.advanced ? (
+      <PageHeader
+        title={SCREEN_LABELS.replan}
+        gradient="deep"
+        trailing={clock.status === "success" && clock.data.demoMode && now ? <DemoNowChip now={now} /> : null}
+      />
+      {clock.status === "success" && clock.data.demoMode && clock.data.advanced ? (
         <p className="px-4 pt-2 text-xs text-muted-foreground">{REPLAN_LABELS.advancedClock}</p>
       ) : null}
 

@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import { z } from "zod";
 import {
   DayViewSchema,
   GeneratePlansResponseSchema,
@@ -27,6 +27,18 @@ import {
   type WeekView,
 } from "./schemas";
 
+const ApiErrorCodeSchema = z.string();
+const ApiErrorSchema = z.object({
+  error: z.union([
+    z.object({ code: ApiErrorCodeSchema, message: z.string() }),
+    z.string(),
+  ]),
+});
+const ClockResponseSchema = z.object({ now: z.string(), demo_mode: z.boolean() });
+
+export type ApiErrorCode = z.infer<typeof ApiErrorCodeSchema>;
+export type ClockResponse = z.infer<typeof ClockResponseSchema>;
+
 // ---------- 画面から呼ぶ fetch 関数（mock-spec.md 1.4・4章・7章） ----------
 // 画面（app/ の page や components/）は mocks/ を直接 import せず、必ずここを通してAPIからデータを受け取る。
 // 画面のURLに ?mock_error=1 が付いていると、リクエストヘッダー x-mock-error: 1 を付けて送り、
@@ -36,6 +48,7 @@ import {
 export class ApiError extends Error {
   constructor(
     readonly status: number,
+    readonly code: ApiErrorCode | null,
     message: string,
   ) {
     super(message);
@@ -69,12 +82,25 @@ async function request<T>(path: string, schema: z.ZodType<T>, init?: RequestInit
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "TimeoutError") {
-      throw new ApiError(0, "応答がありませんでした。時間をおいて再試行してください");
+      throw new ApiError(0, null, "応答がありませんでした。時間をおいて再試行してください");
     }
     throw error;
   }
   if (!response.ok) {
-    throw new ApiError(response.status, `APIの呼び出しに失敗しました（${response.status}）`);
+    const errorBody = await response.json().catch(() => null);
+    const parsedError = ApiErrorSchema.safeParse(errorBody);
+    const error = parsedError.success ? parsedError.data.error : null;
+    const code = error && typeof error !== "string" ? error.code : null;
+    const message =
+      typeof error === "string"
+        ? error
+        : error?.message ?? `APIの呼び出しに失敗しました（${response.status}）`;
+
+    if (response.status === 401 && path !== "/api/auth/mock-login" && typeof window !== "undefined") {
+      window.location.assign("/login");
+    }
+
+    throw new ApiError(response.status, code, message);
   }
   return schema.parse(await response.json());
 }
@@ -86,6 +112,11 @@ function post<T>(path: string, schema: z.ZodType<T>, body?: unknown): Promise<T>
 /** POST /api/auth/mock-login（/login のスプラッシュからは常に email: null。10.11章） */
 export function mockLogin(): Promise<MockLoginResponse> {
   return post("/api/auth/mock-login", MockLoginResponseSchema, { email: null });
+}
+
+/** GET /api/clock：現在時刻とデモモード */
+export function fetchClock(): Promise<ClockResponse> {
+  return request("/api/clock", ClockResponseSchema);
 }
 
 /** POST /api/interview/start */

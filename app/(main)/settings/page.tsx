@@ -14,7 +14,7 @@ import { MainShell } from "@/components/layout/MainShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useApiData } from "@/hooks/use-api-data";
-import { fetchDemoNow, fetchSettings, resetMock, setDemoNow } from "@/lib/api";
+import { fetchClock, fetchSettings, resetMock, setDemoNow } from "@/lib/api";
 import { formatDateLong, toDateStr } from "@/lib/datetime";
 import {
   DEMO_CLOCK_TIMES,
@@ -32,21 +32,22 @@ import { cn } from "@/lib/utils";
 /**
  * /settings：設定（mock-spec.md 2.7、design-spec.md 6章：白いカードに項目を並べる）。
  * 生活リズム・場所・移動時間・目標は GET /api/settings から取り、表示だけする。
- * デモ用の欄は GET・POST /api/mock/clock と POST /api/mock/reset を呼ぶ。
+ * デモ用の欄はデモモードでのみ GET・POST /api/mock/clock と POST /api/mock/reset を呼ぶ。
  */
 export default function SettingsPage() {
   const settings = useApiData(fetchSettings, []);
-  const clock = useApiData(fetchDemoNow, []);
+  const clock = useApiData(fetchClock, []);
   // デモ時刻を切り替えたあとの時刻（取り直さずに、POST の応答で表示を更新する）
   const [changedNow, setChangedNow] = useState<string | null>(null);
-  const now = changedNow ?? (clock.status === "success" ? clock.data : null);
+  const demoMode = clock.status === "success" && clock.data.demo_mode;
+  const now = changedNow ?? (clock.status === "success" ? clock.data.now : null);
 
   return (
     <MainShell>
       <PageHeader
         title={SETTINGS_LABELS.title}
         gradient="header"
-        trailing={now ? <DemoNowChip now={now} /> : null}
+        trailing={demoMode && now ? <DemoNowChip now={now} /> : null}
       />
 
       <div className="flex flex-col gap-4 px-4 py-4">
@@ -62,12 +63,12 @@ export default function SettingsPage() {
         ) : null}
         {settings.status === "success" ? <SettingsSections data={settings.data} /> : null}
 
-        <Section title={SETTINGS_LABELS.demoTitle}>
-          {clock.status === "loading" && !now ? <LoadingState rows={1} /> : null}
-          {clock.status === "error" && !now ? <ErrorState onRetry={clock.retry} /> : null}
-          {now ? <DemoClockSwitch now={now} onChanged={setChangedNow} /> : null}
-          <ResetButton />
-        </Section>
+        {demoMode ? (
+          <Section title={SETTINGS_LABELS.demoTitle}>
+            {now ? <DemoClockSwitch now={now} onChanged={setChangedNow} /> : null}
+            <ResetButton />
+          </Section>
+        ) : null}
       </div>
     </MainShell>
   );
