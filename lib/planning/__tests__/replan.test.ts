@@ -18,13 +18,24 @@ function applyDisplayState(days: readonly DayPlan[], now: string): DayPlan[] {
   }) }));
 }
 
+function toApiDayPlans(days: readonly DayPlan[]): DayPlan[] {
+  return days.map((day) => ({
+    date: day.date,
+    items: day.items.map((item) => {
+      const scheduleItem = { ...item } as typeof item & { reason_code?: unknown };
+      delete scheduleItem.reason_code;
+      return scheduleItem;
+    }),
+  }));
+}
+
 function fixtureBefore(now = "2026-10-05T18:00:00+09:00") {
   const context = createPlanningContext();
   const generated = generatePlans(context);
   if (!generated.ok) throw new Error(generated.infeasible.reason);
   context.now = now;
   context.style = "balanced";
-  return { context, days: applyDisplayState(generated.plans[1].days, now) };
+  return { context, days: applyDisplayState(toApiDayPlans(generated.plans[1].days), now) };
 }
 
 describe("replan state_change", () => {
@@ -32,6 +43,7 @@ describe("replan state_change", () => {
     const fixture = fixtureBefore();
     const beforeContext = structuredClone(fixture.context);
     const beforeDays = structuredClone(fixture.days);
+    expect(beforeDays.flatMap((day) => day.items).every((item) => !("reason_code" in item))).toBe(true);
     const crossingEs = beforeDays[0].items.find((item) => item.task_id === "task_es_b" && item.start_at < fixture.context.now && fixture.context.now < item.end_at)!;
     expect(crossingEs).toMatchObject({ start_at: "2026-10-05T17:35:00+09:00", end_at: "2026-10-05T18:35:00+09:00", locked: true, status: "planned" });
     expect(beforeDays.flatMap((day) => day.items).filter((item) => item.kind === "task" && item.end_at <= fixture.context.now).every((item) => item.locked && item.status === "completed")).toBe(true);
@@ -50,6 +62,8 @@ describe("replan state_change", () => {
       expect.objectContaining({ start_at: "2026-10-05T18:00:00+09:00", reason_code: "REST" }),
       expect.objectContaining({ start_at: "2026-10-05T18:30:00+09:00", reason_code: "TIRED_LIGHT" }),
     ]));
+    expect(updatedMonday.every((item) => "reason_code" in item)).toBe(true);
+    expect(updatedMonday.find((item) => item.title === "夕食")?.reason_code).toBeNull();
     expect(monday.find((item) => item.id === crossingEs.id)).toMatchObject({
       id: crossingEs.id,
       kind: "task",
@@ -111,6 +125,32 @@ describe("replan state_change", () => {
     })).toBe(true);
     expect(fixture.context).toEqual(beforeContext);
     expect(fixture.days).toEqual(beforeDays);
+  }, 30_000);
+
+  it("reason_code付きBeforeは既存値を保持し、nullable欠落だけをnullへ正規化する", () => {
+    const fixture = fixtureBefore();
+    const dinner = fixture.days[0].items.find((item) => item.title === "夕食")! as typeof fixture.days[0]["items"][number] & { reason_code?: "OPTIONAL_EXTRA" };
+    dinner.reason_code = "OPTIONAL_EXTRA";
+    const past = fixture.days[0].items.find((item) => item.kind === "sleep" && item.end_at <= fixture.context.now)! as unknown as Record<string, unknown>;
+    for (const key of ["location_id", "task_id", "fixed_event_id", "fixed_category", "travel", "suggested_task_id", "reason", "reason_code"]) delete past[key];
+    const before = structuredClone(fixture.days);
+
+    const result = replan(fixture.context, fixture.days, fatigueIntent("high"));
+    expect(() => EngineReplanResultSchema.parse(result)).not.toThrow();
+    if (!result.ok) throw new Error(result.infeasible.reason);
+    const monday = result.updated_days.find((day) => day.date === "2026-10-05")!.items;
+    expect(monday.find((item) => item.id === dinner.id)?.reason_code).toBe("OPTIONAL_EXTRA");
+    expect(monday.find((item) => item.id === String(past.id))).toMatchObject({
+      location_id: null,
+      task_id: null,
+      fixed_event_id: null,
+      fixed_category: null,
+      travel: null,
+      suggested_task_id: null,
+      reason: null,
+      reason_code: null,
+    });
+    expect(fixture.days).toEqual(before);
   }, 30_000);
 
   it("fatigue mediumでも同じ配置になりintent値は保持する", () => {

@@ -139,8 +139,8 @@ function isAllowedInProgressTaskSplit(
   now: string,
   allowedIds: ReadonlySet<string>,
 ): boolean {
-  const beforeReasonCode = "reason_code" in before ? before.reason_code : undefined;
-  const afterReasonCode = "reason_code" in after ? after.reason_code : undefined;
+  const beforeReasonCode = "reason_code" in before ? before.reason_code ?? null : null;
+  const afterReasonCode = "reason_code" in after ? after.reason_code ?? null : null;
   return (
     allowedIds.has(before.id) &&
     before.kind === "task" &&

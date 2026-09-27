@@ -1,6 +1,7 @@
 import { addDays, addMinutes, atJstTime, diffMinutesExact, toDateStr } from "@/lib/datetime";
 import {
   EngineReplanResultSchema,
+  PlannedItemSchema,
   PlanningContextSchema,
   ReplanningIntentSchema,
   type DayPlan,
@@ -19,6 +20,7 @@ import { validatePlan } from "./validate";
 
 type Intent = ReplanProposal["intent"];
 type MoveReason = "TIRED_MOVED" | "GOAL_CARRYOVER";
+type PlannedDay = { date: string; items: PlannedItem[] };
 
 const compare = (a: ScheduleItem, b: ScheduleItem) => a.start_at.localeCompare(b.start_at) || a.id.localeCompare(b.id);
 const duration = (item: ScheduleItem) => diffMinutesExact(item.start_at, item.end_at);
@@ -32,8 +34,24 @@ function withReason(item: ScheduleItem, reason_code: PlannedItem["reason_code"],
   return { ...item, reason_code, reason };
 }
 
-function normalizeBefore(days: readonly DayPlan[], now: string): DayPlan[] {
-  return days.map((day) => ({ date: day.date, items: day.items.map((item) => {
+/** DayPlan(API) と reason_code 付き内部項目の境界を PlannedItem にそろえる。 */
+function normalizeBeforeItem(item: ScheduleItem & { reason_code?: unknown }): PlannedItem {
+  return PlannedItemSchema.parse({
+    ...item,
+    location_id: item.location_id ?? null,
+    task_id: item.task_id ?? null,
+    fixed_event_id: item.fixed_event_id ?? null,
+    fixed_category: item.fixed_category ?? null,
+    travel: item.travel ?? null,
+    suggested_task_id: item.suggested_task_id ?? null,
+    reason: item.reason ?? null,
+    reason_code: item.reason_code ?? null,
+  });
+}
+
+function normalizeBefore(days: readonly DayPlan[], now: string): PlannedDay[] {
+  return days.map((day) => ({ date: day.date, items: day.items.map((rawItem) => {
+    const item = normalizeBeforeItem(rawItem);
     if (item.end_at <= now) return { ...item, locked: true, status: item.kind === "task" ? "completed" as const : item.status };
     if (item.start_at < now && item.end_at > now) {
       if (["task", "fixed", "travel", "sleep"].includes(item.kind)) return { ...item, locked: true };
@@ -43,7 +61,7 @@ function normalizeBefore(days: readonly DayPlan[], now: string): DayPlan[] {
   }).sort(compare) }));
 }
 
-function stableIds(days: DayPlan[], style: string): DayPlan[] {
+function stableIds(days: PlannedDay[], style: string): PlannedDay[] {
   return days.map((day) => {
     let sequence = 0;
     return { date: day.date, items: day.items.sort(compare).map((item) => item.id.startsWith("replan_") ? { ...item, id: `tmp_${style}_${day.date}_r${String(++sequence).padStart(3, "0")}` } : item) };
@@ -220,7 +238,7 @@ export function replan(inputContext: PlanningContext, inputDays: readonly DayPla
   }
 
   const removedItems = todayDay.items.filter((item) => affected.has(item.id));
-  const taskPrefixes: ScheduleItem[] = [];
+  const taskPrefixes: PlannedItem[] = [];
   for (const item of removedItems) {
     if (item.kind !== "task") continue;
     const task = findTask(context, item.task_id); if (!task) continue;
@@ -235,11 +253,11 @@ export function replan(inputContext: PlanningContext, inputDays: readonly DayPla
     if (affected.has(item.id)) return false;
     return !(item.kind === "free" || item.kind === "buffer") || item.end_at <= context.now || item.locked || (requiredBufferIds.has(item.id) && item.start_at >= context.now);
   });
-  const prefix: ScheduleItem[] = [];
+  const prefix: PlannedItem[] = [];
   for (const item of originalToday.items.filter((entry) => (entry.kind === "free" || entry.kind === "buffer") && entry.start_at < context.now && entry.end_at > context.now)) prefix.push({ ...item, end_at: context.now, locked: true });
   const fixedKept = [...kept.filter((item) => item.end_at <= context.now || !["free", "buffer"].includes(item.kind) || requiredBufferIds.has(item.id)), ...prefix, ...taskPrefixes].sort(compare);
   const freeGaps = gaps(today, context.now, fixedKept, context.home_location_id);
-  const rebuilt: ScheduleItem[] = [...fixedKept];
+  const rebuilt: PlannedItem[] = [...fixedKept];
   const replacement: PlannedItem[] = [];
 
   if (intent.type === "state_change") {
