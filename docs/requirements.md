@@ -8,12 +8,17 @@
 
 | 資料 | 役割 |
 |---|---|
+| docs/functional-design.md | モックと機能要件の対応、機能ごとの詳細設計、受け入れ条件 |
+| docs/AI秘書_PlanningEngine_3候補生成_数学モデル.md | Planning Engineの数学モデル案 |
+| docs/requirements_final_complete.md | 旧版の参考資料。本書と食い違う場合は本書を優先 |
 | `docs/requirements.md`（本書） | 何を作るか・何を守るか |
 | `docs/codex_人割_タスク細分化_完成版_v2.md` | 誰がいつ何を作るか |
 | `docs/codex_AI投入プロンプト集_完成版_v2.md` | AIへの実装指示 |
 | `docs/mock-spec.md` | モックの画面・データ・デモシナリオ |
 
 資料間で食い違いがある場合は、本書を優先する。本書で決めていないことは推測せず、チームで決めてから本書に追記する。
+
+docs/functional-design.md は本書の機能要件を画面・API・データ・受け入れ条件へ対応付ける補足資料であり、本書の要件を変更しない。
 
 ### 0.2 v1からの主な変更
 

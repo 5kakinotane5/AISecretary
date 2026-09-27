@@ -8,7 +8,6 @@ import { ErrorState } from "@/components/common/ErrorState";
 import { FlashNotice } from "@/components/common/FlashNotice";
 import { LoadingState } from "@/components/common/LoadingState";
 import { SurfaceCard } from "@/components/common/SurfaceCard";
-import { DemoNowChip } from "@/components/layout/DemoNowChip";
 import { MainShell } from "@/components/layout/MainShell";
 import { ItemDetailSheet } from "@/components/timeline/ItemDetailSheet";
 import { Timeline } from "@/components/timeline/Timeline";
@@ -39,7 +38,7 @@ export default function TodayPage() {
         fetchTasks(),
         fetchSettings(),
       ]);
-      return { now, demoMode: clock.demo_mode, day, tasks, settings };
+      return { now, day, tasks, settings };
     },
     [],
     // 固定予定もない日は「データなし」。計画がなく固定予定だけの日は、その旨を添えて表示する
@@ -58,8 +57,8 @@ export default function TodayPage() {
   }
 
   const bottom = (
-    <div className="border-t bg-card px-4 pt-3 pb-3">
-      <Link href="/replan" className={buttonVariants({ size: "cta" })}>
+    <div className="border-t border-border/70 bg-card/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(91,69,201,0.08)] backdrop-blur">
+      <Link href="/replan" className={buttonVariants({ size: "cta", className: "rounded-full" })}>
         {SCREEN_LABELS.replanButton}
       </Link>
     </div>
@@ -77,17 +76,16 @@ export default function TodayPage() {
         <UpdatedNotice />
       </Suspense>
 
-      <header className="px-4 pt-4 pb-12 text-white" style={{ background: "var(--gradient-header)" }}>
+      <header className="px-5 pt-5 pb-12 text-white" style={{ background: "var(--gradient-header)" }}>
         {/* 読み込み中は挨拶と日付の位置にスケルトンを出し、カードの見出しと同じ「今日の予定」は出さない（10.21章） */}
         <div className="flex min-h-11 items-center justify-between gap-2">
           {data ? <p className="text-sm opacity-90">{getGreeting(data.now)}</p> : null}
           {result.status === "loading" ? <Skeleton className="h-4 w-52 rounded-full bg-white/20" /> : null}
-          {data?.demoMode ? <DemoNowChip now={data.now} /> : null}
         </div>
-        {data ? <h1 className="text-2xl font-bold">{formatDateLong(data.day.date)}</h1> : null}
+        {data ? <h1 className="mt-1 text-3xl font-bold tracking-tight">{formatDateLong(data.day.date)}</h1> : null}
         {result.status === "loading" ? <Skeleton className="h-8 w-40 rounded-full bg-white/20" /> : null}
         {data && result.status === "success" ? (
-          <dl className="mt-3 flex flex-wrap gap-2 text-xs">
+          <dl className="mt-4 flex flex-wrap gap-2 text-xs">
             <Total label={TODAY_LABELS.taskTotal} minutes={sumMinutesOfKind(data.day.items, "task")} />
             <Total label={TODAY_LABELS.bufferTotal} minutes={sumMinutesOfKind(data.day.items, "buffer")} />
             <Total label={TODAY_LABELS.freeTotal} minutes={sumMinutesOfKind(data.day.items, "free")} />
@@ -96,8 +94,8 @@ export default function TodayPage() {
       </header>
 
       {/* 白いカード「今日の予定」を上部に少し重ねる（design-spec.md 6章） */}
-      <div className="-mt-8 px-4 pb-4">
-        <SurfaceCard className="flex flex-col gap-3">
+      <div className="-mt-8 px-3 pb-4">
+        <SurfaceCard className="flex min-h-72 flex-col gap-4 rounded-[28px] p-5 shadow-[0_12px_36px_rgba(91,69,201,0.14)]">
           <h2 className="text-lg font-bold">{SCREEN_LABELS.today}</h2>
 
           {result.status === "loading" ? <LoadingState rows={6} /> : null}
@@ -139,7 +137,7 @@ export default function TodayPage() {
 
 function Total({ label, minutes }: { label: string; minutes: number }) {
   return (
-    <div className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1">
+    <div className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/15 px-3 py-1.5 backdrop-blur-sm">
       <dt className="opacity-90">{label}</dt>
       <dd className="font-bold tabular-nums">{formatHours(minutes / 60)}</dd>
     </div>

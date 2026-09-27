@@ -9,14 +9,13 @@ import { QuickReplies } from "@/components/chat/QuickReplies";
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { SurfaceCard } from "@/components/common/SurfaceCard";
-import { DemoNowChip } from "@/components/layout/DemoNowChip";
 import { MainShell } from "@/components/layout/MainShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ChangeList } from "@/components/replan/ChangeList";
 import { Timeline } from "@/components/timeline/Timeline";
 import { Button } from "@/components/ui/button";
 import { useApiData } from "@/hooks/use-api-data";
-import { acceptReplan, fetchClock, requestReplan, setDemoNow } from "@/lib/api";
+import { acceptReplan, fetchClock, requestReplan } from "@/lib/api";
 import { toDateStr } from "@/lib/datetime";
 import { REPLAN_LABELS, REPLAN_QUICK_REPLIES, SCREEN_LABELS } from "@/lib/labels";
 import type { ReplanProposal } from "@/lib/schemas";
@@ -27,24 +26,13 @@ type Message = { id: number; role: "user" | "assistant"; text: string };
 type SendState = { status: "idle" } | { status: "sending" } | { status: "error"; lastText: string };
 
 /**
- * /replan：AIとの対話（mock-spec.md 2.5・10.6・10.20、design-spec.md 6章・9.4）。
- * 開いたら GET /api/clock で時刻を読み、デモモードで18:00より前なら POST /api/mock/clock で18:00を明示して送る。
+ * /replan：AIとの対話（mock-spec.md 2.5、design-spec.md 6章）。
+ * 開いたら GET /api/clock で現在時刻を読み、今日の計画を再調整する。
  * 「この計画にする」→ POST /api/plans/replan/accept → /today?updated=1。「やめておく」→ /today（何も変えない）。
  */
 export default function ReplanPage() {
   const router = useRouter();
-  // 開発時の Strict Mode では読み込みが2回走り、2回目は18:00以降になっているため、進めたことをここに残す
-  const advancedRef = useRef(false);
-  const clock = useApiData(async () => {
-    const currentClock = await fetchClock();
-    const now = currentClock.now;
-    const eighteen = `${toDateStr(now)}T18:00:00+09:00`;
-    if (currentClock.demo_mode && now < eighteen) {
-      advancedRef.current = true;
-      return { now: await setDemoNow(eighteen), advanced: true, demoMode: true };
-    }
-    return { now, advanced: advancedRef.current, demoMode: currentClock.demo_mode };
-  }, []);
+  const clock = useApiData(fetchClock, []);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [send, setSend] = useState<SendState>({ status: "idle" });
@@ -101,7 +89,7 @@ export default function ReplanPage() {
   let bottom = null;
   if (proposal) {
     bottom = (
-      <div className="flex flex-col gap-2 border-t bg-card px-4 pt-3 pb-3">
+      <div className="flex flex-col gap-2 rounded-t-[28px] border-t border-border/70 bg-card/95 px-4 pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(91,69,201,0.08)] backdrop-blur">
         {accepting === "error" ? (
           <ErrorState message={REPLAN_LABELS.acceptError} onRetry={handleAccept} className="py-2" />
         ) : null}
@@ -115,7 +103,7 @@ export default function ReplanPage() {
     );
   } else if (now) {
     bottom = (
-      <div className="border-t bg-background px-4 pt-3 pb-3">
+      <div className="rounded-t-[28px] border-t border-border/70 bg-card/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(91,69,201,0.08)] backdrop-blur">
         <ChatInput onSend={(text) => sendText(text)} disabled={busy} />
       </div>
     );
@@ -123,27 +111,21 @@ export default function ReplanPage() {
 
   return (
     <MainShell bottom={bottom}>
-      <PageHeader
-        title={SCREEN_LABELS.replan}
-        gradient="deep"
-        trailing={clock.status === "success" && clock.data.demoMode && now ? <DemoNowChip now={now} /> : null}
-      />
-      {clock.status === "success" && clock.data.demoMode && clock.data.advanced ? (
-        <p className="px-4 pt-2 text-xs text-muted-foreground">{REPLAN_LABELS.advancedClock}</p>
-      ) : null}
+      <PageHeader title={SCREEN_LABELS.replan} gradient="deep" />
 
-      <div className="flex flex-col gap-4 px-4 py-4">
+      <div className="flex flex-col gap-4 px-3 py-4">
         {clock.status === "loading" ? <LoadingState rows={3} /> : null}
         {clock.status === "error" ? <ErrorState onRetry={clock.retry} /> : null}
 
         {now ? (
           <>
-            <ChatBubble role="assistant">{REPLAN_LABELS.prompt}</ChatBubble>
-            {messages.map((m) => (
-              <ChatBubble key={m.id} role={m.role}>
-                {m.text}
-              </ChatBubble>
-            ))}
+            <div className="flex flex-col gap-3 rounded-[28px] bg-card/70 p-3">
+              <ChatBubble role="assistant">{REPLAN_LABELS.prompt}</ChatBubble>
+              {messages.map((m) => (
+                <ChatBubble key={m.id} role={m.role}>
+                  {m.text}
+                </ChatBubble>
+              ))}
 
             {/* 最後の発言の下に出す。対応していない入力のあとも、選択肢から選び直せるようにする */}
             {!proposal && send.status === "idle" ? (
@@ -180,6 +162,7 @@ export default function ReplanPage() {
                 ) : null}
               </>
             ) : null}
+            </div>
           </>
         ) : null}
         <div ref={endRef} />

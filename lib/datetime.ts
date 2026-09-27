@@ -108,11 +108,6 @@ export function formatTimeRange(startIso: string, endIso: string): string {
   return `${startLabel}–${endLabel}`;
 }
 
-/** "07:00 現在" */
-export function formatDemoNow(isoStr: string): string {
-  return `${formatTime(isoStr)} 現在`;
-}
-
 /** UTC 0時の Date を YYYY-MM-DD にする */
 function formatUtcDate(date: Date): string {
   const y = date.getUTCFullYear();

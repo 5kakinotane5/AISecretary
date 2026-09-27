@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 type TimelineProps = {
   /** その日の項目（開始時刻順） */
   items: ScheduleItem[];
-  /** 現在時刻（demo_now）。「現在地」「次の航路」の強調に使う（design-spec.md 9.8） */
+  /** 現在時刻（demo_now）。「現在地」「次の予定」の強調に使う（design-spec.md 9.8） */
   now?: string | null;
   /** 締切バッジとバッファの候補タスク名を出すためのタスク一覧 */
   tasks?: Task[];
@@ -26,7 +26,7 @@ type TimelineProps = {
 
 type LineStyle = "none" | "solid" | "dashed";
 
-/** 強調する行（design-spec.md 9.8）。now＝現在地、next＝次の航路 */
+/** 強調する行（design-spec.md 9.8）。now＝現在地、next＝次の予定 */
 type Highlight = { itemId: string; kind: "now" | "next" };
 
 const TIME_COL = "w-12";
@@ -42,11 +42,11 @@ function rowClasses(compact: boolean): { row: string; timeCol: string } {
 }
 
 /**
- * 今日の航路のタイムライン（design-spec.md 5.4）。
+ * 今日の予定のタイムライン（design-spec.md 5.4）。
  * 1項目1行のリストで、縦の細い線でつながった丸印を並べる（高さは所要時間に比例させない）。
  * - 移動は丸印を置かず、前後をつなぐ線を点線にして「移動 50分」と小さく表示
  * - 睡眠は1行に折りたたむ
- * - 現在時刻を含む予定の行を「現在地」、該当がなければ次に始まる予定の行を「次の航路」として強調する
+ * - 現在時刻を含む予定の行を「現在地」、該当がなければ次に始まる予定の行を「次の予定」として強調する
  */
 export function Timeline({
   items,
@@ -132,7 +132,7 @@ function containsTime(item: ScheduleItem, isoStr: string): boolean {
 
 /**
  * 現在時刻を含む予定（移動を含む）があれば「現在地」。
- * 睡眠中や予定の間の隙間で該当がなければ、次に始まる予定を「次の航路」にする。睡眠は対象にしない。
+ * 睡眠中や予定の間の隙間で該当がなければ、次に始まる予定を「次の予定」にする。睡眠は対象にしない。
  */
 function findHighlight(items: ScheduleItem[], now: string): Highlight | null {
   const candidates = items.filter((item) => item.kind !== "sleep");
@@ -238,7 +238,7 @@ function HighlightChip({ children }: { children: ReactNode }) {
   );
 }
 
-/** 「現在地」「次の航路」の小さな紫の文字 */
+/** 「現在地」「次の予定」の小さな紫の文字 */
 function HighlightText({ kind }: { kind: Highlight["kind"] }) {
   return (
     <span className="text-[10px] leading-none font-bold whitespace-nowrap" style={{ color: "var(--brand-purple)" }}>
@@ -248,7 +248,7 @@ function HighlightText({ kind }: { kind: Highlight["kind"] }) {
 }
 
 /**
- * 左の時刻。強調する行は時刻を角丸の枠で囲み、その下に「現在地」「次の航路」を小さく添える（design-spec.md 5.4・9.8）
+ * 左の時刻。強調する行は時刻を角丸の枠で囲み、その下に「現在地」「次の予定」を小さく添える（design-spec.md 5.4・9.8）
  */
 function TimeLabel({ isoStr, highlight }: { isoStr: string; highlight: Highlight["kind"] | null }) {
   if (highlight) {

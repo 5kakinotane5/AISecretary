@@ -11,7 +11,6 @@ import { LoadingState } from "@/components/common/LoadingState";
 import { SEGMENT_LIST, SEGMENT_TRIGGER } from "@/components/common/segment";
 import { SurfaceCard } from "@/components/common/SurfaceCard";
 import { MainShell } from "@/components/layout/MainShell";
-import { PageHeader } from "@/components/layout/PageHeader";
 import { ItemDetailSheet } from "@/components/timeline/ItemDetailSheet";
 import { Timeline } from "@/components/timeline/Timeline";
 import { Button } from "@/components/ui/button";
@@ -51,9 +50,16 @@ export default function CalendarPage() {
 
   return (
     <MainShell>
-      <PageHeader title={CALENDAR_LABELS.title} gradient="deep" />
+      <header
+        className="min-h-[190px] px-5 pt-6 pb-16 text-white"
+        style={{ background: "var(--gradient-deep)" }}
+      >
+        <p className="text-xs font-semibold tracking-[0.18em] text-white/70">WEEK AT A GLANCE</p>
+        <h1 className="mt-4 text-3xl font-bold tracking-tight">{CALENDAR_LABELS.title}</h1>
+        <p className="mt-2 max-w-xs text-sm leading-6 text-white/80">予定も余白も、週の流れで確認できます</p>
+      </header>
 
-      <div className="flex flex-col gap-4 px-4 py-4">
+      <div className="relative z-10 -mt-10 flex flex-col gap-3 px-3 pb-4">
         {base.status === "loading" ? (
           <>
             <Skeleton className="h-12 w-full rounded-full" />
@@ -99,27 +105,29 @@ function CalendarBody({ now, tasks, locations }: { now: string; tasks: Task[]; l
 
   return (
     <>
-      <Tabs value={mode} onValueChange={(value) => setMode(value as CalendarViewMode)}>
-        <TabsList aria-label="表示の切り替え" className={SEGMENT_LIST}>
-          {VIEW_MODES.map((m) => (
-            <TabsTrigger key={m} value={m} className={SEGMENT_TRIGGER}>
-              {CALENDAR_VIEW_LABELS[m]}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <SurfaceCard className="flex flex-col gap-3 rounded-[28px] p-3">
+        <Tabs value={mode} onValueChange={(value) => setMode(value as CalendarViewMode)}>
+          <TabsList aria-label="表示の切り替え" className={SEGMENT_LIST}>
+            {VIEW_MODES.map((m) => (
+              <TabsTrigger key={m} value={m} className={SEGMENT_TRIGGER}>
+                {CALENDAR_VIEW_LABELS[m]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
-      <div className="flex items-center justify-between">
-        <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.prev[mode]} onClick={() => move(-1)}>
-          <ChevronLeft className="size-6" aria-hidden />
-        </Button>
-        <p className="text-base font-bold tabular-nums" aria-live="polite">
-          {period}
-        </p>
-        <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.next[mode]} onClick={() => move(1)}>
-          <ChevronRight className="size-6" aria-hidden />
-        </Button>
-      </div>
+        <div className="flex items-center justify-between rounded-2xl bg-muted/70 px-1">
+          <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.prev[mode]} onClick={() => move(-1)}>
+            <ChevronLeft className="size-6" aria-hidden />
+          </Button>
+          <p className="text-center text-sm font-bold tabular-nums" aria-live="polite">
+            {period}
+          </p>
+          <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.next[mode]} onClick={() => move(1)}>
+            <ChevronRight className="size-6" aria-hidden />
+          </Button>
+        </div>
+      </SurfaceCard>
 
       {mode === "week" ? <WeekSection weekStart={weekStart} today={today} onDaySelect={openDay} /> : null}
       {mode === "day" ? <DaySection date={date} now={now} today={today} tasks={tasks} locations={locations} /> : null}
@@ -145,7 +153,8 @@ function WeekSection({
 
   return (
     <>
-      <SurfaceCard className="flex flex-col gap-3 px-3">
+      {result.status === "success" && hasPlan ? <WeekConditionCard days={result.data.days} /> : null}
+      <SurfaceCard className="flex flex-col gap-3 rounded-[28px] px-3 py-4">
         {result.status === "loading" ? <LoadingState rows={6} /> : null}
         {result.status === "error" ? <ErrorState onRetry={result.retry} /> : null}
         {result.status === "empty" ? <EmptyState message={CALENDAR_LABELS.noWeekData} /> : null}
@@ -160,7 +169,6 @@ function WeekSection({
           </>
         ) : null}
       </SurfaceCard>
-      {result.status === "success" && hasPlan ? <WeekConditionCard days={result.data.days} /> : null}
     </>
   );
 }
@@ -206,7 +214,7 @@ function DaySection({
           ) : null}
           <Timeline
             items={result.data.items}
-            // 「現在地」「次の航路」の強調は今日だけ（ほかの日に出すと、その日の最初の予定が「次の航路」になるため）
+            // 「現在地」「次の予定」の強調は今日だけ（ほかの日に出すと、その日の最初の予定が「次の予定」になるため）
             now={date === today ? now : null}
             tasks={tasks}
             locations={locations}
@@ -241,7 +249,7 @@ function MonthSection({
   });
 
   return (
-    <SurfaceCard className="px-3">
+    <SurfaceCard className="rounded-[28px] px-3 py-4">
       {result.status === "loading" ? <LoadingState rows={5} /> : null}
       {result.status === "error" ? <ErrorState onRetry={result.retry} /> : null}
       {result.status === "empty" ? <EmptyState message={CALENDAR_LABELS.noMonthData} /> : null}

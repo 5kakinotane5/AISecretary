@@ -11,9 +11,9 @@ type PageHeaderProps = {
   backHref?: string;
   /** 進行状況（例：{ current: 3, total: 9 }）。省略すると出さない */
   progress?: { current: number; total: number };
-  /** タイトルの右に置くもの（デモ時刻のチップなど。design-spec.md 9.4） */
+  /** タイトルの右に置く補助情報 */
   trailing?: ReactNode;
-  /** 背景のグラデーション（design-spec.md 2.2・6章）。deep＝航海の準備・AIとの対話、header＝航路プランを選ぶ */
+  /** 背景のグラデーション（design-spec.md 2.2・6章）。deep＝航海の準備・AIとの対話、header＝予定プランを選ぶ */
   gradient: "deep" | "header";
   className?: string;
 };

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChatBubble, ChatTypingBubble } from "@/components/chat/ChatBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { QuickReplies } from "@/components/chat/QuickReplies";
@@ -33,14 +33,24 @@ function entriesOf(turn: InterviewTurn): ChatEntry[] {
 }
 
 /**
- * /interview：航海の準備（目的地を決める）（mock-spec.md 2.2・5.7・10.1〜10.3、design-spec.md 6章）。
+ * /interview：航海の準備（目標を決める）（mock-spec.md 2.2・5.7・10.1〜10.3、design-spec.md 6章）。
  * - クイックリプライ・自由入力 → POST /api/interview/message（text）
  * - 目標時間3案 → 「これにする」→ ±0.5時間の調整 →「この内容で確定」→ POST /api/interview/message（selection）
  * - 最終確認の「確定する」→ POST /api/interview/confirm → 下部に「スケジュール作成」
  * - **「スケジュール作成」を押したときだけ** POST /api/plans/generate を呼び、/plans へ進む（確定だけでは生成しない）
  */
 export default function InterviewPage() {
+  return (
+    <Suspense fallback={null}>
+      <InterviewContent />
+    </Suspense>
+  );
+}
+
+function InterviewContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const backHref = searchParams.get("returnTo") === "settings" ? "/settings" : "/login";
 
   // 開始（POST /api/interview/start）。開発時の StrictMode で effect が2回走っても、
   // セッションが2つ作られないように1回分の Promise を使い回す（useApiData では二重に呼ばれるため使わない）
@@ -159,7 +169,7 @@ export default function InterviewPage() {
       : undefined;
 
   const bottom = confirmed ? (
-    <div className="border-t bg-card px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <div className="rounded-t-[28px] border-t border-border/70 bg-card/95 px-4 pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(91,69,201,0.08)] backdrop-blur">
       {generateError ? (
         <p role="alert" className="mb-3 text-sm font-medium text-destructive">
           {generateError}
@@ -170,7 +180,7 @@ export default function InterviewPage() {
       </Button>
     </div>
   ) : (
-    <div className="px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <div className="rounded-t-[28px] border-t border-border/70 bg-card/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(91,69,201,0.08)] backdrop-blur">
       <ChatInput
         onSend={sendText}
         disabled={!turn || busy || choosing || confirming}
@@ -183,12 +193,12 @@ export default function InterviewPage() {
     <MobileShell bottom={bottom}>
       <PageHeader
         title={ONBOARDING_LABELS.interviewTitle}
-        backHref="/login"
+        backHref={backHref}
         gradient="deep"
         progress={{ current: confirmed ? TOTAL_STEPS : (turn?.step_index ?? 0), total: TOTAL_STEPS }}
       />
 
-      <div className="flex flex-col gap-3 px-4 py-4">
+      <div className="flex min-h-full flex-col gap-3 rounded-t-[28px] bg-background px-3 py-4">
         {start.status === "loading" ? <ChatTypingBubble /> : null}
         {start.status === "error" ? <ErrorState onRetry={retryStart} /> : null}
 

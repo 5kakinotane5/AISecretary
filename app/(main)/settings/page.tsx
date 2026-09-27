@@ -1,23 +1,18 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { CircleAlert, MapPin, RotateCcw } from "lucide-react";
+import { MapPin, Target } from "lucide-react";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
-import { SEGMENT_LIST_STANDALONE, SEGMENT_TRIGGER } from "@/components/common/segment";
 import { SurfaceCard } from "@/components/common/SurfaceCard";
-import { DemoNowChip } from "@/components/layout/DemoNowChip";
 import { MainShell } from "@/components/layout/MainShell";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { useApiData } from "@/hooks/use-api-data";
-import { fetchClock, fetchSettings, resetMock, setDemoNow } from "@/lib/api";
-import { formatDateLong, toDateStr } from "@/lib/datetime";
+import { fetchSettings } from "@/lib/api";
+import { formatDateLong } from "@/lib/datetime";
 import {
-  DEMO_CLOCK_TIMES,
   SETTINGS_LABELS,
   formatClockRange,
   formatHoursPerWeek,
@@ -32,25 +27,22 @@ import { cn } from "@/lib/utils";
 /**
  * /settings：設定（mock-spec.md 2.7、design-spec.md 6章：白いカードに項目を並べる）。
  * 生活リズム・場所・移動時間・目標は GET /api/settings から取り、表示だけする。
- * デモ用の欄はデモモードでのみ GET・POST /api/mock/clock と POST /api/mock/reset を呼ぶ。
  */
 export default function SettingsPage() {
   const settings = useApiData(fetchSettings, []);
-  const clock = useApiData(fetchClock, []);
-  // デモ時刻を切り替えたあとの時刻（取り直さずに、POST の応答で表示を更新する）
-  const [changedNow, setChangedNow] = useState<string | null>(null);
-  const demoMode = clock.status === "success" && clock.data.demo_mode;
-  const now = changedNow ?? (clock.status === "success" ? clock.data.now : null);
 
   return (
     <MainShell>
-      <PageHeader
-        title={SETTINGS_LABELS.title}
-        gradient="header"
-        trailing={demoMode && now ? <DemoNowChip now={now} /> : null}
-      />
+      <header
+        className="min-h-[190px] px-5 pt-6 pb-16 text-white"
+        style={{ background: "var(--gradient-header)" }}
+      >
+        <p className="text-xs font-semibold tracking-[0.18em] text-white/70">YOUR PLAN PROFILE</p>
+        <h1 className="mt-4 text-3xl font-bold tracking-tight">{SETTINGS_LABELS.title}</h1>
+        <p className="mt-2 max-w-xs text-sm leading-6 text-white/80">暮らしに合わせて、予定づくりの土台を整えます</p>
+      </header>
 
-      <div className="flex flex-col gap-4 px-4 py-4">
+      <div className="relative z-10 -mt-10 flex flex-col gap-3 px-3 pb-4">
         {settings.status === "loading" ? (
           <SurfaceCard>
             <LoadingState rows={5} />
@@ -62,13 +54,6 @@ export default function SettingsPage() {
           </SurfaceCard>
         ) : null}
         {settings.status === "success" ? <SettingsSections data={settings.data} /> : null}
-
-        {demoMode ? (
-          <Section title={SETTINGS_LABELS.demoTitle}>
-            {now ? <DemoClockSwitch now={now} onChanged={setChangedNow} /> : null}
-            <ResetButton />
-          </Section>
-        ) : null}
       </div>
     </MainShell>
   );
@@ -76,14 +61,17 @@ export default function SettingsPage() {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <SurfaceCard className="flex flex-col gap-3">
-      <h2 className="text-lg font-bold">{title}</h2>
+    <SurfaceCard className="flex flex-col gap-3 rounded-[28px] p-5">
+      <div className="flex items-center gap-2">
+        <span className="size-1.5 rounded-full bg-primary" aria-hidden />
+        <h2 className="text-base font-bold">{title}</h2>
+      </div>
       {children}
     </SurfaceCard>
   );
 }
 
-/** 表示だけの4つの欄（生活リズム・よく行く場所・移動時間・目的地） */
+/** 表示だけの4つの欄（生活リズム・よく行く場所・移動時間・目標） */
 function SettingsSections({ data }: { data: SettingsResponse }) {
   const { preferences, locations, travel_times: travelTimes, goal } = data;
   // 場所の名前が引けないときは、推測で埋めずに id をそのまま出す
@@ -91,8 +79,48 @@ function SettingsSections({ data }: { data: SettingsResponse }) {
 
   return (
     <>
+      <SurfaceCard className="flex flex-col gap-4 rounded-[28px] border border-primary/10 bg-[linear-gradient(145deg,var(--brand-purple-pale),var(--surface)_58%)] p-5 shadow-[0_14px_36px_rgba(91,69,201,0.16)]">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold tracking-wide text-primary">{SETTINGS_LABELS.goalTitle}</p>
+          <span className="flex size-10 items-center justify-center rounded-full bg-white/80 text-primary">
+            <Target size={20} aria-hidden />
+          </span>
+        </div>
+        {goal === null ? (
+          <p className="text-sm text-muted-foreground">{SETTINGS_LABELS.noGoal}</p>
+        ) : (
+          <>
+            <h2 className="text-2xl font-bold tracking-tight">{goal.task_name}</h2>
+            <div className="flex flex-wrap gap-2">
+              {goal.target_hours_per_week !== null ? (
+                <span className="rounded-full bg-white/80 px-3 py-1.5 text-sm font-semibold text-primary">
+                  {formatHoursPerWeek(goal.target_hours_per_week)}
+                </span>
+              ) : null}
+              {goal.deadline ? (
+                <span className="rounded-full bg-white/80 px-3 py-1.5 text-sm text-muted-foreground">
+                  {SETTINGS_LABELS.deadline} {formatDateLong(goal.deadline)}
+                </span>
+              ) : null}
+            </div>
+            {goal.conditions.length > 0 ? (
+              <ul className="flex flex-wrap gap-1.5">
+                {goal.conditions.map((condition) => (
+                  <li key={condition} className="rounded-xl border border-primary/10 bg-white/60 px-2.5 py-1 text-xs text-muted-foreground">
+                    {condition}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        )}
+        <Link href="/interview?returnTo=settings" className={cn(buttonVariants({ variant: "brand-outline", size: "tap" }), "w-full rounded-full bg-white/80")}>
+          {SETTINGS_LABELS.consultGoal}
+        </Link>
+      </SurfaceCard>
+
       <Section title={SETTINGS_LABELS.rhythmTitle}>
-        <dl className="flex flex-col divide-y">
+        <dl className="grid grid-cols-1 divide-y rounded-2xl bg-muted/50 px-3">
           <Row label={SETTINGS_LABELS.sleep} value={formatClockRange(preferences.sleep_start, preferences.sleep_end)} />
           <Row label={SETTINGS_LABELS.dailyWorkLimit} value={formatMinutes(preferences.daily_work_limit_minutes)} />
           <Row label={SETTINGS_LABELS.minBuffer} value={formatMinutes(preferences.min_buffer_minutes)} />
@@ -144,40 +172,6 @@ function SettingsSections({ data }: { data: SettingsResponse }) {
         )}
       </Section>
 
-      <Section title={SETTINGS_LABELS.goalTitle}>
-        {goal === null ? (
-          <p className="text-sm text-muted-foreground">{SETTINGS_LABELS.noGoal}</p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            <p className="text-base font-bold">
-              {goal.task_name}
-              {goal.target_hours_per_week !== null ? (
-                <span className="text-primary">
-                  {"　"}
-                  {formatHoursPerWeek(goal.target_hours_per_week)}
-                </span>
-              ) : null}
-            </p>
-            {goal.deadline ? (
-              <p className="text-sm text-muted-foreground">
-                {SETTINGS_LABELS.deadline} {formatDateLong(goal.deadline)}
-              </p>
-            ) : null}
-            {goal.conditions.length > 0 ? (
-              <ul className="flex flex-wrap gap-1.5">
-                {goal.conditions.map((condition) => (
-                  <li key={condition} className="rounded-xl bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                    {condition}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-        )}
-        <Link href="/interview" className={cn(buttonVariants({ variant: "brand-outline", size: "cta" }))}>
-          {SETTINGS_LABELS.consultGoal}
-        </Link>
-      </Section>
     </>
   );
 }
@@ -188,89 +182,5 @@ function Row({ label, value }: { label: string; value: string }) {
       <dt className="text-sm text-muted-foreground">{label}</dt>
       <dd className="font-bold tabular-nums">{value}</dd>
     </div>
-  );
-}
-
-/** デモ時刻の切り替え（07:00 ／ 18:00）。今のデモ日付のまま、時刻だけを POST /api/mock/clock で変える */
-function DemoClockSwitch({ now, onChanged }: { now: string; onChanged: (now: string) => void }) {
-  const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  async function change(time: string) {
-    setPending(true);
-    setFailed(false);
-    try {
-      onChanged(await setDemoNow(`${toDateStr(now)}T${time}:00+09:00`));
-    } catch {
-      setFailed(true);
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      <p className="text-sm text-muted-foreground" id="demo-clock-label">
-        {SETTINGS_LABELS.demoClock}
-      </p>
-      <div role="group" aria-labelledby="demo-clock-label" className={SEGMENT_LIST_STANDALONE}>
-        {DEMO_CLOCK_TIMES.map((time) => {
-          const active = now === `${toDateStr(now)}T${time}:00+09:00`;
-          return (
-            <button
-              key={time}
-              type="button"
-              aria-pressed={active}
-              data-active={active ? "" : undefined}
-              disabled={pending}
-              onClick={() => change(time)}
-              className={cn(SEGMENT_TRIGGER, "flex-1 tabular-nums disabled:opacity-60")}
-            >
-              {time}
-            </button>
-          );
-        })}
-      </div>
-      {failed ? <InlineError message={SETTINGS_LABELS.demoClockError} /> : null}
-    </div>
-  );
-}
-
-/** 「モックをリセット」：POST /api/mock/reset のあと /login に移動する */
-function ResetButton() {
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  async function reset() {
-    setPending(true);
-    setFailed(false);
-    try {
-      await resetMock();
-      router.push("/login");
-    } catch {
-      setFailed(true);
-      setPending(false);
-    }
-  }
-
-  // 確認なしで実行するため、副ボタンの見た目にし、画面の一番下に区切り線をはさんで置く（mock-spec.md 10.23）
-  return (
-    <div className="mt-1 flex flex-col gap-2 border-t pt-4">
-      <Button variant="brand-outline" size="cta" disabled={pending} onClick={reset}>
-        <RotateCcw aria-hidden />
-        {pending ? SETTINGS_LABELS.resetting : SETTINGS_LABELS.reset}
-      </Button>
-      {failed ? <InlineError message={SETTINGS_LABELS.resetError} /> : null}
-    </div>
-  );
-}
-
-function InlineError({ message }: { message: string }) {
-  return (
-    <p role="alert" className="flex items-center gap-1.5 text-sm font-medium text-destructive">
-      <CircleAlert size={16} aria-hidden />
-      {message}
-    </p>
   );
 }
