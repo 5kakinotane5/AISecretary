@@ -31,6 +31,16 @@ export const EMPTY_SLOTS: InterviewSlots = {
   weekend_time_band: null,
 };
 
+// 抽出結果を slots にマージする。null・空配列では上書きしない（backend.md 6.2.1）。台本と LLM の両方で使う
+export function mergeSlots(slots: InterviewSlots, extracted: Partial<InterviewSlots>): InterviewSlots {
+  const merged = { ...slots };
+  for (const [key, value] of Object.entries(extracted) as [keyof InterviewSlots, unknown][]) {
+    if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) continue;
+    Object.assign(merged, { [key]: value });
+  }
+  return merged;
+}
+
 // DB の state には画面に返さない ABANDONED もある（backend.md 4.2）
 export type InterviewSessionState = InterviewState | "ABANDONED";
 const SessionStateSchema = z.union([InterviewStateSchema, z.literal("ABANDONED")]);
@@ -114,8 +124,28 @@ export async function getInterviewSession(supabase: SupabaseClient, id: string):
   return data ? toSession(data) : null;
 }
 
+// セッションの直近 limit 件の発言（古い順）。ヒアリングの LLM に渡す（6.2.3）。
+// 1回のやり取りの発言は1回の insert で入れるので created_at が同じになる。その中は「利用者 → AI」の順なので、
+// 同じ時刻では role で並べる（新しい順では ai が先）
+export async function listRecentMessages(
+  supabase: SupabaseClient,
+  sessionId: string,
+  limit: number,
+): Promise<InterviewMessage[]> {
+  const { data, error } = await supabase
+    .from("interview_messages")
+    .select(MESSAGE_COLUMNS)
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: false })
+    .order("role", { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  return data.map(toMessage).reverse();
+}
+
 // 1回のやり取り（発言とセッションの更新）を保存し、保存した発言を返す。
-// before の state・step_index のままのときだけ更新する（同時に2回送られたときに二重に進めない）。
+// before の state・step_index・retry_count のままのときだけ更新する（同時に2回送られたときに二重に進めない。
+// 聞き直しでは step_index が変わらないので retry_count も見る）。
 // 更新できなかったら入れた発言を消して null を返す（状態も発言も残さない。backend.md 6.2.1）
 export async function saveInterviewTurn(
   supabase: SupabaseClient,
@@ -136,6 +166,7 @@ export async function saveInterviewTurn(
     .eq("id", before.id)
     .eq("state", before.state)
     .eq("step_index", before.step_index)
+    .eq("retry_count", before.retry_count)
     .select("id");
   if (error || data.length === 0) {
     await removeSaved();

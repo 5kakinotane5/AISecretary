@@ -46,8 +46,17 @@ function nearDeadlineTasks(tasks: Task[], today: string): Task[] {
     .slice(0, NEAR_DEADLINE_MAX);
 }
 
-// ステップ8の要約（要件定義 6.2.4 の定型文。6.2.5）
-export function buildSummaryMessage(goal: Goal, tasks: Task[], today: string): string {
+// task_name を仮置きしたときに要約の末尾に付ける一文（6.2.2）
+export const PROVISIONAL_NOTE = "内容が違う場合は、設定の『新しい目的地を相談する』からやり直せます。";
+
+// ステップ8の要約（要件定義 6.2.4 の定型文。6.2.5）。
+// options.provisional が true なら、末尾に仮置きの一文（6.2.2）を付ける
+export function buildSummaryMessage(
+  goal: Goal,
+  tasks: Task[],
+  today: string,
+  options: { provisional?: boolean } = {},
+): string {
   const hours = goal.target_hours_per_week;
   // [補足条件や期限]：期限（「12/13まで」の形）と conditions を「・」でつなぐ。何もなければ括弧ごと省く
   const notes = [...(goal.deadline ? [`${formatMonthDay(goal.deadline)}まで`] : []), ...goal.conditions];
@@ -72,5 +81,6 @@ export function buildSummaryMessage(goal: Goal, tasks: Task[], today: string): s
     const names = near.map((t) => `${t.title}（${formatMonthDay(t.deadline_at!)}締切）`).join("と");
     lines.push("", `登録済みの${names}も一緒に考慮します。`);
   }
+  if (options.provisional) lines.push("", PROVISIONAL_NOTE);
   return lines.join("\n");
 }
