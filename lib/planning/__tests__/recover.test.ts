@@ -26,4 +26,18 @@ describe("explainFailures", () => {
     goal.goal_week_target_minutes.goal_toeic = 20_000;
     expect(detectCapacityShortage(goal, slots)?.reason).toContain("TOEIC学習");
   });
+
+  it("目標不足を決定論的に説明し、入力を変更しない", () => {
+    const context = createPlanningContext();
+    const failure: WeekBuildResult = { ok: false, direction: "balanced", allocation: { rho: 0.45, kappa: 0, goal_order: "early" }, reason: "goal carry", date: "2026-10-11", remaining: [{ quota_key: "goal", quota: { kind: "goal", task_id: "task_toeic_listening", minutes: 60, required: true, band: "evening", carryover: "goal_next_day", deadline_at: null, completion_target_date: null }, initial_minutes: 60, remaining_minutes: 25 }] };
+    const beforeContext = structuredClone(context);
+    const beforeFailures = structuredClone([failure]);
+    const result = explainFailures(context, [failure]);
+    expect(result.reason).toBe("今週のTOEIC学習の25分を置く空き時間が足りません。");
+    expect(result.reason).toMatch(/の[1-9]\d*分を/);
+    expect(result.required_changes.length).toBeLessThanOrEqual(3);
+    expect(explainFailures(context, [failure])).toEqual(result);
+    expect(context).toEqual(beforeContext);
+    expect([failure]).toEqual(beforeFailures);
+  });
 });

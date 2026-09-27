@@ -11,7 +11,8 @@ import { LOCATION_IDS } from "@/mocks/persona";
 import { INTENSIVE_PLAN } from "@/mocks/plans/intensive";
 import { BALANCED_PLAN } from "@/mocks/plans/balanced";
 import { RELAXED_PLAN } from "@/mocks/plans/relaxed";
-import { validatePlan, type ValidationMode } from "../validate";
+import { generatePlans } from "../generate";
+import { checkCandidatesSimilarity, validatePlan, type ValidationMode } from "../validate";
 import { createPlanningContext } from "./fixtures";
 
 const date = "2026-10-05";
@@ -374,4 +375,14 @@ describe("validatePlan（planning.md 10.11）", () => {
       expect(days).toEqual(daysBefore);
     },
   );
+
+  it("互換関数で3案の類似性warningを返す", () => {
+    const context = createPlanningContext();
+    const generated = generatePlans(context);
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) return;
+    expect(checkCandidatesSimilarity(context, generated.plans, "generate")).toEqual([]);
+    const duplicated = [generated.plans[0], generated.plans[0], generated.plans[2]];
+    expect(checkCandidatesSimilarity(context, duplicated, "stored").map((issue) => issue.code)).toContain("CANDIDATES_TOO_SIMILAR");
+  }, 30_000);
 });
