@@ -1,4 +1,7 @@
 import type { NextRequest } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { computeWeeklyFreeMinutes, WeeklyFreeMinutesError } from "@/lib/planning/slots";
+import { buildPlanningContext } from "@/lib/server/planning-context";
 import { InterviewMessageRequestSchema, InterviewTurnSchema } from "@/lib/schemas";
 import { toDateStr } from "@/lib/datetime";
 import { formatGoalSelectionMessage } from "@/lib/labels";
@@ -9,6 +12,19 @@ import { answerByScript, FINAL_CONFIRMATION_MESSAGE } from "@/lib/server/intervi
 import { buildGoalDraft, buildSummaryMessage } from "@/lib/server/interview-summary";
 import { getInterviewSession, saveInterviewTurn, type InterviewSlots } from "@/lib/server/repositories/interview";
 import { listTasks } from "@/lib/server/repositories/tasks";
+
+// 今週の空きの合計分（7.2.2 の上限）。PlanningContext（8.3）と computeWeeklyFreeMinutes() で求める。
+// 骨組みが成立せず求められないときは null（上限をかけない。7.2 に失敗時の決まりがないため）
+async function loadWeeklyFreeMinutes(supabase: SupabaseClient, userId: string): Promise<number | null> {
+  const context = await buildPlanningContext(supabase, userId, null);
+  try {
+    return computeWeeklyFreeMinutes(context);
+  } catch (e) {
+    if (!(e instanceof WeeklyFreeMinutesError)) throw e;
+    console.warn("[interview/message] weekly free minutes unavailable:", e.name);
+    return null;
+  }
+}
 
 // 発言は保存したが、同時に送られた別のリクエストが先にセッションを進めていた（saveInterviewTurn が null）
 function conflict() {
@@ -97,7 +113,8 @@ export async function POST(request: NextRequest) {
     // TODO: LLM_MODE=on（lib/llm/interview.ts、6.2.3）を作ったら、LLM_MODE=on かつ OPENAI_API_KEY があるときは
     // LLM で抽出する（common.md 1.4）。今は LLM_MODE にかかわらず台本（6.2.6）で動かす
     const today = toDateStr(await getNow(user.id, supabase));
-    const answer = answerByScript(stepIndex, session.slots, today);
+    const weeklyFreeMinutes = stepIndex === 4 ? await loadWeeklyFreeMinutes(supabase, user.id) : null;
+    const answer = answerByScript(stepIndex, session.slots, today, weeklyFreeMinutes);
 
     const saved = await saveInterviewTurn(
       supabase,

@@ -1,15 +1,17 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import { PlanCandidatesResponseSchema } from "@/lib/schemas";
-import { isMockError, mockDelay, mockErrorResponse } from "@/lib/mock/http";
-import { getState } from "@/lib/mock/store";
-import { getPlanCandidates } from "@/lib/mock/plans";
+import { getWeekStart, toDateStr } from "@/lib/datetime";
+import { handle } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/auth";
+import { getNow } from "@/lib/server/clock";
+import { listLatestCandidates } from "@/lib/server/repositories/plans";
 
-// GET /api/plans/candidates（4章・10.19章）：{ candidates: ScheduleCandidate[] }
-// POST /api/plans/generate の後なら同じ3案を返し、まだ生成していなければ空配列を返す。
+// GET /api/plans/candidates（plans-replan.md 11.1 FR-08-12）：{ candidates }
+// 最新の生成で、week_start が今週の3案（intensive・balanced・relaxed の順）。なければ空配列
 export async function GET(request: NextRequest) {
-  if (isMockError(request)) return mockErrorResponse();
-  await mockDelay(400);
-
-  const candidates = getState().plans_generated ? getPlanCandidates() : [];
-  return NextResponse.json(PlanCandidatesResponseSchema.parse({ candidates }));
+  return handle(request, async () => {
+    const { user, supabase } = await requireUser();
+    const weekStart = getWeekStart(toDateStr(await getNow(user.id, supabase)));
+    return PlanCandidatesResponseSchema.parse({ candidates: await listLatestCandidates(supabase, weekStart) });
+  });
 }

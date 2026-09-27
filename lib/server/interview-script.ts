@@ -72,8 +72,9 @@ function weeksUntil(deadline: string | null, today: string): number | null {
   return Math.ceil(diffMinutes(today, deadline) / (60 * 24) / 7);
 }
 
-// 目標時間3案（7.2）。slots は ステップ4 までの回答を反映したもの、today は YYYY-MM-DD
-function buildGoalCandidates(slots: InterviewSlots, today: string): GoalTimeCandidate[] {
+// 目標時間3案（7.2）。slots は ステップ4 までの回答を反映したもの、today は YYYY-MM-DD、
+// weeklyFreeMinutes は now〜日曜の空きの合計分（7.2.2 の上限）
+function buildGoalCandidates(slots: InterviewSlots, today: string, weeklyFreeMinutes: number): GoalTimeCandidate[] {
   const hours = computeGoalCandidateHours({
     category: slots.category ?? "その他",
     deadline: slots.deadline,
@@ -81,9 +82,7 @@ function buildGoalCandidates(slots: InterviewSlots, today: string): GoalTimeCand
     explicit_hours_per_week: slots.explicit_hours_per_week,
     frequency_per_week: slots.frequency_per_week,
     main_minutes: 60, // 8.2：資格・テスト勉強のメイン（台本ではカテゴリは常に G1）
-    // TODO: lib/server/planning-context.ts（8.3）ができたら、PlanningContext を作って
-    // computeWeeklyFreeMinutes()（lib/planning/slots.ts）で今週の空きの合計を渡す。今は上限をかけない値にしている
-    weekly_free_minutes: Number.POSITIVE_INFINITY,
+    weekly_free_minutes: weeklyFreeMinutes,
   });
   const periodWeeks = weeksUntil(slots.deadline, today);
 
@@ -98,8 +97,13 @@ function buildGoalCandidates(slots: InterviewSlots, today: string): GoalTimeCand
 }
 
 // ステップ1〜4 の text への台本の応答。ステップ4の回答ではステップ5の発言と3案を返す（mock-spec 10.1）。
-// slots は今までの slots（3案の計算に使う）
-export function answerByScript(stepIndex: 1 | 2 | 3 | 4, slots: InterviewSlots, today: string): ScriptAnswer {
+// slots は今までの slots、today・weeklyFreeMinutes は3案の計算に使う（weeklyFreeMinutes はステップ4のときだけ要る）
+export function answerByScript(
+  stepIndex: 1 | 2 | 3 | 4,
+  slots: InterviewSlots,
+  today: string,
+  weeklyFreeMinutes: number | null,
+): ScriptAnswer {
   const extracted = G1_SLOTS[stepIndex];
   if (stepIndex < 4) {
     const nextKey = (["goal", "current_status", "conditions"] as const)[stepIndex - 1];
@@ -111,6 +115,10 @@ export function answerByScript(stepIndex: 1 | 2 | 3 | 4, slots: InterviewSlots, 
   return {
     slots: extracted,
     next: { ...timeEstimation, step: "goal_candidates", step_index: 6 },
-    goal_candidates: buildGoalCandidates({ ...slots, ...extracted }, today),
+    goal_candidates: buildGoalCandidates(
+      { ...slots, ...extracted },
+      today,
+      weeklyFreeMinutes ?? Number.POSITIVE_INFINITY, // 求められなかったときは上限をかけない
+    ),
   };
 }
