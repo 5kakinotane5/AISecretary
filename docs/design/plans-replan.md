@@ -69,7 +69,7 @@ generate の手順：
 | FR-12-1 | `POST /api/plans/replan`（`{ date, text }`）：`text` から意図（`ReplanningIntent`）だけを取り出し、配置は Engine が行う |
 | FR-12-2 | 対象は**今日だけ**（**補正 C-12**）。`date` が `getNow()` の日付でなければ `{ supported: false, message: "今日の予定だけ変更できます。" }` |
 | FR-12-3 | 対応する意図：`state_change`（疲れた）、`new_fixed_event`（予定が入った）、`task_change`（postpone / skip / shorten）。`preference_change` と判別できない発言は `{ supported: false, message }`（12.3.3） |
-| FR-12-4 | `now` より前に終わった項目・`now` を含む項目・完了した項目は変えない |
+| FR-12-4 | `now` より前に終わった項目・`now` を含む項目・完了した項目は変えない。**例外**：`state_change`（fatigue: high・medium）のときだけ、`now` を含む**高集中タスク**（12.4 の A の a で外す対象）は `now` で切る。前半 [start_at, now) は同じ id・同じ start_at のまま `end_at = now`・`locked: true`・`status: "completed"` で残し（実施済みとして数える）、後半 [now, end_at) は外した分として f・g の行き先へ。高集中でない進行中のタスクと、`new_fixed_event`・`task_change` のときの進行中のタスクは変えない。Before は 11.3 の表示用の計算をかけたもの（進行中のタスクは `locked: true`）を渡し、切るのは Engine が行う |
 | FR-12-5 | 固定予定・睡眠・移動・締切・目標の週合計は変えない（ただし `new_fixed_event` は固定予定を1件足す） |
 | FR-12-6 | 結果は `ReplanProposal`（モックと同じ形）。成立しない場合は `{ supported: false, message }`（**422 にしない**。2.2） |
 | FR-12-7 | 提案は `replan_proposals` に保存し、`accept` まで計画を変えない |
@@ -143,6 +143,8 @@ generate の手順：
 ```text
 今日（now 以降）：
   a. 高集中タスク（fatigue: high として計算した Fit が 0 になるもの。P4.1）の項目を外す。外した項目の直後のバッファも外す
+     now をまたぐ高集中タスク（locked: true で届く）も対象にする：前半 [start_at, now) は同じ id・同じ start_at で
+     end_at = now・locked・completed にして残し、後半 [now, end_at) を外した分として扱う（FR-12-4 の例外）
   （空き：now 以降で、固定予定・移動・睡眠・locked な項目・d で残す項目のない時間。locked: false の自由時間・バッファは空きとして作り直す）
   b. now 以降の最初の空きの先頭に、休憩（free、30分、REST）を置く
   c. 外した中に目標タスクがあれば、b の後ろに目標の軽作業版を置く
@@ -186,7 +188,7 @@ generate の手順：
 | タスクを外し、今週には置かない | `removed`（reason：`NEXT_WEEK` か `USER_SKIPPED`） | なし |
 | タスクに付いていたバッファを外した | `removed`（reason：`BUFFER_MERGED`） | なし |
 | 自由時間が広がった・まとまった | `replaced`（before＝元の自由時間、after＝新しい自由時間、reason：`FREE_EXTENDED`） | なし |
-| now をまたぐ自由時間・バッファを切って作り直した | `replaced`（before＝元の項目、after＝前半＋その時間帯の新しい項目、reason：後半に休憩を置いたら `REST`、そうでなければ `FREE_EXTENDED`） | なし |
+| now をまたぐ自由時間・バッファを切って作り直した | `replaced`（before＝元の項目、after＝前半＋その時間帯の新しい項目、reason：後半に休憩を置いたら `REST`、そうでなければ `FREE_EXTENDED`）。**タスクの場合**（state_change で now をまたぐ高集中タスクを切った。FR-12-4 の例外）も同じく `replaced`（before＝元のタスク全体、after＝前半（end_at = now・completed）＋その時間帯の新しい項目。reason の決め方は同じ） | タスクの場合、後半を別の日に置いたら `moved`（before＝元のタスク、after＝別の日の項目、moved_to_date、reason：`GOAL_CARRYOVER` か `TIRED_MOVED`） |
 | 予定を足した | `added`（after＝予定、reason：`FIXED_EVENT_ADDED`） | なし |
 | 短くした | `shortened`（after＝短くした項目、reason：`USER_SHORTENED`） | 残りを置いたら `moved` |
 | 既存のタスクを延長した（g） | なし | `moved`（before＝外した項目、after＝延長後の項目、moved_to_date） |
