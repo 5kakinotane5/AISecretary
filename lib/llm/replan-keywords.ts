@@ -10,7 +10,9 @@ export type ReplanIntentLlm = z.infer<typeof ReplanIntentLlmSchema>;
 // 今日の now 以降のタスク項目（意図の取り出しの入力。12.3.1）
 export type ReplanTaskOption = { task_id: string; title: string; start_at: string; end_at: string };
 
-const FATIGUE = /疲れ|つかれ|しんど|だる|眠い|ねむい/;
+// 疲れ・気分の落ち込み。「やる気」だけ（「やる気が出てきた」）や「頑張れそう」は当てない
+const FATIGUE =
+  /疲れ|つかれ|しんど|だる|眠い|ねむい|やる気(が)?(出|で)ない|やる気ない|やる気が起きない|頑張れな|がんばれな|集中できな/;
 const START = /(\d{1,2})時(半)?から/;
 const EVENT_WORD = /予定|用事|約束|バイト|会議/;
 const END = /(\d{1,2})時(半)?まで/;

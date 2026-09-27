@@ -54,6 +54,23 @@ describe("再計画の意図（キーワード。plans-replan.md 12.3.2・12.3.1
     },
   );
 
+  it.each(["今日はちょっとやる気ないです", "やる気が出ない", "今日は頑張れなそうです", "集中できない"])(
+    "気分の落ち込み「%s」→ state_change・fatigue high",
+    (text) => {
+      const { intent } = ok(text);
+      expect(intent.type).toBe("state_change");
+      expect(intent.fatigue).toBe("high");
+    },
+  );
+
+  it.each(["やる気が出てきた", "今日は頑張れそうです"])("前向きな「%s」→ unknown", (text) => {
+    expect(run(text).type).toBe("unknown");
+  });
+
+  it("「今日はもう勉強したくない」は task_change のまま", () => {
+    expect(ok("今日はもう勉強したくない").intent.type).toBe("task_change");
+  });
+
   it("「20時から1時間予定が入った」→ new_fixed_event 20:00〜21:00", () => {
     const { intent, provisional_end } = ok("20時から1時間予定が入った");
     expect(intent.type).toBe("new_fixed_event");
