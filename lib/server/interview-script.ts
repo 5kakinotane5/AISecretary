@@ -1,23 +1,13 @@
 import { z } from "zod";
-import {
-  INTERVIEW_CATEGORIES,
-  type GoalPlanStyle,
-  type GoalTimeCandidate,
-  type InterviewStep,
-  type Level,
-  type Task,
-} from "@/lib/schemas";
-import { diffMinutes } from "@/lib/datetime";
-import { GOAL_PLAN_STYLE_LABELS } from "@/lib/labels";
-import { computeGoalCandidateHours } from "@/lib/planning/goal-candidates";
+import { INTERVIEW_CATEGORIES, type InterviewStep, type Task } from "@/lib/schemas";
 import { FINAL_CONFIRMATION_MESSAGE, INTERVIEW_QUESTIONS } from "@/mocks/interview-script";
 import { GOAL } from "@/mocks/goal";
-import { GOAL_TIME_CANDIDATES } from "@/mocks/goal-candidates";
 import { TASKS } from "@/mocks/tasks";
 import type { InterviewSlots } from "./repositories/interview";
 
 // LLM_MODE=off のヒアリング（backend.md 6.2.6）。モック（mock-spec 5.7・10.1・10.3）と同じ動きをする。
 // 入力の内容に関係なく次のステップに進み、slots は G1（mocks/goal.ts）の値で埋める。
+// 3案（ステップ4の回答のとき）は LLM_MODE にかかわらず lib/server/goal-candidates.ts で作る
 
 export type ScriptQuestion = {
   step: InterviewStep;
@@ -29,7 +19,6 @@ export type ScriptQuestion = {
 export type ScriptAnswer = {
   slots: Partial<InterviewSlots>; // このステップで抽出した（ことにする）項目
   next: ScriptQuestion;
-  goal_candidates: GoalTimeCandidate[] | null; // ステップ4の回答のときだけ
 };
 
 function toQuestion(key: keyof typeof INTERVIEW_QUESTIONS): ScriptQuestion {
@@ -64,61 +53,15 @@ const G1_SLOTS: Record<1 | 2 | 3 | 4, Partial<InterviewSlots>> = {
   },
 };
 
-const EXPECTED_LOAD: Record<GoalPlanStyle, Level> = { intensive: "high", balanced: "medium", paced: "low" };
-
-// 期限までの週数（7.2.1）。期限なしは null
-function weeksUntil(deadline: string | null, today: string): number | null {
-  if (deadline === null) return null;
-  return Math.ceil(diffMinutes(today, deadline) / (60 * 24) / 7);
-}
-
-// 目標時間3案（7.2）。slots は ステップ4 までの回答を反映したもの、today は YYYY-MM-DD、
-// weeklyFreeMinutes は now〜日曜の空きの合計分（7.2.2 の上限）
-function buildGoalCandidates(slots: InterviewSlots, today: string, weeklyFreeMinutes: number): GoalTimeCandidate[] {
-  const hours = computeGoalCandidateHours({
-    category: slots.category ?? "その他",
-    deadline: slots.deadline,
-    today,
-    explicit_hours_per_week: slots.explicit_hours_per_week,
-    frequency_per_week: slots.frequency_per_week,
-    main_minutes: 60, // 8.2：資格・テスト勉強のメイン（台本ではカテゴリは常に G1）
-    weekly_free_minutes: weeklyFreeMinutes,
-  });
-  const periodWeeks = weeksUntil(slots.deadline, today);
-
-  // TODO: 文章は 7.2.3 のテンプレート（lib/llm/goal-candidates.ts）で作る。今は mocks の文章をそのまま使う
-  return GOAL_TIME_CANDIDATES.map((mock) => ({
-    ...mock,
-    label: GOAL_PLAN_STYLE_LABELS[mock.style],
-    hours_per_week: hours[mock.style],
-    expected_load: EXPECTED_LOAD[mock.style],
-    period_weeks: periodWeeks,
-  }));
-}
-
-// ステップ1〜4 の text への台本の応答。ステップ4の回答ではステップ5の発言と3案を返す（mock-spec 10.1）。
-// slots は今までの slots、today・weeklyFreeMinutes は3案の計算に使う（weeklyFreeMinutes はステップ4のときだけ要る）
-export function answerByScript(
-  stepIndex: 1 | 2 | 3 | 4,
-  slots: InterviewSlots,
-  today: string,
-  weeklyFreeMinutes: number | null,
-): ScriptAnswer {
+// ステップ1〜4 の text への台本の応答。ステップ4の回答ではステップ5の発言を返す（mock-spec 10.1）
+export function answerByScript(stepIndex: 1 | 2 | 3 | 4): ScriptAnswer {
   const extracted = G1_SLOTS[stepIndex];
   if (stepIndex < 4) {
     const nextKey = (["goal", "current_status", "conditions"] as const)[stepIndex - 1];
-    return { slots: extracted, next: toQuestion(nextKey), goal_candidates: null };
+    return { slots: extracted, next: toQuestion(nextKey) };
   }
 
   // ステップ5（time_estimation）の発言を返し、画面はステップ6（goal_candidates）で3案を出す
   const timeEstimation = toQuestion("time_estimation");
-  return {
-    slots: extracted,
-    next: { ...timeEstimation, step: "goal_candidates", step_index: 6 },
-    goal_candidates: buildGoalCandidates(
-      { ...slots, ...extracted },
-      today,
-      weeklyFreeMinutes ?? Number.POSITIVE_INFINITY, // 求められなかったときは上限をかけない
-    ),
-  };
+  return { slots: extracted, next: { ...timeEstimation, step: "goal_candidates", step_index: 6 } };
 }

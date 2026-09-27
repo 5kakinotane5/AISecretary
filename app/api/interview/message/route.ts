@@ -2,28 +2,35 @@ import type { NextRequest } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeWeeklyFreeMinutes, WeeklyFreeMinutesError } from "@/lib/planning/slots";
 import { buildPlanningContext } from "@/lib/server/planning-context";
-import { InterviewMessageRequestSchema, InterviewTurnSchema } from "@/lib/schemas";
+import { InterviewMessageRequestSchema, InterviewTurnSchema, type GoalTimeCandidate } from "@/lib/schemas";
 import { toDateStr } from "@/lib/datetime";
 import { formatGoalSelectionMessage } from "@/lib/labels";
 import { handle, HttpError, parseBody } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
 import { getNow } from "@/lib/server/clock";
+import { buildGoalCandidates } from "@/lib/server/goal-candidates";
 import { answerByScript, FINAL_CONFIRMATION_MESSAGE } from "@/lib/server/interview-script";
 import { buildGoalDraft, buildSummaryMessage } from "@/lib/server/interview-summary";
 import { getInterviewSession, saveInterviewTurn, type InterviewSlots } from "@/lib/server/repositories/interview";
 import { listTasks } from "@/lib/server/repositories/tasks";
 
-// 今週の空きの合計分（7.2.2 の上限）。PlanningContext（8.3）と computeWeeklyFreeMinutes() で求める。
-// 骨組みが成立せず求められないときは null（上限をかけない。7.2 に失敗時の決まりがないため）
-async function loadWeeklyFreeMinutes(supabase: SupabaseClient, userId: string): Promise<number | null> {
+// 目標時間3案（7.2）。PlanningContext（8.3）を1回だけ組み立て、今週の空きの合計分（7.2.2 の上限）と
+// 固定予定（7.2.3 の一言）の両方に使う。空きは骨組みが成立せず求められないときは null（上限をかけない。7.2 に失敗時の決まりがないため）
+async function loadGoalCandidates(
+  supabase: SupabaseClient,
+  userId: string,
+  slots: InterviewSlots,
+  today: string,
+): Promise<GoalTimeCandidate[]> {
   const context = await buildPlanningContext(supabase, userId, null);
+  let weeklyFreeMinutes: number | null = null;
   try {
-    return computeWeeklyFreeMinutes(context);
+    weeklyFreeMinutes = computeWeeklyFreeMinutes(context);
   } catch (e) {
     if (!(e instanceof WeeklyFreeMinutesError)) throw e;
     console.warn("[interview/message] weekly free minutes unavailable:", e.name);
-    return null;
   }
+  return buildGoalCandidates({ slots, today, weeklyFreeMinutes, fixedEvents: context.fixed_events });
 }
 
 // 発言は保存したが、同時に送られた別のリクエストが先にセッションを進めていた（saveInterviewTurn が null）
@@ -112,9 +119,13 @@ export async function POST(request: NextRequest) {
 
     // TODO: LLM_MODE=on（lib/llm/interview.ts、6.2.3）を作ったら、LLM_MODE=on かつ OPENAI_API_KEY があるときは
     // LLM で抽出する（common.md 1.4）。今は LLM_MODE にかかわらず台本（6.2.6）で動かす
-    const today = toDateStr(await getNow(user.id, supabase));
-    const weeklyFreeMinutes = stepIndex === 4 ? await loadWeeklyFreeMinutes(supabase, user.id) : null;
-    const answer = answerByScript(stepIndex, session.slots, today, weeklyFreeMinutes);
+    const answer = answerByScript(stepIndex);
+    const slots = mergeSlots(session.slots, answer.slots);
+    // ステップ4の回答のときだけ3案を作る（LLM_MODE=on は文章に LLM を使い、失敗時と off はテンプレート。7.2.3）
+    const goalCandidates =
+      stepIndex === 4
+        ? await loadGoalCandidates(supabase, user.id, slots, toDateStr(await getNow(user.id, supabase)))
+        : null;
 
     const saved = await saveInterviewTurn(
       supabase,
@@ -124,8 +135,8 @@ export async function POST(request: NextRequest) {
         step: answer.next.step,
         step_index: answer.next.step_index,
         retry_count: 0, // ステップが進んだら0に戻す（台本では聞き直さない）
-        slots: mergeSlots(session.slots, answer.slots),
-        goal_candidates: answer.goal_candidates,
+        slots,
+        goal_candidates: goalCandidates,
         goal_draft: null,
       },
       [
@@ -142,7 +153,7 @@ export async function POST(request: NextRequest) {
       step_index: answer.next.step_index,
       messages: saved.filter((m) => m.role === "ai"), // 利用者の吹き出しは画面が出す（mock-spec 10.2）
       quick_replies: answer.next.quick_replies,
-      goal_candidates: answer.goal_candidates,
+      goal_candidates: goalCandidates,
       goal_draft: null,
     });
   });
