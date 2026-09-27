@@ -23,8 +23,7 @@ import {
   listPlanItemRows,
   type FixedEventRow,
 } from "@/lib/server/repositories/replan-proposals";
-// TODO: 長沼の ★6 がマージされたら "@/lib/planning/replan" に替え、lib/server/replan-stub.ts を消す
-import { replan } from "@/lib/server/replan-stub";
+import { replan } from "@/lib/planning/replan";
 
 // 12.3.3 対応していないときの返事
 const UNSUPPORTED_MESSAGE =
@@ -144,8 +143,17 @@ export async function POST(request: NextRequest) {
     ];
     context.fixed_events = [...context.fixed_events, ...intent.new_fixed_events];
 
-    // 7. Engine
-    const result = replan(context, beforeDays, intent);
+    // 7. Engine。Before の項目に、保存されている reason_code を付けて渡す
+    // （replan() は Before の項目をそのまま updated_days に写すため、ないと EngineReplanResultSchema に合わない）
+    const storedRows = await listPlanItemRows(supabase, active.id);
+    const engineBeforeDays = beforeDays.map((day) => ({
+      ...day,
+      items: day.items.map((item) => ({
+        ...item,
+        reason_code: storedRows.get(item.id)?.reason_code ?? null,
+      })),
+    }));
+    const result = replan(context, engineBeforeDays, intent);
     if (!result.ok) {
       const { reason, required_changes } = result.infeasible;
       return unsupported(
@@ -155,7 +163,6 @@ export async function POST(request: NextRequest) {
 
     // 8. updated_days の全項目に新しい UUID を振り、保存する行と after 側の id を組み立てる（lib/server/replan-rows.ts）。
     // 行の中身は Engine の項目のまま（Engine が now で切った進行中のタスクを Before の値で戻さない。FR-12-4 の例外）
-    const storedRows = await listPlanItemRows(supabase, active.id);
     const rows = buildReplanRows({
       result,
       storedRows,
