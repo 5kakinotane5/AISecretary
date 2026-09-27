@@ -1,11 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
+  GoalSchema,
   GoalTimeCandidateSchema,
   InterviewExtractedCheckedSchema,
   InterviewMessageSchema,
   InterviewStateSchema,
   InterviewStepSchema,
+  type Goal,
   type GoalTimeCandidate,
   type InterviewMessage,
   type InterviewState,
@@ -41,6 +43,8 @@ export type InterviewSession = {
   retry_count: number;
   slots: InterviewSlots;
   goal_candidates: GoalTimeCandidate[] | null;
+  // selection の後に入る目標案（FR-03-5）。id は selection のときに振り、confirm でもそのまま使う
+  goal_draft: Goal | null;
 };
 
 // セッションの書き込める列
@@ -48,7 +52,7 @@ export type InterviewSessionWrite = Omit<InterviewSession, "id">;
 
 export type InterviewMessageWrite = Pick<InterviewMessage, "role" | "text">;
 
-const SESSION_COLUMNS = "id, state, step, step_index, retry_count, slots, goal_candidates";
+const SESSION_COLUMNS = "id, state, step, step_index, retry_count, slots, goal_candidates, goal_draft";
 const MESSAGE_COLUMNS = "id, role, text, created_at";
 
 function toSession(row: Record<string, unknown>): InterviewSession {
@@ -61,6 +65,7 @@ function toSession(row: Record<string, unknown>): InterviewSession {
     // slots の既定値は {}。足りないキーは空の値で埋める
     slots: InterviewExtractedCheckedSchema.parse({ ...EMPTY_SLOTS, ...(row.slots as object | null) }),
     goal_candidates: z.array(GoalTimeCandidateSchema).nullable().parse(row.goal_candidates ?? null),
+    goal_draft: GoalSchema.nullable().parse(row.goal_draft ?? null),
   };
 }
 

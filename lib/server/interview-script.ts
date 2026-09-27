@@ -1,11 +1,19 @@
 import { z } from "zod";
-import { INTERVIEW_CATEGORIES, type GoalPlanStyle, type GoalTimeCandidate, type InterviewStep, type Level } from "@/lib/schemas";
+import {
+  INTERVIEW_CATEGORIES,
+  type GoalPlanStyle,
+  type GoalTimeCandidate,
+  type InterviewStep,
+  type Level,
+  type Task,
+} from "@/lib/schemas";
 import { diffMinutes } from "@/lib/datetime";
 import { GOAL_PLAN_STYLE_LABELS } from "@/lib/labels";
-import { INTERVIEW_QUESTIONS } from "@/mocks/interview-script";
+import { computeGoalCandidateHours } from "@/lib/planning/goal-candidates";
+import { FINAL_CONFIRMATION_MESSAGE, INTERVIEW_QUESTIONS } from "@/mocks/interview-script";
 import { GOAL } from "@/mocks/goal";
 import { GOAL_TIME_CANDIDATES } from "@/mocks/goal-candidates";
-import { computeGoalCandidateHours } from "@/lib/planning/goal-candidates";
+import { TASKS } from "@/mocks/tasks";
 import type { InterviewSlots } from "./repositories/interview";
 
 // LLM_MODE=off のヒアリング（backend.md 6.2.6）。モック（mock-spec 5.7・10.1・10.3）と同じ動きをする。
@@ -31,6 +39,13 @@ function toQuestion(key: keyof typeof INTERVIEW_QUESTIONS): ScriptQuestion {
 
 // ステップ1（category）の質問
 export const FIRST_QUESTION = toQuestion("category");
+
+// ステップ9（最終確認）の固定文（6.2.5）
+export { FINAL_CONFIRMATION_MESSAGE };
+
+// confirm で作る目標タスクのもと（6.2.6）。mocks/tasks.ts のうち G1 に紐づく2件（TOEIC リスニング演習・TOEIC 単語）。
+// 8.2 のカテゴリ別テンプレートは使わない。id・goal_id・remaining_minutes は呼び出し側で決める
+export const SCRIPT_GOAL_TASKS: Task[] = TASKS.filter((t) => t.goal_id === GOAL.id);
 
 // ステップ1〜4 の回答の後に、G1 として埋める slots（6.2.2 の各ステップの抽出項目）
 const G1_SLOTS: Record<1 | 2 | 3 | 4, Partial<InterviewSlots>> = {

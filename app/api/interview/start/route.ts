@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
         retry_count: 0,
         slots: EMPTY_SLOTS,
         goal_candidates: null,
+        goal_draft: null,
       },
       q.ai_message,
     );
