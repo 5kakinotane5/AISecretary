@@ -85,6 +85,7 @@ export const CONFIG = {
   // docs/design/plans-replan.md 12.4（単位: 分。shorten_ratio のみ比率）
   replan: {
     buffer_minutes: 15,
+    short_remainder_fit_minutes: 30,
     time_step_minutes: 5,
     tired_rest_minutes: 30,
     tired_light_max_minutes: 20,

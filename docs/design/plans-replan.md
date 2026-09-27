@@ -156,7 +156,7 @@ generate の手順：
 明日以降（外した分の行き先）：
   f. 締切タスク：明日〜min(締切の前日, 日曜) の日の自由時間に、日付の早い順で置く
        置き方：自由時間の先頭に（直前がタスクならバッファを置いてから）タスク、後ろにバッファ。残りは自由時間
-       Fit > 0（明日以降は状態なしとして計算）、その日のタスク合計 ≤ T_comf（240。締切の最終日だけは daily_work_limit_minutes まで）
+       Fit > 0（明日以降は状態なしとして計算。分割できるタスクの30分未満の端数（c の後の目標の残りなど）は30分として Fit を計算し、そのままの長さで置く）、その日のタスク合計 ≤ T_comf（240。締切の最終日だけは daily_work_limit_minutes まで）
        締切が来週以降で今週に置けない → 今週からは外す（要約で「来週に回します」と伝える）
        締切が今週で置けない → 成立しない（T_comf の代わりに daily_work_limit_minutes まで使っても置けなければ infeasible）
   g. 目標タスクの不足分（外した目標の分 − L）：明日〜日曜の日を「自由時間の合計が多い順」に見て、
@@ -183,7 +183,7 @@ generate の手順：
 
 | 操作 | changes（今日） | other_day_changes |
 |---|---|---|
-| 高集中タスクを外し、その時間に休憩・軽作業版を置いた | `replaced`（before＝外した項目、after＝その時間帯の After の項目、reason：`TIRED_LIGHT`） | 残りを別の日に置いたら `moved`（before＝外した項目、after＝別の日の項目、moved_to_date、reason：`GOAL_CARRYOVER` か `TIRED_MOVED`） |
+| 高集中タスクを外し、その時間に休憩・軽作業版を置いた | `replaced`（before＝外した項目、after＝その時間帯の After の項目、reason：`TIRED_LIGHT`）。**目標タスク（軽作業版のもと）と now をまたぐ項目（切ったタスク・自由時間・バッファ）が別のとき**は、休憩は now をまたぐ項目の after に、軽作業版とそのバッファは目標タスクの after にだけ入れる（同じ項目を2つの変更に重ねない） | 残りを別の日に置いたら `moved`（before＝外した項目、after＝別の日の項目、moved_to_date、reason：`GOAL_CARRYOVER` か `TIRED_MOVED`） |
 | タスクを外し、今日の中では置き換えなかった | `moved`（after＝[]、moved_to_date＝行き先の日、reason：`TIRED_MOVED`・`USER_POSTPONED` など） | `moved`（after＝行き先の日の項目） |
 | タスクを外し、今週には置かない | `removed`（reason：`NEXT_WEEK` か `USER_SKIPPED`） | なし |
 | タスクに付いていたバッファを外した | `removed`（reason：`BUFFER_MERGED`） | なし |
@@ -213,10 +213,11 @@ Engine（`lib/planning/__tests__/replan.test.ts`。バランスプランを生�
 - [ ] 今週の目標タスクの合計が360分のまま
 - [ ] ES の項目がすべて締切（10/12）より前の日
 - [ ] 夕食の項目が変わっていない
-- [ ] changes に replaced（リスニング → 休憩・単語・バッファ）がある。other_day_changes に、リスニングの残り40分の moved がある
+- [ ] changes に replaced（リスニング → 単語・バッファ。reason：`TIRED_LIGHT`）がある。休憩は ES の replaced にだけ入る（下の「now をまたぐ高集中タスク」）。changes の after に同じ項目が2回出ない。other_day_changes に、リスニングの残り40分の moved がある
 - [ ] fatigue: medium でも同じ結果になる
 - [ ] **now をまたぐ自由時間**：TOEIC を夕食後（19:45〜20:45）に置き、17:00〜19:00 を自由時間にした Before でも、18:00〜18:30 休憩、18:30〜18:50 単語、18:50〜19:00 バッファになる。17:00〜18:00 の自由時間は残り、`LOCKED_ITEM_CHANGED` が出ない
-- [ ] **now をまたぐ高集中タスク**：Before に 11.3 の表示用の計算（end_at ≤ now は locked・completed、進行中のタスク・固定予定・移動・睡眠は locked）をかけたもの（バランスプランの ES（企業A）17:35〜18:35 が locked: true で届く）でも、ES は 17:35〜18:00（同じ id・completed）に切られ、18:00〜18:30 休憩、18:30〜18:50 単語、18:50〜19:00 バッファになる。`LOCKED_ITEM_CHANGED` が出ない。changes に replaced（before＝ES 全体、after＝前半＋休憩など。reason：`REST`）、other_day_changes に ES の後半35分の moved（`TIRED_MOVED`）がある
+- [ ] **now をまたぐ高集中タスク**：Before に 11.3 の表示用の計算（end_at ≤ now は locked・completed、進行中のタスク・固定予定・移動・睡眠は locked）をかけたもの（バランスプランの ES（企業A）17:35〜18:35 が locked: true で届く）でも、ES は 17:35〜18:00（同じ id・completed）に切られ、18:00〜18:30 休憩、18:30〜18:50 単語、18:50〜19:00 バッファになる。`LOCKED_ITEM_CHANGED` が出ない。changes に replaced（before＝ES 全体、after＝前半＋休憩。reason：`REST`）、other_day_changes に ES の後半35分の moved（`TIRED_MOVED`）がある
+- [ ] **疲れた後の「今日はもう勉強したくない」**：上の結果（今日の now 以降のタスクは 18:30〜18:50 の単語20分だけ）に、単語の postpone を渡すと成立し、単語20分が明日以降に移る。今週の目標タスクの合計は360分のまま
 
 API（手動）：
 
