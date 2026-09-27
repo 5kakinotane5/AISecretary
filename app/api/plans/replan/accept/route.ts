@@ -1,26 +1,21 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { DayViewSchema, ReplanAcceptRequestSchema } from "@/lib/schemas";
-import { toDateStr } from "@/lib/datetime";
-import { isMockError, mockDelay, mockErrorResponse } from "@/lib/mock/http";
-import { REPLAN_TIRED } from "@/mocks/replan-tired";
-import { TASKS } from "@/mocks/tasks";
+import type { NextRequest } from "next/server";
+import { ReplanAcceptRequestSchema } from "@/lib/schemas";
+import { handle, HttpError, parseBody } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/auth";
+import { getDayView } from "@/lib/server/calendar";
+import { applyReplan, getReplanProposalDate } from "@/lib/server/repositories/replan-proposals";
 
-// POST /api/plans/replan/accept（4章）：{ proposal_id } → DayView
-// まだモック：モックの再計画後の10/5をそのまま返すだけで、DB の計画は変えない
-// （calendar は本番化済みなので、/today・/calendar には反映されない）
+// POST /api/plans/replan/accept（plans-replan.md 12.6）：{ proposal_id } → 確定後のその日の DayView（11.3 の計算をかけたもの）。
+// 古い提案（反映済み・期限切れ・計画が変わった）は 409 PROPOSAL_EXPIRED。「やめておく」は API を呼ばない
 export async function POST(request: NextRequest) {
-  if (isMockError(request)) return mockErrorResponse();
-  await mockDelay(400);
+  return handle(request, async () => {
+    const { user, supabase } = await requireUser();
+    const { proposal_id } = await parseBody(request, ReplanAcceptRequestSchema);
 
-  const parsed = ReplanAcceptRequestSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success || parsed.data.proposal_id !== REPLAN_TIRED.proposal_id) {
-    return NextResponse.json({ error: "proposal_id が無効です" }, { status: 400 });
-  }
+    const date = await getReplanProposalDate(supabase, proposal_id);
+    if (!date) throw new HttpError(404, "NOT_FOUND", "提案が見つかりません");
 
-  const { date, items } = REPLAN_TIRED.after;
-  const deadlines = TASKS.filter((t) => t.deadline_at !== null && toDateStr(t.deadline_at) === date).map((t) => ({
-    task_id: t.id,
-    title: t.title,
-  }));
-  return NextResponse.json(DayViewSchema.parse({ date, has_plan: true, items, deadlines }));
+    await applyReplan(supabase, proposal_id);
+    return getDayView(supabase, user.id, date);
+  });
 }
