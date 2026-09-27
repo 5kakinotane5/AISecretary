@@ -36,6 +36,8 @@ export function structuralDistance(a: SelectablePlan, b: SelectablePlan, now: st
   return 0.25 * (Math.abs(x.work - y.work) / 600 + Math.abs(x.buffer - y.buffer) / 300 + Math.abs(x.free - y.free) / 600 + Math.abs(x.count - y.count) / 10);
 }
 export function integratedDistance(a: SelectablePlan, b: SelectablePlan, now: string): number { return CONFIG.diversity.lambdaF * featureDistance(a, b) + CONFIG.diversity.lambdaS * structuralDistance(a, b, now); }
+/** 担当間の旧契約名。距離式は integratedDistance と同一。 */
+export const combinedDistance = integratedDistance;
 
 function deadlineNear(context: PlanningContext): boolean {
   const today = toDateStr(context.now);
@@ -53,6 +55,8 @@ export function adjustedDirections(context: PlanningContext): AdjustedDirections
   }
   return result;
 }
+/** 担当間の旧契約名。状態調整は adjustedDirections と同一。 */
+export const adjustDirections = adjustedDirections;
 
 export function adjustedBeamWeights(context: PlanningContext, style: PlanStyle, date: string): BeamWeights {
   const weights = [...CONFIG.beamWeights[style]] as number[];
