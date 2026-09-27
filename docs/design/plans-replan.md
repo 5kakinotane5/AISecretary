@@ -216,6 +216,7 @@ Engine（`lib/planning/__tests__/replan.test.ts`。バランスプランを生�
 - [ ] changes に replaced（リスニング → 休憩・単語・バッファ）がある。other_day_changes に、リスニングの残り40分の moved がある
 - [ ] fatigue: medium でも同じ結果になる
 - [ ] **now をまたぐ自由時間**：TOEIC を夕食後（19:45〜20:45）に置き、17:00〜19:00 を自由時間にした Before でも、18:00〜18:30 休憩、18:30〜18:50 単語、18:50〜19:00 バッファになる。17:00〜18:00 の自由時間は残り、`LOCKED_ITEM_CHANGED` が出ない
+- [ ] **now をまたぐ高集中タスク**：Before に 11.3 の表示用の計算（end_at ≤ now は locked・completed、進行中のタスク・固定予定・移動・睡眠は locked）をかけたもの（バランスプランの ES（企業A）17:35〜18:35 が locked: true で届く）でも、ES は 17:35〜18:00（同じ id・completed）に切られ、18:00〜18:30 休憩、18:30〜18:50 単語、18:50〜19:00 バッファになる。`LOCKED_ITEM_CHANGED` が出ない。changes に replaced（before＝ES 全体、after＝前半＋休憩など。reason：`REST`）、other_day_changes に ES の後半35分の moved（`TIRED_MOVED`）がある
 
 API（手動）：
 

@@ -135,7 +135,7 @@ W は、同じ日・同じ種類のタスクの中で**置く順番**と、任�
 | `INVALID_REFERENCE` | error | `task_id`・`location_id`・`fixed_event_id`・`suggested_task_id` が context にない（`task_id` は、実施済みで context から外れたタスクなら可） | ○ | ○ | ○ |
 | `GOAL_HOURS_MISMATCH` | error | generate・replan：`end_at > now` の目標タスクの項目の合計 ≠ R。stored：計画全体の目標タスクの合計 ≠ W | ○ | ○ | ○ |
 | `PAST_PLACEMENT` | error | `locked: false` の項目の `start_at` が `now` より前 | ○ | ○ | － |
-| `LOCKED_ITEM_CHANGED` | error | 再計画の Before で `locked: true` または `status: completed` の項目が、After で時刻・内容が変わった／なくなった | － | ○ | － |
+| `LOCKED_ITEM_CHANGED` | error | 再計画の Before で `locked: true` または `status: completed` の項目が、After で時刻・内容が変わった／なくなった。ただし、Before が進行中（start_at < now < end_at）のタスクで、After が同じ id・同じ start_at・end_at = now・status: completed の項目は、変わったとみなさない（FR-12-4 の例外。state_change のとき） | － | ○ | － |
 | `CANDIDATES_TOO_SIMILAR` | warning | 3案のどれか2案の統合距離 D が D_min 未満（P8.2。stored では保存した `features` と項目から計算） | ○ | － | ○ |
 
 **補正 C-8**：要件定義 6.8.3 の「バッファが最低量以上ある」は、予定間の最低量（15分）を絶対条件とし、1日合計（60分）は自由時間も含めた警告とする（mock-spec 6章と同じ）。
