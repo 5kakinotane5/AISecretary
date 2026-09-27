@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { diffMinutesExact } from "@/lib/datetime";
-import { EngineReplanResultSchema, type DayPlan, type ReplanProposal } from "@/lib/schemas";
+import { EngineReplanResultSchema, type DayPlan, type FixedEvent, type ReplanProposal } from "@/lib/schemas";
 import { generatePlans } from "../generate";
 import { replan } from "../replan";
 import { validatePlan } from "../validate";
 import { createPlanningContext } from "./fixtures";
 
 const fatigueIntent = (fatigue: "high" | "medium"): ReplanProposal["intent"] => ({ type: "state_change", fatigue, task_changes: [], new_fixed_events: [], preference_changes: [] });
+const fixedIntent = (event: FixedEvent): ReplanProposal["intent"] => ({ type: "new_fixed_event", fatigue: null, task_changes: [], new_fixed_events: [event], preference_changes: [] });
 
 function applyDisplayState(days: readonly DayPlan[], now: string): DayPlan[] {
   return days.map((day) => ({ date: day.date, items: day.items.map((item) => {
@@ -263,5 +264,114 @@ describe("replan intents", () => {
     expect(fixture.days).toEqual(beforeDays);
     const crossing = fixture.days[0].items.find((item) => item.start_at < fixture.context.now && fixture.context.now < item.end_at && item.kind === "task");
     expect(crossing).toMatchObject({ locked: true, status: "planned" });
+  }, 30_000);
+});
+
+describe("replan new_fixed_event", () => {
+  it("20:00〜21:00の予定を追加し、重なるtaskを移してfreeを分割する", () => {
+    const fixture = fixtureBefore();
+    const event: FixedEvent = {
+      id: "fixed_new_meeting",
+      title: "オンライン会議",
+      category: "other",
+      location_id: null,
+      start_at: "2026-10-05T20:00:00+09:00",
+      end_at: "2026-10-05T21:00:00+09:00",
+      recurrence: null,
+    };
+    const before = structuredClone(fixture.days);
+    const result = replan(fixture.context, fixture.days, fixedIntent(event));
+    expect(() => EngineReplanResultSchema.parse(result)).not.toThrow();
+    if (!result.ok) throw new Error(result.infeasible.reason);
+    const monday = result.proposal.after.items;
+    expect(monday).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: event.id,
+        kind: "fixed",
+        title: event.title,
+        start_at: event.start_at,
+        end_at: event.end_at,
+        location_id: null,
+        fixed_event_id: event.id,
+        locked: true,
+        reason: "20:00からの予定を入れました",
+      }),
+    ]));
+    expect(result.updated_days.flatMap((day) => day.items).find((item) => item.id === event.id)).toMatchObject({ reason_code: "FIXED_EVENT_ADDED" });
+    expect(monday.filter((item) => item.kind === "free").every((item) => item.end_at <= event.start_at || item.start_at >= event.end_at)).toBe(true);
+    expect(monday.some((item) => item.id !== event.id && item.start_at < event.end_at && event.start_at < item.end_at)).toBe(false);
+    expect(result.proposal.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ change_type: "added", before: null, after: [expect.objectContaining({ id: event.id })], reason: "20:00からの予定を入れました" }),
+      expect.objectContaining({ change_type: "moved", before: expect.objectContaining({ kind: "task" }), after: [], moved_to_date: expect.any(String) }),
+    ]));
+    expect(result.proposal.other_day_changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ change_type: "moved", before: expect.objectContaining({ kind: "task" }), after: expect.arrayContaining([expect.objectContaining({ kind: "task" })]), moved_to_date: expect.any(String) }),
+    ]));
+    expect(result.proposal.summary_message).toBe("20:00からの予定を入れ、TOEICの残り60分は日曜に移しました。");
+    const afterDays = before.map((day) => result.updated_days.find((updated) => updated.date === day.date) ?? day);
+    const validation = validatePlan({ ...fixture.context, fixed_events: [...fixture.context.fixed_events, event] }, afterDays, "replan", { before });
+    expect(validation.errors).toEqual([]);
+    expect(validation.errors.some((issue) => issue.code === "LOCKED_ITEM_CHANGED")).toBe(false);
+    expect(fixture.days).toEqual(before);
+    expect(JSON.stringify(replan(fixture.context, fixture.days, fixedIntent(event)))).toBe(JSON.stringify(result));
+  }, 30_000);
+
+  it("freeの中へ予定を追加すると前後へ分割する", () => {
+    const fixture = fixtureBefore();
+    const event: FixedEvent = {
+      id: "fixed_late_call",
+      title: "電話",
+      category: "other",
+      location_id: null,
+      start_at: "2026-10-05T23:15:00+09:00",
+      end_at: "2026-10-05T23:45:00+09:00",
+      recurrence: null,
+    };
+    const result = replan(fixture.context, fixture.days, fixedIntent(event));
+    if (!result.ok) throw new Error(result.infeasible.reason);
+    expect(result.proposal.after.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "free", start_at: "2026-10-05T23:00:00+09:00", end_at: event.start_at }),
+      expect.objectContaining({ kind: "fixed", id: event.id, start_at: event.start_at, end_at: event.end_at }),
+      expect.objectContaining({ kind: "free", start_at: event.end_at, end_at: "2026-10-06T00:00:00+09:00" }),
+    ]));
+    expect(result.proposal.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ change_type: "replaced", before: expect.objectContaining({ kind: "free", start_at: "2026-10-05T23:00:00+09:00" }) }),
+    ]));
+  }, 30_000);
+
+  it("夕食・進行中task・locked項目との重複を拒否する", () => {
+    const fixture = fixtureBefore();
+    const makeEvent = (id: string, start_at: string, end_at: string): FixedEvent => ({ id, title: "追加予定", category: "other", location_id: null, start_at, end_at, recurrence: null });
+    const dinner = replan(fixture.context, fixture.days, fixedIntent(makeEvent("fixed_dinner_overlap", "2026-10-05T19:00:00+09:00", "2026-10-05T20:00:00+09:00")));
+    expect(dinner).toMatchObject({ ok: false, infeasible: { feasible: false, reason: expect.stringContaining("夕食") } });
+
+    const crossing = fixture.days[0].items.find((item) => item.kind === "task" && item.start_at < fixture.context.now && fixture.context.now < item.end_at)!;
+    const progress = replan(fixture.context, fixture.days, fixedIntent(makeEvent("fixed_progress_overlap", "2026-10-05T18:05:00+09:00", crossing.end_at)));
+    expect(progress).toMatchObject({ ok: false, infeasible: { feasible: false, reason: expect.stringContaining(crossing.title) } });
+    expect(fixture.days[0].items.find((item) => item.id === crossing.id)).toEqual(crossing);
+
+    const withLocked = structuredClone(fixture.days);
+    const template = withLocked[0].items.find((item) => item.kind === "free" && item.start_at >= "2026-10-05T21:00:00+09:00")!;
+    const locked = { ...template, id: "locked-future", start_at: "2026-10-05T21:00:00+09:00", end_at: "2026-10-05T21:30:00+09:00", locked: true };
+    withLocked[0].items = [...withLocked[0].items.filter((item) => item.end_at <= locked.start_at || item.start_at >= locked.end_at), locked].sort((a, b) => a.start_at.localeCompare(b.start_at));
+    const blocked = replan(fixture.context, withLocked, fixedIntent(makeEvent("fixed_locked_overlap", locked.start_at, locked.end_at)));
+    expect(blocked).toMatchObject({ ok: false, infeasible: { feasible: false, reason: expect.stringContaining(locked.title) } });
+
+    for (const kind of ["fixed", "travel", "sleep"] as const) {
+      const protectedDays = structuredClone(fixture.days);
+      const base = protectedDays[0].items.find((item) => item.kind === "free" && item.start_at >= "2026-10-05T21:00:00+09:00")!;
+      const protectedItem = {
+        ...base,
+        id: `protected-${kind}`,
+        kind,
+        title: `保護対象${kind}`,
+        start_at: "2026-10-05T21:00:00+09:00",
+        end_at: "2026-10-05T21:30:00+09:00",
+        locked: true,
+      };
+      protectedDays[0].items = [...protectedDays[0].items.filter((item) => item.end_at <= protectedItem.start_at || item.start_at >= protectedItem.end_at), protectedItem].sort((a, b) => a.start_at.localeCompare(b.start_at));
+      const result = replan(fixture.context, protectedDays, fixedIntent(makeEvent(`fixed_${kind}_overlap`, protectedItem.start_at, protectedItem.end_at)));
+      expect(result).toMatchObject({ ok: false, infeasible: { feasible: false, reason: expect.stringContaining(protectedItem.title) } });
+    }
   }, 30_000);
 });
