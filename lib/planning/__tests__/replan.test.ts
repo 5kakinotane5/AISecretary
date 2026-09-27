@@ -80,11 +80,12 @@ describe("replan state_change", () => {
     const highIds = new Set(fixture.context.tasks.filter((task) => task.concentration === "high" || (task.goal_id && task.concentration === "medium")).map((task) => task.id));
     expect(monday.some((item) => item.kind === "task" && item.start_at >= fixture.context.now && item.task_id && highIds.has(item.task_id))).toBe(false);
     const replacement = result.proposal.changes.find((change) => change.change_type === "replaced" && change.before?.task_id === "task_toeic_listening");
+    // 休憩は切った ES の replaced に、単語とそのバッファはリスニングの replaced にだけ入る（12.5。同じ項目を2つの変更に重ねない）
     expect(replacement?.after.map((item) => [item.kind, item.start_at, item.end_at, item.task_id])).toEqual([
-      ["free", "2026-10-05T18:00:00+09:00", "2026-10-05T18:30:00+09:00", null],
       ["task", "2026-10-05T18:30:00+09:00", "2026-10-05T18:50:00+09:00", "task_toeic_vocab"],
       ["buffer", "2026-10-05T18:50:00+09:00", "2026-10-05T19:00:00+09:00", null],
     ]);
+    expect(replacement?.reason).toContain("TOEIC 単語に切り替えました");
     const crossingReplacement = result.proposal.changes.find((change) => change.change_type === "replaced" && change.before?.id === crossingEs.id);
     expect(crossingReplacement?.before).toMatchObject({
       id: crossingEs.id,
@@ -98,10 +99,14 @@ describe("replan state_change", () => {
       status: "planned",
       reason: crossingEs.reason,
     });
-    expect(crossingReplacement?.after).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: crossingEs.id, start_at: crossingEs.start_at, end_at: fixture.context.now, status: "completed" }),
-      expect.objectContaining({ kind: "free", start_at: "2026-10-05T18:00:00+09:00", end_at: "2026-10-05T18:30:00+09:00", reason: "まずは休憩をとって、疲れを回復します" }),
-    ]));
+    expect(crossingReplacement?.after.map((item) => [item.kind, item.start_at, item.end_at])).toEqual([
+      ["task", crossingEs.start_at, fixture.context.now],
+      ["free", "2026-10-05T18:00:00+09:00", "2026-10-05T18:30:00+09:00"],
+    ]);
+    expect(crossingReplacement?.after[0]).toMatchObject({ id: crossingEs.id, status: "completed" });
+    expect(crossingReplacement?.reason).toBe("まずは休憩をとって、疲れを回復します");
+    const todayAfterIds = result.proposal.changes.flatMap((change) => change.after.map((item) => item.id));
+    expect(new Set(todayAfterIds).size).toBe(todayAfterIds.length);
     const movedEs = result.proposal.other_day_changes.filter((change) => change.change_type === "moved" && change.before?.id === crossingEs.id);
     expect(movedEs).toHaveLength(1);
     expect(movedEs[0].before).toMatchObject({ id: crossingEs.id, start_at: crossingEs.start_at, end_at: crossingEs.end_at });
@@ -205,6 +210,13 @@ describe("replan state_change", () => {
     expect(result.proposal.changes).toEqual(expect.arrayContaining([
       expect.objectContaining({ change_type: "replaced", before: expect.objectContaining({ id: "crossing-free" }) }),
     ]));
+    // 自由時間の replaced は前半＋休憩、リスニングの replaced は単語＋バッファ（同じ項目を重ねない）
+    const crossingFree = result.proposal.changes.find((change) => change.before?.id === "crossing-free");
+    expect(crossingFree?.after.map((item) => item.kind)).toEqual(["free", "free"]);
+    const listening = result.proposal.changes.find((change) => change.change_type === "replaced" && change.before?.id === "late-listening");
+    expect(listening?.after.map((item) => [item.kind, item.task_id])).toEqual([["task", "task_toeic_vocab"], ["buffer", null]]);
+    const todayAfterIds = result.proposal.changes.flatMap((change) => change.after.map((item) => item.id));
+    expect(new Set(todayAfterIds).size).toBe(todayAfterIds.length);
   }, 30_000);
 
   it("最初の空きが30分未満なら後続空きへ休憩と軽作業を置く", () => {
@@ -377,6 +389,25 @@ describe("replan new_fixed_event", () => {
 });
 
 describe("replan task_change", () => {
+  it("疲れた後の「今日はもう勉強したくない」：20分の単語を別の日へ移して週360分を保つ", () => {
+    const fixture = fixtureBefore();
+    const tired = replan(fixture.context, fixture.days, fatigueIntent("high"));
+    if (!tired.ok) throw new Error(tired.infeasible.reason);
+    const afterTired = fixture.days.map((day) => tired.updated_days.find((updated) => updated.date === day.date) ?? day);
+    const days = applyDisplayState(toApiDayPlans(afterTired), fixture.context.now);
+    const vocab = days[0].items.find((item) => item.task_id === "task_toeic_vocab" && item.start_at >= fixture.context.now)!;
+    expect(diffMinutesExact(vocab.start_at, vocab.end_at)).toBe(20);
+    const result = replan(fixture.context, days, taskIntent("task_toeic_vocab", "postpone"));
+    if (!result.ok) throw new Error(result.infeasible.reason);
+    const moved = result.proposal.other_day_changes.find((change) => change.change_type === "moved" && change.before?.task_id === "task_toeic_vocab");
+    expect(moved?.moved_to_date).not.toBeNull();
+    expect(moved?.after.filter((item) => item.kind === "task").reduce((sum, item) => sum + diffMinutesExact(item.start_at, item.end_at), 0)).toBe(20);
+    const finalDays = days.map((day) => result.updated_days.find((updated) => updated.date === day.date) ?? day);
+    expect(finalDays[0].items.some((item) => item.kind === "task" && item.start_at >= fixture.context.now)).toBe(false);
+    const goalIds = new Set(fixture.context.tasks.filter((task) => task.goal_id === "goal_toeic").map((task) => task.id));
+    expect(finalDays.flatMap((day) => day.items).filter((item) => item.kind === "task" && item.task_id && goalIds.has(item.task_id)).reduce((sum, item) => sum + diffMinutesExact(item.start_at, item.end_at), 0)).toBe(360);
+  }, 30_000);
+
   it("目標taskをpostponeし、元時間をfreeへ戻して週360分を維持する", () => {
     const fixture = fixtureBefore();
     const before = structuredClone(fixture.days);

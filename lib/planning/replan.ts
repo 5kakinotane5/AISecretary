@@ -113,7 +113,9 @@ function insertIntoFree(
     const slotEnd = workEnd(context, day.date, free.end_at);
     if (bufferEnd > slotEnd) continue;
     const fitContext = { ...context, checkin: null };
-    const fit = computeTaskFit({ context: fitContext, task, slot: { start: free.start_at, end: free.end_at, work_end: slotEnd, location_id: free.location_id ?? context.home_location_id }, start: free.start_at, minutes, band: null });
+    // 分割できるタスクの30分未満の端数（疲れたときの軽作業の残りなど）は、30分として適合度を判定し、そのままの長さで置く
+    const fitMinutes = task.splittable ? Math.max(minutes, CONFIG.replan.short_remainder_fit_minutes) : minutes;
+    const fit = computeTaskFit({ context: fitContext, task, slot: { start: free.start_at, end: free.end_at, work_end: slotEnd, location_id: free.location_id ?? context.home_location_id }, start: free.start_at, minutes: fitMinutes, band: null });
     if (fit.fit <= 0) continue;
     const taskItem = planned(free, "task", free.start_at, end, task.title, task.id);
     const buffer = planned(free, "buffer", end, bufferEnd, "バッファ");
@@ -545,8 +547,17 @@ export function replan(inputContext: PlanningContext, inputDays: readonly DayPla
   for (const gap of freeGaps) if (gap.start < gap.end) rebuilt.push(planned({ ...(originalToday.items[0]), location_id: gap.location_id }, "free", gap.start, gap.end, "自由時間"));
   todayDay.items = rebuilt.filter((item) => item.start_at < item.end_at).sort(compare);
 
+  // 12.5：変更点に同じ項目を重ねない。外した目標タスク（切った進行中のタスクとは別）の代わりに軽作業版を置いたら、
+  // 軽作業版とそのバッファはその目標タスクの replaced にだけ入れ、休憩は now の時間帯の項目（切ったタスク・自由時間）の replaced に入れる
+  const splitRemoved = removed.find((entry) => entry.splitInProgress);
+  const goalRemoved = removed.find((entry) => entry.task.goal_id); // 軽作業版のもと（上の removedGoal と同じ選び方）
+  const restItems = replacement.filter((item) => item.reason_code === "REST");
+  const lightItems = replacement.filter((item) => item.reason_code !== "REST");
+  const goalGetsLight = goalRemoved !== undefined && goalRemoved !== splitRemoved && replacement.some((item) => item.reason_code === "TIRED_LIGHT");
+  const lightIds = new Set(goalGetsLight ? lightItems.map((item) => item.id) : []);
+
   for (const crossing of originalToday.items.filter((item) => (item.kind === "free" || item.kind === "buffer") && item.start_at < context.now && item.end_at > context.now)) {
-    const after = todayDay.items.filter((item) => item.start_at < crossing.end_at && crossing.start_at < item.end_at);
+    const after = todayDay.items.filter((item) => item.start_at < crossing.end_at && crossing.start_at < item.end_at && !lightIds.has(item.id));
     diff.record("today", {
       change_type: "replaced",
       before: crossing,
@@ -558,18 +569,23 @@ export function replan(inputContext: PlanningContext, inputDays: readonly DayPla
   }
 
   if (intent.type === "state_change") {
-    const splitRemoved = removed.find((entry) => entry.splitInProgress);
+    const lightReason = replacement.find((item) => item.reason_code === "TIRED_LIGHT")?.reason ?? null;
+    const restReason = replanReason("REST", { context });
     if (splitRemoved) {
       const prefixItem = taskPrefixes.find((item) => item.id === splitRemoved.item.id);
+      const splitIsGoal = goalRemoved === splitRemoved;
       diff.record("today", {
         change_type: "replaced",
         before: splitRemoved.item,
-        after: [...(prefixItem ? [prefixItem] : []), ...replacement],
-        reason: replacement.find((item) => item.reason_code === "TIRED_LIGHT")?.reason ?? replanReason("REST", { context }),
+        after: [...(prefixItem ? [prefixItem] : []), ...(goalGetsLight ? restItems : replacement)],
+        // 切ったタスク自身が軽作業版のもとなら TIRED_LIGHT、そうでなければ休憩の REST（12.7）
+        reason: splitIsGoal && lightReason !== null ? lightReason : restReason,
       });
     }
-    const goalRemoved = removed.find((entry) => entry.task.goal_id);
-    if (goalRemoved) diff.record("today", { change_type: "replaced", before: goalRemoved.item, after: replacement, reason: replacement.find((item) => item.reason_code === "TIRED_LIGHT")?.reason ?? replanReason("REST", { context }) });
+    if (goalRemoved && goalRemoved !== splitRemoved) {
+      const after = goalGetsLight ? lightItems : splitRemoved ? [] : replacement;
+      if (after.length > 0) diff.record("today", { change_type: "replaced", before: goalRemoved.item, after, reason: lightReason ?? restReason });
+    }
   }
   for (const entry of removed.filter((value) => value.minutes > 0)) {
     if (!entry.splitInProgress && entry.task.deadline_at && toDateStr(entry.task.deadline_at) > addDays(context.week_start, 6)) {
