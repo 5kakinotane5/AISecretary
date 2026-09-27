@@ -13,7 +13,7 @@ import {
 } from "@/lib/schemas";
 import { CONFIG } from "./config";
 import { ReplanDiffBuilder } from "./diff";
-import { classifyTask, computeTaskFit } from "./fit";
+import { classifyTask, computeTaskFit, isHighConcentrationTask } from "./fit";
 import { buildReplanSummary, replanReason } from "./reasons";
 import { validatePlan } from "./validate";
 
@@ -35,7 +35,10 @@ function withReason(item: ScheduleItem, reason_code: PlannedItem["reason_code"],
 function normalizeBefore(days: readonly DayPlan[], now: string): DayPlan[] {
   return days.map((day) => ({ date: day.date, items: day.items.map((item) => {
     if (item.end_at <= now) return { ...item, locked: true, status: item.kind === "task" ? "completed" as const : item.status };
-    if (item.start_at < now && item.end_at > now && ["fixed", "travel", "sleep"].includes(item.kind)) return { ...item, locked: true };
+    if (item.start_at < now && item.end_at > now) {
+      if (["task", "fixed", "travel", "sleep"].includes(item.kind)) return { ...item, locked: true };
+      if (["free", "buffer"].includes(item.kind)) return { ...item, locked: false };
+    }
     return { ...item };
   }).sort(compare) }));
 }
@@ -171,7 +174,7 @@ export function replan(inputContext: PlanningContext, inputDays: readonly DayPla
   const todayDay = days.find((day) => day.date === today);
   if (!todayDay) return fail("今日の計画がありません。");
   const diff = new ReplanDiffBuilder();
-  const removed: Array<{ item: ScheduleItem; task: Task; minutes: number; reason: MoveReason }> = [];
+  const removed: Array<{ item: ScheduleItem; task: Task; minutes: number; reason: MoveReason; splitInProgress: boolean }> = [];
   const originalToday = structuredClone(todayDay);
 
   const affected = new Set<string>();
@@ -180,9 +183,14 @@ export function replan(inputContext: PlanningContext, inputDays: readonly DayPla
     const fatigueContext = { ...context, checkin: { date: today, mood: null, fatigue: "high" as const, concentration: null, want_task_ids: [], avoid_task_ids: [], note: null } };
     for (const item of todayDay.items) {
       const task = findTask(context, item.task_id);
-      if (!task || item.kind !== "task" || item.end_at <= context.now || item.locked || item.status === "completed") continue;
+      if (!task || item.kind !== "task" || item.end_at <= context.now || item.status === "completed") continue;
+      if (!isHighConcentrationTask(task)) continue;
+      const crossesNow = item.start_at < context.now && context.now < item.end_at;
+      if (item.locked && !crossesNow) continue;
+      const fitStart = crossesNow ? context.now : item.start_at;
+      const fitMinutes = diffMinutesExact(fitStart, item.end_at);
       const end = workEnd(context, today, atJstTime(today, "24:00"));
-      const fit = computeTaskFit({ context: fatigueContext, task, slot: { start: item.start_at, end, work_end: end, location_id: item.location_id ?? context.home_location_id }, start: item.start_at, minutes: duration(item), band: null });
+      const fit = computeTaskFit({ context: fatigueContext, task, slot: { start: fitStart, end, work_end: end, location_id: item.location_id ?? context.home_location_id }, start: fitStart, minutes: fitMinutes, band: null });
       if (fit.fit === 0) affected.add(item.id);
     }
   }
@@ -220,10 +228,13 @@ export function replan(inputContext: PlanningContext, inputDays: readonly DayPla
       ? { ...item, id: `${item.id}_after_now`, start_at: context.now }
       : item;
     if (item.start_at < context.now) taskPrefixes.push({ ...item, end_at: context.now, locked: true, status: "completed" });
-    removed.push({ item: movable, task, minutes: duration(movable), reason: task.goal_id ? "GOAL_CARRYOVER" : "TIRED_MOVED" });
+    removed.push({ item, task, minutes: duration(movable), reason: task.goal_id ? "GOAL_CARRYOVER" : "TIRED_MOVED", splitInProgress: item.start_at < context.now && context.now < item.end_at });
   }
 
-  const kept = todayDay.items.filter((item) => !affected.has(item.id) && !(item.kind === "free" || item.kind === "buffer") || item.end_at <= context.now || item.locked);
+  const kept = todayDay.items.filter((item) => {
+    if (affected.has(item.id)) return false;
+    return !(item.kind === "free" || item.kind === "buffer") || item.end_at <= context.now || item.locked || (requiredBufferIds.has(item.id) && item.start_at >= context.now);
+  });
   const prefix: ScheduleItem[] = [];
   for (const item of originalToday.items.filter((entry) => (entry.kind === "free" || entry.kind === "buffer") && entry.start_at < context.now && entry.end_at > context.now)) prefix.push({ ...item, end_at: context.now, locked: true });
   const fixedKept = [...kept.filter((item) => item.end_at <= context.now || !["free", "buffer"].includes(item.kind) || requiredBufferIds.has(item.id)), ...prefix, ...taskPrefixes].sort(compare);
@@ -270,11 +281,21 @@ export function replan(inputContext: PlanningContext, inputDays: readonly DayPla
   }
 
   if (intent.type === "state_change") {
+    const splitRemoved = removed.find((entry) => entry.splitInProgress);
+    if (splitRemoved) {
+      const prefixItem = taskPrefixes.find((item) => item.id === splitRemoved.item.id);
+      diff.record("today", {
+        change_type: "replaced",
+        before: splitRemoved.item,
+        after: [...(prefixItem ? [prefixItem] : []), ...replacement],
+        reason: replacement.find((item) => item.reason_code === "TIRED_LIGHT")?.reason ?? replanReason("REST", { context }),
+      });
+    }
     const goalRemoved = removed.find((entry) => entry.task.goal_id);
     if (goalRemoved) diff.record("today", { change_type: "replaced", before: goalRemoved.item, after: replacement, reason: replacement.find((item) => item.reason_code === "TIRED_LIGHT")?.reason ?? replanReason("REST", { context }) });
   }
   for (const entry of removed.filter((value) => value.minutes > 0)) {
-    if (entry.task.deadline_at && toDateStr(entry.task.deadline_at) > addDays(context.week_start, 6)) {
+    if (!entry.splitInProgress && entry.task.deadline_at && toDateStr(entry.task.deadline_at) > addDays(context.week_start, 6)) {
       const reason = replanReason("NEXT_WEEK", { context, task: entry.task });
       diff.record("today", { change_type: "removed", before: entry.item, reason });
       continue;
@@ -283,7 +304,10 @@ export function replan(inputContext: PlanningContext, inputDays: readonly DayPla
   }
 
   const finalDays = stableIds(days, context.style);
-  const validation = validatePlan(context, finalDays, "replan", { before: beforeSnapshot });
+  const validation = validatePlan(context, finalDays, "replan", {
+    before: beforeSnapshot,
+    allowedInProgressTaskSplitIds: removed.filter((entry) => entry.splitInProgress).map((entry) => entry.item.id),
+  });
   if (validation.errors.length) return fail(`再計画後の検証に失敗しました：${validation.errors[0].message}`);
   const changes = resolveRecordedItems(diff.build(), finalDays);
   const finalToday = finalDays.find((day) => day.date === today)!;

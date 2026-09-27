@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffMinutesExact } from "@/lib/datetime";
-import { EngineReplanResultSchema, type ReplanProposal } from "@/lib/schemas";
+import { EngineReplanResultSchema, type DayPlan, type ReplanProposal } from "@/lib/schemas";
 import { generatePlans } from "../generate";
 import { replan } from "../replan";
 import { validatePlan } from "../validate";
@@ -8,20 +8,33 @@ import { createPlanningContext } from "./fixtures";
 
 const fatigueIntent = (fatigue: "high" | "medium"): ReplanProposal["intent"] => ({ type: "state_change", fatigue, task_changes: [], new_fixed_events: [], preference_changes: [] });
 
-function fixtureBefore() {
+function applyDisplayState(days: readonly DayPlan[], now: string): DayPlan[] {
+  return days.map((day) => ({ date: day.date, items: day.items.map((item) => {
+    if (item.end_at <= now) return { ...item, locked: true, status: item.kind === "task" ? "completed" as const : item.status };
+    if (item.start_at < now && now < item.end_at) {
+      return { ...item, locked: ["task", "fixed", "travel", "sleep"].includes(item.kind) };
+    }
+    return { ...item };
+  }) }));
+}
+
+function fixtureBefore(now = "2026-10-05T18:00:00+09:00") {
   const context = createPlanningContext();
   const generated = generatePlans(context);
   if (!generated.ok) throw new Error(generated.infeasible.reason);
-  return { context, days: generated.plans[1].days };
+  context.now = now;
+  context.style = "balanced";
+  return { context, days: applyDisplayState(generated.plans[1].days, now) };
 }
 
 describe("replan state_change", () => {
   it("12.7の疲労時デモを決定論的に再計画する", () => {
     const fixture = fixtureBefore();
-    fixture.context.now = "2026-10-05T18:00:00+09:00";
-    fixture.context.style = "balanced";
     const beforeContext = structuredClone(fixture.context);
     const beforeDays = structuredClone(fixture.days);
+    const crossingEs = beforeDays[0].items.find((item) => item.task_id === "task_es_b" && item.start_at < fixture.context.now && fixture.context.now < item.end_at)!;
+    expect(crossingEs).toMatchObject({ start_at: "2026-10-05T17:35:00+09:00", end_at: "2026-10-05T18:35:00+09:00", locked: true, status: "planned" });
+    expect(beforeDays.flatMap((day) => day.items).filter((item) => item.kind === "task" && item.end_at <= fixture.context.now).every((item) => item.locked && item.status === "completed")).toBe(true);
     const result = replan(fixture.context, fixture.days, fatigueIntent("high"));
     expect(() => EngineReplanResultSchema.parse(result)).not.toThrow();
     if (!result.ok) throw new Error(result.infeasible.reason);
@@ -37,6 +50,15 @@ describe("replan state_change", () => {
       expect.objectContaining({ start_at: "2026-10-05T18:00:00+09:00", reason_code: "REST" }),
       expect.objectContaining({ start_at: "2026-10-05T18:30:00+09:00", reason_code: "TIRED_LIGHT" }),
     ]));
+    expect(monday.find((item) => item.id === crossingEs.id)).toMatchObject({
+      id: crossingEs.id,
+      kind: "task",
+      task_id: "task_es_b",
+      start_at: "2026-10-05T17:35:00+09:00",
+      end_at: "2026-10-05T18:00:00+09:00",
+      locked: true,
+      status: "completed",
+    });
     const dinnerBefore = beforeDays[0].items.find((item) => item.title === "夕食");
     expect(monday.find((item) => item.id === dinnerBefore?.id)).toMatchObject({ id: dinnerBefore?.id, title: dinnerBefore?.title, start_at: dinnerBefore?.start_at, end_at: dinnerBefore?.end_at });
     const highIds = new Set(fixture.context.tasks.filter((task) => task.concentration === "high" || (task.goal_id && task.concentration === "medium")).map((task) => task.id));
@@ -47,12 +69,37 @@ describe("replan state_change", () => {
       ["task", "2026-10-05T18:30:00+09:00", "2026-10-05T18:50:00+09:00", "task_toeic_vocab"],
       ["buffer", "2026-10-05T18:50:00+09:00", "2026-10-05T19:00:00+09:00", null],
     ]);
+    const crossingReplacement = result.proposal.changes.find((change) => change.change_type === "replaced" && change.before?.id === crossingEs.id);
+    expect(crossingReplacement?.before).toMatchObject({
+      id: crossingEs.id,
+      kind: crossingEs.kind,
+      title: crossingEs.title,
+      start_at: crossingEs.start_at,
+      end_at: crossingEs.end_at,
+      task_id: crossingEs.task_id,
+      location_id: crossingEs.location_id,
+      locked: true,
+      status: "planned",
+      reason: crossingEs.reason,
+    });
+    expect(crossingReplacement?.after).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: crossingEs.id, start_at: crossingEs.start_at, end_at: fixture.context.now, status: "completed" }),
+      expect.objectContaining({ kind: "free", start_at: "2026-10-05T18:00:00+09:00", end_at: "2026-10-05T18:30:00+09:00", reason: "まずは休憩をとって、疲れを回復します" }),
+    ]));
+    const movedEs = result.proposal.other_day_changes.filter((change) => change.change_type === "moved" && change.before?.id === crossingEs.id);
+    expect(movedEs).toHaveLength(1);
+    expect(movedEs[0].before).toMatchObject({ id: crossingEs.id, start_at: crossingEs.start_at, end_at: crossingEs.end_at });
+    expect(movedEs[0].moved_to_date).not.toBeNull();
+    expect(movedEs[0].reason).toContain("今日は避けました");
+    expect(movedEs[0].after.filter((item) => item.kind === "task").reduce((sum, item) => sum + diffMinutesExact(item.start_at, item.end_at), 0)).toBe(35);
     const movedListening = result.proposal.other_day_changes.find((change) => change.change_type === "moved" && change.before?.task_id === "task_toeic_listening");
     expect(movedListening?.moved_to_date).not.toBeNull();
     expect(movedListening?.after.filter((item) => item.kind === "task").reduce((sum, item) => sum + diffMinutesExact(item.start_at, item.end_at), 0)).toBe(40);
-    expect(result.proposal.summary_message).toMatch(/^お疲れさまです。今夜は軽めにして、TOEICの残り40分は.+曜に回しました。夕食はそのままで、週6時間の目標とゼミレポート「地域経済の課題」の締切も守れます。$/);
+    expect(result.proposal.summary_message).toMatch(/^お疲れさまです。今夜は軽めにして、ES作成（企業B）は.+曜、TOEICの残り40分は.+曜に回しました。夕食はそのままで、週6時間の目標とゼミレポート「地域経済の課題」の締切も守れます。$/);
     const afterDays = beforeDays.map((day) => result.updated_days.find((updated) => updated.date === day.date) ?? day);
-    expect(validatePlan(fixture.context, afterDays, "replan", { before: result.proposal.before.date ? beforeDays : beforeDays }).errors).toEqual([]);
+    const validation = validatePlan(fixture.context, afterDays, "replan", { before: beforeDays, allowedInProgressTaskSplitIds: [crossingEs.id] });
+    expect(validation.errors).toEqual([]);
+    expect(validation.errors.some((issue) => issue.code === "LOCKED_ITEM_CHANGED")).toBe(false);
     const goalIds = new Set(fixture.context.tasks.filter((task) => task.goal_id === "goal_toeic").map((task) => task.id));
     const goalMinutes = afterDays.flatMap((day) => day.items).filter((item) => item.kind === "task" && item.task_id && goalIds.has(item.task_id)).reduce((sum, item) => sum + (new Date(item.end_at).getTime() - new Date(item.start_at).getTime()) / 60000, 0);
     expect(goalMinutes).toBe(360);
@@ -68,8 +115,6 @@ describe("replan state_change", () => {
 
   it("fatigue mediumでも同じ配置になりintent値は保持する", () => {
     const fixture = fixtureBefore();
-    fixture.context.now = "2026-10-05T18:00:00+09:00";
-    fixture.context.style = "balanced";
     const high = replan(fixture.context, fixture.days, fatigueIntent("high"));
     const medium = replan(fixture.context, fixture.days, fatigueIntent("medium"));
     expect(high.ok && medium.ok).toBe(true);
@@ -79,9 +124,27 @@ describe("replan state_change", () => {
     expect(medium.updated_days).toEqual(high.updated_days);
   }, 30_000);
 
+  it("進行中でも高集中ではないtaskは全体を保持する", () => {
+    const fixture = fixtureBefore();
+    const crossing = fixture.days[0].items.find((item) => item.task_id === "task_es_b" && item.start_at < fixture.context.now && fixture.context.now < item.end_at)!;
+    const lightTask = fixture.context.tasks.find((task) => task.id === "task_notes")!;
+    const unchanged = { ...crossing, title: lightTask.title, task_id: lightTask.id };
+    fixture.days[0].items = fixture.days[0].items.map((item) => item.id === crossing.id ? unchanged : item);
+    const result = replan(fixture.context, fixture.days, fatigueIntent("high"));
+    if (!result.ok) throw new Error(result.infeasible.reason);
+    expect(result.proposal.after.items.find((item) => item.id === unchanged.id)).toMatchObject({
+      id: unchanged.id,
+      start_at: unchanged.start_at,
+      end_at: unchanged.end_at,
+      task_id: lightTask.id,
+      locked: true,
+      status: "planned",
+    });
+    expect(result.proposal.changes.some((change) => change.before?.id === unchanged.id)).toBe(false);
+  }, 30_000);
+
   it("nowをまたぐfreeの前半を元IDで保持する", () => {
     const fixture = fixtureBefore();
-    fixture.context.now = "2026-10-05T18:00:00+09:00"; fixture.context.style = "balanced";
     const monday = fixture.days[0];
     const template = monday.items.find((item) => item.kind === "free")!;
     monday.items = [
@@ -103,9 +166,7 @@ describe("replan state_change", () => {
   }, 30_000);
 
   it("最初の空きが30分未満なら後続空きへ休憩と軽作業を置く", () => {
-    const fixture = fixtureBefore();
-    fixture.context.now = "2026-10-05T18:40:00+09:00";
-    fixture.context.style = "balanced";
+    const fixture = fixtureBefore("2026-10-05T18:40:00+09:00");
     const result = replan(fixture.context, fixture.days, fatigueIntent("high"));
     if (!result.ok) throw new Error(result.infeasible.reason);
     const monday = result.updated_days.find((day) => day.date === "2026-10-05")!.items;
@@ -118,8 +179,6 @@ describe("replan state_change", () => {
 
   it("今週締切の高集中taskを締切前へ移し、空きがなければ不成立にする", () => {
     const fixture = fixtureBefore();
-    fixture.context.now = "2026-10-05T18:00:00+09:00";
-    fixture.context.style = "balanced";
     const monday = fixture.days[0];
     const late = monday.items.find((item) => item.task_id === "task_stats_hw" && item.start_at === "2026-10-05T21:30:00+09:00")!;
     monday.items = monday.items.map((item) => item.id === late.id ? { ...item, title: "ゼミレポート「地域経済の課題」", task_id: "task_report" } : item);
@@ -137,21 +196,20 @@ describe("replan state_change", () => {
     expect(blocked).toMatchObject({ ok: false, infeasible: { feasible: false } });
   }, 30_000);
 
-  it("来週締切で今週へ置かないtaskをNEXT_WEEKとして記録する", () => {
+  it("進行中でない来週締切taskをNEXT_WEEKとして記録する", () => {
     const fixture = fixtureBefore();
-    fixture.context.now = "2026-10-05T18:00:00+09:00";
-    fixture.context.style = "balanced";
     const result = replan(fixture.context, fixture.days, fatigueIntent("high"));
     if (!result.ok) throw new Error(result.infeasible.reason);
     expect(result.proposal.changes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ change_type: "removed", before: expect.objectContaining({ task_id: "task_es_b" }), reason: expect.stringContaining("来週") }),
+      expect.objectContaining({ change_type: "removed", before: expect.objectContaining({ task_id: "task_stats_hw" }), reason: expect.stringContaining("来週") }),
     ]));
   }, 30_000);
 });
 
 describe("replan intents", () => {
   it("未実装intent・preference_change・低疲労を安定した不成立結果で返す", () => {
-    const fixture = fixtureBefore(); fixture.context.now = "2026-10-05T18:00:00+09:00"; fixture.context.style = "balanced";
+    const fixture = fixtureBefore();
+    const beforeDays = structuredClone(fixture.days);
     const intents: ReplanProposal["intent"][] = [
       { type: "task_change", fatigue: null, task_changes: [{ task_id: "task_toeic_listening", action: "skip" }], new_fixed_events: [], preference_changes: [] },
       { type: "new_fixed_event", fatigue: null, task_changes: [], new_fixed_events: [], preference_changes: [] },
@@ -162,5 +220,8 @@ describe("replan intents", () => {
     const results = intents.map((intent) => replan(fixture.context, fixture.days, intent));
     expect(results.every((result) => !result.ok)).toBe(true);
     expect(JSON.stringify(intents.map((intent) => replan(fixture.context, fixture.days, intent)))).toBe(JSON.stringify(results));
+    expect(fixture.days).toEqual(beforeDays);
+    const crossing = fixture.days[0].items.find((item) => item.start_at < fixture.context.now && fixture.context.now < item.end_at && item.kind === "task");
+    expect(crossing).toMatchObject({ locked: true, status: "planned" });
   }, 30_000);
 });
