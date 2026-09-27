@@ -5,7 +5,7 @@ import { GOAL_PLAN_STYLE_LABELS } from "@/lib/labels";
 import { INTERVIEW_QUESTIONS } from "@/mocks/interview-script";
 import { GOAL } from "@/mocks/goal";
 import { GOAL_TIME_CANDIDATES } from "@/mocks/goal-candidates";
-import { computeGoalCandidateHours } from "./goal-candidate-hours";
+import { computeGoalCandidateHours } from "@/lib/planning/goal-candidates";
 import type { InterviewSlots } from "./repositories/interview";
 
 // LLM_MODE=off のヒアリング（backend.md 6.2.6）。モック（mock-spec 5.7・10.1・10.3）と同じ動きをする。
@@ -66,8 +66,8 @@ function buildGoalCandidates(slots: InterviewSlots, today: string): GoalTimeCand
     explicit_hours_per_week: slots.explicit_hours_per_week,
     frequency_per_week: slots.frequency_per_week,
     main_minutes: 60, // 8.2：資格・テスト勉強のメイン（台本ではカテゴリは常に G1）
-    // TODO: 担当B の computeWeeklyFreeMinutes()（lib/planning/slots.ts）ができたら今週の空きの合計を渡す。
-    // 今は上限をかけない値にしている
+    // TODO: lib/server/planning-context.ts（8.3）ができたら、PlanningContext を作って
+    // computeWeeklyFreeMinutes()（lib/planning/slots.ts）で今週の空きの合計を渡す。今は上限をかけない値にしている
     weekly_free_minutes: Number.POSITIVE_INFINITY,
   });
   const periodWeeks = weeksUntil(slots.deadline, today);
