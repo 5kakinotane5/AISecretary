@@ -30,7 +30,8 @@ extracted の決まり：
 - goal_text：目標の内容を発言の言葉のまま短く
 - current_status：今の状況（点数・経験・得意や苦手など）を発言の言葉のまま短く
 - deadline：YYYY-MM-DD。年がなければ today 以降で最も近い日付にする。「年内」「来月くらい」など日が決まらない表現は null にし、原文を conditions に残す
-- conditions：期限・時間帯・回数などの条件を、発言の言葉のまま1件30文字以内で。最大5件
+- conditions：時間帯・回数などの条件を、発言の言葉のまま1件30文字以内で。最大5件
+- deadline に入れた期限（日付）は conditions に入れない。deadline を null にした「年内」などの表現だけ原文を残す
 - 「週3回」→ frequency_per_week は 3。「週5時間」→ explicit_hours_per_week は 5
 - 時間帯は利用者が言った場合だけ入れる：朝・午前 → morning、昼・午後 → daytime、夕方・夜 → evening。「平日は」「土日は」の区別がなければ weekday_time_band と weekend_time_band の両方に同じ値を入れる。原文は conditions にも残す
 
