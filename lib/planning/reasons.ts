@@ -138,8 +138,8 @@ export function addIntensiveLightTask(context: PlanningContext, days: readonly D
 
 /** plans-replan.md 13.2 の再計画用テンプレート。 */
 export function replanReason(
-  code: Extract<ReasonCode, "REST" | "TIRED_LIGHT" | "TIRED_MOVED" | "GOAL_CARRYOVER" | "BUFFER_MERGED" | "FREE_EXTENDED" | "NEXT_WEEK">,
-  values: { task?: Task; replacement?: Task; date?: string; context: PlanningContext },
+  code: Extract<ReasonCode, "REST" | "TIRED_LIGHT" | "TIRED_MOVED" | "GOAL_CARRYOVER" | "BUFFER_MERGED" | "FREE_EXTENDED" | "FIXED_EVENT_ADDED" | "USER_POSTPONED" | "NEXT_WEEK">,
+  values: { task?: Task; replacement?: Task; date?: string; time?: string; context: PlanningContext },
 ): string {
   const task = values.task;
   const goal = task?.goal_id ? values.context.goals.find((entry) => entry.id === task.goal_id) : null;
@@ -150,6 +150,7 @@ export function replanReason(
     originalTaskName: task?.title,
     replacementTaskName: values.replacement?.title,
     date: values.date,
+    time: values.time,
   });
 }
 
@@ -165,7 +166,17 @@ export function buildReplanSummary(
   todayItems: readonly ScheduleItem[],
   options: ReplanSummaryOptions = {},
 ): string {
-  const moved = otherChanges.map((change) => {
+  const rawMovedChanges = intent.type === "new_fixed_event"
+    ? [...otherChanges, ...changes.filter((change) => change.change_type === "moved" && change.moved_to_date !== null)]
+    : [...otherChanges];
+  const seenMoves = new Set<string>();
+  const movedChanges = rawMovedChanges.filter((change) => {
+    const moveKey = `${change.before?.id ?? change.after[0]?.id ?? ""}:${change.moved_to_date ?? ""}`;
+    if (seenMoves.has(moveKey)) return false;
+    seenMoves.add(moveKey);
+    return true;
+  });
+  const moved = movedChanges.map((change) => {
     const item = change.before ?? change.after[0];
     if (!item || !change.moved_to_date) return null;
     const task = item.task_id ? context.tasks.find((entry) => entry.id === item.task_id) : null;
