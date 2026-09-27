@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
+  ObjectiveVectorSchema,
   PlanStyleSchema,
   PlanSummarySchema,
   ScheduleCandidateSchema,
@@ -193,4 +194,17 @@ export async function selectPlan(supabase: SupabaseClient, planId: string, now: 
   const { error } = await supabase.rpc("select_plan", { p_plan_id: planId, p_now: now });
   if (error?.message === "NOT_FOUND") throw new HttpError(404, "NOT_FOUND", "選べる案が見つかりません");
   if (error) throw error;
+}
+
+// 計画の features（目的ベクトル。weekly_plans.features）。id → ObjectiveVector
+export async function listPlanFeatures(
+  supabase: SupabaseClient,
+  planIds: string[],
+): Promise<Map<string, ObjectiveVector>> {
+  const byPlan = new Map<string, ObjectiveVector>();
+  if (planIds.length === 0) return byPlan;
+  const { data, error } = await supabase.from("weekly_plans").select("id, features").in("id", planIds);
+  if (error) throw error;
+  for (const row of data) byPlan.set(String(row.id), ObjectiveVectorSchema.parse(row.features));
+  return byPlan;
 }
