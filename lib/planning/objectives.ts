@@ -12,11 +12,32 @@ export type ObjectiveOptions = {
   priorities?: readonly TaskPriority[];
 };
 
+export type PlanStats = {
+  workMinutes: number;
+  bufferMinutes: number;
+  freeMinutes: number;
+  taskCount: number;
+};
+
 const clip = (value: number) => Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
 
 function activeMinutes(start: string, end: string, now: string): number {
   if (end <= now) return 0;
   return Math.max(0, diffMinutesExact(start < now ? now : start, end));
+}
+
+/** planning.md P8.2 の構造距離で使う、計画対象時間内の統計。 */
+export function computePlanStats(context: PlanningContext, days: readonly DayPlan[]): PlanStats {
+  const items = days.flatMap((day) => day.items).filter((item) => item.end_at > context.now);
+  const sum = (kind: "task" | "buffer" | "free") => items
+    .filter((item) => item.kind === kind)
+    .reduce((total, item) => total + activeMinutes(item.start_at, item.end_at, context.now), 0);
+  return {
+    workMinutes: sum("task"),
+    bufferMinutes: sum("buffer"),
+    freeMinutes: sum("free"),
+    taskCount: items.filter((item) => item.kind === "task").length,
+  };
 }
 
 /** planning.md P6の7次元目的ベクトル。 */

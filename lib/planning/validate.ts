@@ -30,6 +30,15 @@ export function validateCandidateDiversity(context: PlanningContext, plans: read
   return ValidationResultSchema.parse({ valid: true, errors: [], warnings: sortAndDedupe(warnings) });
 }
 
+/** generate / stored 専用の互換契約。replan は型として受け付けない。 */
+export function checkCandidatesSimilarity(
+  context: PlanningContext,
+  plans: readonly EnginePlan[],
+  mode: Extract<ValidationMode, "generate" | "stored">,
+): ValidationIssue[] {
+  return validateCandidateDiversity(context, plans, mode).warnings;
+}
+
 const ISSUE_ORDER: Readonly<Record<ValidationIssue["code"], number>> = {
   START_AFTER_END: 0,
   ITEM_OVERLAP: 1,

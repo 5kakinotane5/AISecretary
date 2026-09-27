@@ -1,5 +1,5 @@
-import { addMinutes, diffMinutesExact, formatMonthDay, toDateStr } from "@/lib/datetime";
-import type { DayPlan, PlanStyle, PlannedItem, PlanningContext, ReasonCode, Task } from "@/lib/schemas";
+import { addMinutes, diffMinutesExact, formatMonthDay, getWeekdayJa, toDateStr } from "@/lib/datetime";
+import type { DayPlan, PlanStyle, PlannedItem, PlanningContext, ReasonCode, ReplanChange, ReplanProposal, ScheduleItem, Task } from "@/lib/schemas";
 import { classifyTask } from "./fit";
 import type { TaskPriority } from "./priority";
 import { CONFIG } from "./config";
@@ -13,20 +13,49 @@ export function timeBandLabel(startAt: string): string {
   return "夜";
 }
 
-function reasonFor(code: ReasonCode, task: Task, context: PlanningContext, item: PlannedItem): string {
-  const deadline = task.deadline_at ? formatMonthDay(task.deadline_at) : "";
-  const goal = context.goals.find((entry) => entry.id === task.goal_id);
-  const hours = task.goal_id ? (context.goal_week_target_minutes[task.goal_id] ?? 0) / 60 : 0;
+export type ReasonParams = {
+  deadlineAt?: string | null;
+  startAt?: string;
+  goalHours?: number;
+  goalName?: string;
+  taskName?: string;
+  originalTaskName?: string;
+  replacementTaskName?: string;
+  date?: string;
+  time?: string;
+  minutes?: number;
+};
+
+/** plans-replan.md 13.2 の全理由コードを文章へ変換する公開契約。 */
+export function formatReason(code: ReasonCode, params: ReasonParams = {}): string {
+  const deadline = params.deadlineAt ? formatMonthDay(params.deadlineAt) : "未設定";
+  const weekday = params.date ? `${getWeekdayJa(params.date)}曜` : "別の曜日";
   switch (code) {
-    case "DEADLINE_EARLY": return `締切（${deadline}）より早めに終わらせるため、${timeBandLabel(item.start_at)}に進めます`;
+    case "DEADLINE_EARLY": return `締切（${deadline}）より早めに終わらせるため、${params.startAt ? timeBandLabel(params.startAt) : "時間帯"}に進めます`;
     case "DEADLINE_NEAR": return `締切（${deadline}）が近いため、ここで仕上げます`;
     case "DEADLINE_STEADY": return `締切（${deadline}）に向けて、少しずつ進めます`;
-    case "GOAL_ROUTINE": return `週${hours}時間の${goal?.task_name ?? task.title}のため、${timeBandLabel(item.start_at)}に入れました`;
-    case "OPTIONAL_EXTRA": return `時間に余裕があるため、${task.title}を進めます`;
-    case "LIGHT_TASK": return `短い時間で終わる${task.title}を片付けます`;
-    case "LIGHT_IN_BUFFER": return `短い時間でできる${task.title}を候補にしました`;
-    default: return "";
+    case "GOAL_ROUTINE": return `週${params.goalHours ?? 0}時間の${params.goalName ?? params.taskName ?? "目標"}のため、${params.startAt ? timeBandLabel(params.startAt) : "時間帯"}に入れました`;
+    case "OPTIONAL_EXTRA": return `時間に余裕があるため、${params.taskName ?? "タスク"}を進めます`;
+    case "LIGHT_TASK": return `短い時間で終わる${params.taskName ?? "タスク"}を片付けます`;
+    case "LIGHT_IN_BUFFER": return `短い時間でできる${params.taskName ?? "タスク"}を候補にしました`;
+    case "REST": return "まずは休憩をとって、疲れを回復します";
+    case "TIRED_LIGHT": return `疲れているため、集中力が必要な${params.originalTaskName ?? params.taskName ?? "タスク"}を、短時間でできる${params.replacementTaskName ?? "軽作業"}に切り替えました`;
+    case "TIRED_MOVED": return `集中力が必要な${params.taskName ?? "タスク"}は今日は避けました。締切（${deadline}）には間に合います`;
+    case "GOAL_CARRYOVER": return `週${params.goalHours ?? 0}時間の目標を保つため、${weekday}に振り替えました`;
+    case "BUFFER_MERGED": return "作業がなくなったため、自由時間にまとめました";
+    case "FREE_EXTENDED": return "ゆっくり休めるようにしました";
+    case "FIXED_EVENT_ADDED": return `${params.time ?? "時刻未定"}からの予定を入れました`;
+    case "USER_POSTPONED": return `${params.taskName ?? "タスク"}を${weekday}に回しました`;
+    case "USER_SKIPPED": return `${params.taskName ?? "タスク"}は今週はお休みにしました`;
+    case "USER_SHORTENED": return `${params.taskName ?? "タスク"}を${params.minutes ?? 0}分に短くしました`;
+    case "NEXT_WEEK": return `${params.taskName ?? "タスク"}は締切（${deadline}）に間に合うよう、来週に回します`;
   }
+}
+
+function reasonFor(code: ReasonCode, task: Task, context: PlanningContext, item: PlannedItem): string {
+  const goal = context.goals.find((entry) => entry.id === task.goal_id);
+  const hours = task.goal_id ? (context.goal_week_target_minutes[task.goal_id] ?? 0) / 60 : 0;
+  return formatReason(code, { deadlineAt: task.deadline_at, startAt: item.start_at, goalHours: hours, goalName: goal?.task_name ?? task.title, taskName: task.title });
 }
 
 export function applyGenerationReasons(
@@ -105,4 +134,91 @@ export function addIntensiveLightTask(context: PlanningContext, days: readonly D
     const rest = end < free.end_at ? { ...free, id: `${free.id}_rest`, start_at: end } : null;
     return { date: day.date, items: day.items.flatMap((item) => item.id === free.id ? [task, ...(rest ? [rest] : [])] : [item]).sort((a, b) => a.start_at.localeCompare(b.start_at) || a.id.localeCompare(b.id)) };
   });
+}
+
+/** plans-replan.md 13.2 の再計画用テンプレート。 */
+export function replanReason(
+  code: Extract<ReasonCode, "REST" | "TIRED_LIGHT" | "TIRED_MOVED" | "GOAL_CARRYOVER" | "BUFFER_MERGED" | "FREE_EXTENDED" | "NEXT_WEEK">,
+  values: { task?: Task; replacement?: Task; date?: string; context: PlanningContext },
+): string {
+  const task = values.task;
+  const goal = task?.goal_id ? values.context.goals.find((entry) => entry.id === task.goal_id) : null;
+  return formatReason(code, {
+    deadlineAt: task?.deadline_at,
+    goalHours: (goal ? values.context.goal_week_target_minutes[goal.id] ?? 0 : 0) / 60,
+    taskName: task?.title,
+    originalTaskName: task?.title,
+    replacementTaskName: values.replacement?.title,
+    date: values.date,
+  });
+}
+
+export type ReplanSummaryOptions = {
+  fixedEventEndWasAssumed?: boolean;
+};
+
+export function buildReplanSummary(
+  context: PlanningContext,
+  intent: ReplanProposal["intent"],
+  changes: readonly ReplanChange[],
+  otherChanges: readonly ReplanChange[],
+  todayItems: readonly ScheduleItem[],
+  options: ReplanSummaryOptions = {},
+): string {
+  const moved = otherChanges.map((change) => {
+    const item = change.before ?? change.after[0];
+    if (!item || !change.moved_to_date) return null;
+    const task = item.task_id ? context.tasks.find((entry) => entry.id === item.task_id) : null;
+    if (task?.goal_id) {
+      const goal = context.goals.find((entry) => entry.id === task.goal_id);
+      const replacement = changes.find((entry) => {
+        const original = entry.before?.task_id ? context.tasks.find((candidate) => candidate.id === entry.before?.task_id) : null;
+        return entry.change_type === "replaced" && original?.goal_id === task.goal_id;
+      });
+      const removedMinutes = replacement?.before ? diffMinutesExact(replacement.before.start_at, replacement.before.end_at) : 0;
+      const lightMinutes = replacement?.after
+        .filter((entry) => entry.kind === "task" && entry.task_id !== null && context.tasks.find((candidate) => candidate.id === entry.task_id)?.goal_id === task.goal_id)
+        .reduce((sum, entry) => sum + diffMinutesExact(entry.start_at, entry.end_at), 0) ?? 0;
+      const minutes = removedMinutes > lightMinutes
+        ? removedMinutes - lightMinutes
+        : change.after.filter((entry) => entry.kind === "task").reduce((sum, entry) => sum + diffMinutesExact(entry.start_at, entry.end_at), 0);
+      const goalName = goal?.task_name.replace(/学習$/, "") ?? item.title;
+      return `${goalName}の残り${minutes}分は${getWeekdayJa(change.moved_to_date)}曜`;
+    }
+    return `${item.title}は${getWeekdayJa(change.moved_to_date)}曜`;
+  }).filter((value): value is string => value !== null);
+  if (intent.type === "state_change") {
+    const fixed = todayItems.filter((item) => item.kind === "fixed" && item.start_at >= context.now).sort((a, b) => a.start_at.localeCompare(b.start_at))[0];
+    const goalHours = context.goals[0] ? (context.goal_week_target_minutes[context.goals[0].id] ?? 0) / 60 : 0;
+    const deadline = context.tasks
+      .filter((task) => task.deadline_at !== null)
+      .sort((a, b) => a.deadline_at!.localeCompare(b.deadline_at!) || a.id.localeCompare(b.id))[0];
+    const movedPart = moved.length ? `${[...new Set(moved)].join("、")}に回しました。` : "";
+    const fixedPart = fixed ? `${fixed.title}はそのままで、` : "";
+    return `お疲れさまです。今夜は軽めにして、${movedPart}${fixedPart}週${goalHours}時間の目標${deadline ? `と${deadline.title}の締切` : ""}も守れます。`;
+  }
+  if (intent.type === "new_fixed_event") {
+    const fixed = [...intent.new_fixed_events].sort((a, b) => a.start_at.localeCompare(b.start_at) || a.id.localeCompare(b.id))[0];
+    const time = fixed?.start_at.slice(11, 16) ?? "時刻未定";
+    const lead = moved.length ? `${time}からの予定を入れ、${[...new Set(moved)].join("、")}に移しました。` : `${time}からの予定を入れました。`;
+    const assumed = options.fixedEventEndWasAssumed ? "終わりの時刻が分からないため、1時間で仮置きしました。" : "";
+    return `${lead}${assumed}`;
+  }
+  if (intent.type === "task_change") {
+    const descriptions = changes.map((change) => {
+      const source = change.before ?? change.after[0];
+      if (!source) return null;
+      if (change.change_type === "shortened") {
+        const minutes = change.after.filter((entry) => entry.kind === "task").reduce((sum, entry) => sum + diffMinutesExact(entry.start_at, entry.end_at), 0);
+        return formatReason("USER_SHORTENED", { taskName: source.title, minutes });
+      }
+      if (change.change_type === "removed") return formatReason("USER_SKIPPED", { taskName: source.title });
+      if (change.moved_to_date) return formatReason("USER_POSTPONED", { taskName: source.title, date: change.moved_to_date });
+      return null;
+    }).filter((value): value is string => value !== null);
+    const changedTaskIds = new Set(changes.flatMap((change) => [change.before, ...change.after]).map((entry) => entry?.task_id).filter((value): value is string => value !== null && value !== undefined));
+    const deadline = context.tasks.filter((task) => changedTaskIds.has(task.id) && task.deadline_at).sort((a, b) => a.deadline_at!.localeCompare(b.deadline_at!) || a.id.localeCompare(b.id))[0];
+    return `${descriptions.join("、") || "タスクの予定を調整しました"}。${deadline ? `締切（${formatMonthDay(deadline.deadline_at!)}）には間に合います。` : ""}`;
+  }
+  return "ごめんなさい、この内容はまだ計画に反映できません。";
 }

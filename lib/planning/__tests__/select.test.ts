@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ObjectiveVector } from "@/lib/schemas";
-import { adjustedBeamWeights, adjustedDirections, directionDistance, dominates, featureDistance, integratedDistance, paretoFilter, selectThree, structuralDistance, type SelectablePlan } from "../select";
+import { adjustDirections, adjustedBeamWeights, adjustedDirections, combinedDistance, directionDistance, dominates, featureDistance, integratedDistance, paretoFilter, selectThree, structuralDistance, type SelectablePlan } from "../select";
 import { createPlanningContext } from "./fixtures";
 
 const vector = (value: number): ObjectiveVector => ({ achievement: value, deadline_safety: value, task_fit: value, buffer: value, free_time: value, control: value, recovery: value });
@@ -20,9 +20,11 @@ describe("select", () => {
     expect(featureDistance(a, b)).toBeCloseTo(Math.sqrt(7));
     expect(structuralDistance(a, b, "2026-10-05T07:00:00+09:00")).toBe(0);
     expect(integratedDistance(a, b, "2026-10-05T07:00:00+09:00")).toBeCloseTo(Math.sqrt(7) / 2);
+    expect(combinedDistance(a, b, "2026-10-05T07:00:00+09:00")).toBe(integratedDistance(a, b, "2026-10-05T07:00:00+09:00"));
     const context = createPlanningContext();
     context.checkin = { date: "2026-10-05", mood: null, fatigue: "high", concentration: "low", want_task_ids: [], avoid_task_ids: [], note: null };
     expect(adjustedDirections(context).intensive.recovery).toBeGreaterThan(0.2);
+    expect(adjustDirections(context)).toEqual(adjustedDirections(context));
     expect(adjustedBeamWeights(context, "intensive", "2026-10-05").every(Number.isFinite)).toBe(true);
   });
 
