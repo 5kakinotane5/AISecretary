@@ -8,17 +8,21 @@ import type { InterviewSlots } from "./repositories/interview";
 const NEAR_DEADLINE_DAYS = 14;
 const NEAR_DEADLINE_MAX = 2;
 
+// 目標の名前。task_name が入らなかったときはカテゴリ名（「その他」なら「目標」）で仮置きする（6.2.2）
+export function taskNameOf(slots: InterviewSlots): string {
+  const category = slots.category ?? "その他";
+  return slots.task_name ?? (category === "その他" ? "目標" : category);
+}
+
 // slots と selection から目標案を作る（FR-03-5：selection はそのまま反映する）。id はここで振る
 export function buildGoalDraft(
   slots: InterviewSlots,
   selection: { style: GoalPlanStyle; hours_per_week: number },
 ): Goal {
-  const category = slots.category ?? "その他";
   return GoalSchema.parse({
     id: crypto.randomUUID(),
-    // task_name が入らなかったときの仮置き（6.2.2）
-    task_name: slots.task_name ?? (category === "その他" ? "目標" : category),
-    category,
+    task_name: taskNameOf(slots),
+    category: slots.category ?? "その他",
     target_hours_per_week: selection.hours_per_week,
     frequency: slots.frequency_per_week === null ? null : `週${slots.frequency_per_week}回`,
     deadline: slots.deadline,
