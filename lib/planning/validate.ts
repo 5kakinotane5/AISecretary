@@ -15,6 +15,8 @@ export type ValidationMode = "generate" | "replan" | "stored";
 
 export type ValidatePlanOptions = {
   before?: readonly DayPlan[];
+  /** state_changeで実際にnow分割した進行中taskだけを許可する。 */
+  allowedInProgressTaskSplitIds?: readonly string[];
 };
 
 /** 10.11: 3案をまとめて検査する多様性warning。1案のvalidatePlanとは分離する。 */
@@ -128,6 +130,38 @@ function lockedItemChanged(before: ScheduleItem, after: ScheduleItem): boolean {
     before.locked !== after.locked ||
     before.status !== after.status ||
     before.reason !== after.reason
+  );
+}
+
+function isAllowedInProgressTaskSplit(
+  before: ScheduleItem,
+  after: ScheduleItem,
+  now: string,
+  allowedIds: ReadonlySet<string>,
+): boolean {
+  const beforeReasonCode = "reason_code" in before ? before.reason_code ?? null : null;
+  const afterReasonCode = "reason_code" in after ? after.reason_code ?? null : null;
+  return (
+    allowedIds.has(before.id) &&
+    before.kind === "task" &&
+    before.locked &&
+    before.status !== "completed" &&
+    before.start_at < now && now < before.end_at &&
+    after.id === before.id &&
+    after.kind === "task" &&
+    after.start_at === before.start_at &&
+    after.end_at === now &&
+    after.locked &&
+    after.status === "completed" &&
+    after.title === before.title &&
+    after.location_id === before.location_id &&
+    after.task_id === before.task_id &&
+    after.fixed_event_id === before.fixed_event_id &&
+    after.fixed_category === before.fixed_category &&
+    JSON.stringify(after.travel) === JSON.stringify(before.travel) &&
+    after.suggested_task_id === before.suggested_task_id &&
+    after.reason === before.reason &&
+    afterReasonCode === beforeReasonCode
   );
 }
 
@@ -447,12 +481,15 @@ export function validatePlan(
   }
 
   if (mode === "replan") {
-    const afterById = new Map(allItems.map((item) => [item.id, item]));
+    const allowedSplitIds = new Set(options.allowedInProgressTaskSplitIds ?? []);
+    const afterById = new Map<string, ScheduleItem[]>();
+    for (const item of allItems) afterById.set(item.id, [...(afterById.get(item.id) ?? []), item]);
     const protectedBefore = options.before
       ?.flatMap((day) => day.items.map((item) => ({ date: day.date, item })))
       .filter(({ item }) => item.locked || item.status === "completed") ?? [];
     for (const { date, item: before } of protectedBefore) {
-      const after = afterById.get(before.id);
+      const matches = afterById.get(before.id) ?? [];
+      const after = matches[0];
       if (after === undefined) {
         errors.push(
           makeIssue(
@@ -462,7 +499,7 @@ export function validatePlan(
             date,
           ),
         );
-      } else if (lockedItemChanged(before, after)) {
+      } else if (matches.length !== 1 || (lockedItemChanged(before, after) && !isAllowedInProgressTaskSplit(before, after, context.now, allowedSplitIds))) {
         errors.push(
           makeIssue(
             "LOCKED_ITEM_CHANGED",

@@ -360,6 +360,40 @@ describe("validatePlan（planning.md 10.11）", () => {
     );
   });
 
+  it("許可された進行中taskの正しいnow分割だけLOCKED_ITEM_CHANGEDから除外する", () => {
+    const context = contextWithoutGoals();
+    const beforeItem = item({ id: "crossing", kind: "task", title: "進行中", task_id: "task_report", start_at: iso("06:30"), end_at: iso("07:30"), locked: true, status: "planned" });
+    const before = day(beforeItem);
+    const prefix = item({ ...beforeItem, end_at: context.now, locked: true, status: "completed" });
+    const lockedCodes = (after: readonly DayPlan[], allowedInProgressTaskSplitIds?: readonly string[]) => codes(validatePlan(context, after, "replan", { before, allowedInProgressTaskSplitIds })).filter((code) => code === "LOCKED_ITEM_CHANGED");
+
+    expect(lockedCodes(day(prefix))).toEqual(["LOCKED_ITEM_CHANGED"]);
+    expect(lockedCodes(day(prefix), [beforeItem.id])).toEqual([]);
+    expect(lockedCodes(day(prefix), ["other"])).toEqual(["LOCKED_ITEM_CHANGED"]);
+    expect(lockedCodes(day(item({ ...prefix, end_at: iso("07:05") })), [beforeItem.id])).toEqual(["LOCKED_ITEM_CHANGED"]);
+    expect(lockedCodes(day(item({ ...prefix, start_at: iso("06:35") })), [beforeItem.id])).toEqual(["LOCKED_ITEM_CHANGED"]);
+    expect(lockedCodes(day(item({ ...prefix, task_id: "task_es_a" })), [beforeItem.id])).toEqual(["LOCKED_ITEM_CHANGED"]);
+    expect(lockedCodes(day(item({ ...prefix, title: "変更済み" })), [beforeItem.id])).toEqual(["LOCKED_ITEM_CHANGED"]);
+    expect(lockedCodes(day(item({ ...prefix, status: "planned" })), [beforeItem.id])).toEqual(["LOCKED_ITEM_CHANGED"]);
+    expect(lockedCodes(day(prefix, item({ ...prefix })), [beforeItem.id])).toEqual(["LOCKED_ITEM_CHANGED"]);
+    expect(lockedCodes(day(), [beforeItem.id])).toEqual(["LOCKED_ITEM_CHANGED"]);
+
+    const startsNow = item({ ...beforeItem, id: "starts-now", start_at: context.now, end_at: iso("07:30") });
+    expect(codes(validatePlan(context, day(item({ ...startsNow, end_at: iso("07:05"), status: "completed" })), "replan", { before: day(startsNow), allowedInProgressTaskSplitIds: [startsNow.id] }))).toContain("LOCKED_ITEM_CHANGED");
+    const endsNow = item({ ...beforeItem, id: "ends-now", start_at: iso("06:30"), end_at: context.now, status: "completed" });
+    expect(codes(validatePlan(context, day(item({ ...endsNow, end_at: iso("06:55") })), "replan", { before: day(endsNow), allowedInProgressTaskSplitIds: [endsNow.id] }))).toContain("LOCKED_ITEM_CHANGED");
+    const alreadyCompleted = item({ ...beforeItem, id: "already-completed", status: "completed" });
+    expect(codes(validatePlan(context, day(item({ ...alreadyCompleted, end_at: context.now })), "replan", { before: day(alreadyCompleted), allowedInProgressTaskSplitIds: [alreadyCompleted.id] }))).toContain("LOCKED_ITEM_CHANGED");
+  });
+
+  it.each(["fixed", "travel", "sleep"] as const)("%sは許可IDを渡してもnowで短縮できない", (kind) => {
+    const context = contextWithoutGoals();
+    const beforeItem = item({ id: `crossing-${kind}`, kind, title: kind, task_id: null, start_at: iso("06:30"), end_at: iso("07:30"), locked: true, status: "planned" });
+    const afterItem = item({ ...beforeItem, end_at: context.now, locked: true, status: "completed" });
+    const result = validatePlan(context, day(afterItem), "replan", { before: day(beforeItem), allowedInProgressTaskSplitIds: [beforeItem.id] });
+    expect(codes(result)).toContain("LOCKED_ITEM_CHANGED");
+  });
+
   it.each(["generate", "replan", "stored"] as ValidationMode[])(
     "%sの結果はスキーマに適合し、入力不変で決定論的",
     (mode) => {
