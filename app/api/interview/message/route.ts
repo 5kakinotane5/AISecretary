@@ -1,11 +1,19 @@
 import type { NextRequest } from "next/server";
 import { InterviewMessageRequestSchema, InterviewTurnSchema } from "@/lib/schemas";
 import { toDateStr } from "@/lib/datetime";
+import { formatGoalSelectionMessage } from "@/lib/labels";
 import { handle, HttpError, parseBody } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
 import { getNow } from "@/lib/server/clock";
-import { answerByScript } from "@/lib/server/interview-script";
+import { answerByScript, FINAL_CONFIRMATION_MESSAGE } from "@/lib/server/interview-script";
+import { buildGoalDraft, buildSummaryMessage } from "@/lib/server/interview-summary";
 import { getInterviewSession, saveInterviewTurn, type InterviewSlots } from "@/lib/server/repositories/interview";
+import { listTasks } from "@/lib/server/repositories/tasks";
+
+// 発言は保存したが、同時に送られた別のリクエストが先にセッションを進めていた（saveInterviewTurn が null）
+function conflict() {
+  return new HttpError(409, "INVALID_STATE", "ほかの操作でヒアリングが進みました。最初からやり直してください");
+}
 
 // 抽出結果を slots にマージする。null・空配列では上書きしない（backend.md 6.2.1）
 function mergeSlots(slots: InterviewSlots, extracted: Partial<InterviewSlots>): InterviewSlots {
@@ -18,7 +26,8 @@ function mergeSlots(slots: InterviewSlots, extracted: Partial<InterviewSlots>): 
 }
 
 // POST /api/interview/message（backend.md 6.2.1・6.2.4、mock-spec 10.1・10.15）
-// ステップ1〜4 は text を受け、次のステップへ進む。ステップ4の回答ではステップ5の発言と3案（step 6）を返す
+// ステップ1〜4 は text を受け、次のステップへ進む。ステップ4の回答ではステップ5の発言と3案（step 6）を返す。
+// ステップ6 は selection を受け、要約と最終確認（step 9、CONFIRMING）を返す
 export async function POST(request: NextRequest) {
   return handle(request, async () => {
     const { user, supabase } = await requireUser();
@@ -35,12 +44,46 @@ export async function POST(request: NextRequest) {
       throw new HttpError(409, "INVALID_STATE", "このヒアリングは終了しています。最初からやり直してください");
     }
 
+    // ステップ6（3案の選択）→ ステップ8の要約とステップ9の確認を1回の応答で返す（FR-02-6、mock-spec 10.1）。
+    // selection は LLM に通さず、そのまま目標案に反映する（FR-03-5）
     if (session.step_index === 6) {
       if (body.selection === undefined) {
         throw new HttpError(400, "INVALID_REQUEST", "上の案から選んでください");
       }
-      // TODO: selection（step 6 → 9、要約と最終確認）は次の作業で作る（6.2.4・6.2.5）
-      throw new HttpError(500, "INTERNAL", "目標時間の案の選択はまだ使えません");
+      const goalDraft = buildGoalDraft(session.slots, body.selection);
+      const today = toDateStr(await getNow(user.id, supabase));
+      const summary = buildSummaryMessage(goalDraft, await listTasks(supabase), today);
+
+      const saved = await saveInterviewTurn(
+        supabase,
+        session,
+        {
+          state: "CONFIRMING",
+          step: "final_confirmation",
+          step_index: 9,
+          retry_count: 0,
+          slots: session.slots,
+          goal_candidates: session.goal_candidates,
+          goal_draft: goalDraft,
+        },
+        [
+          { role: "user", text: formatGoalSelectionMessage(body.selection.style, body.selection.hours_per_week) },
+          { role: "ai", text: summary },
+          { role: "ai", text: FINAL_CONFIRMATION_MESSAGE },
+        ],
+      );
+      if (!saved) throw conflict();
+
+      return InterviewTurnSchema.parse({
+        session_id: session.id,
+        state: "CONFIRMING",
+        step: "final_confirmation",
+        step_index: 9,
+        messages: saved.filter((m) => m.role === "ai"),
+        quick_replies: [],
+        goal_candidates: null,
+        goal_draft: goalDraft,
+      });
     }
 
     const stepIndex = session.step_index;
@@ -66,15 +109,14 @@ export async function POST(request: NextRequest) {
         retry_count: 0, // ステップが進んだら0に戻す（台本では聞き直さない）
         slots: mergeSlots(session.slots, answer.slots),
         goal_candidates: answer.goal_candidates,
+        goal_draft: null,
       },
       [
         { role: "user", text: body.text },
         { role: "ai", text: answer.next.ai_message },
       ],
     );
-    if (!saved) {
-      throw new HttpError(409, "INVALID_STATE", "ほかの操作でヒアリングが進みました。最初からやり直してください");
-    }
+    if (!saved) throw conflict();
 
     return InterviewTurnSchema.parse({
       session_id: session.id,
