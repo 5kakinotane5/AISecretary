@@ -1,29 +1,39 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import { InterviewTurnSchema } from "@/lib/schemas";
-import { nowIsoJst } from "@/lib/datetime";
-import { isMockError, mockDelay, mockErrorResponse } from "@/lib/mock/http";
-import { startInterviewSession } from "@/lib/mock/store";
-import { INTERVIEW_QUESTIONS } from "@/mocks/interview-script";
+import { handle } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/auth";
+import { FIRST_QUESTION } from "@/lib/server/interview-script";
+import { EMPTY_SLOTS, startInterviewSession } from "@/lib/server/repositories/interview";
 
-// POST /api/interview/start（4章）：ヒアリングを開始し、ステップ1（category）を返す
+// POST /api/interview/start（backend.md 6.1 FR-02-1）：新しいセッションを作り、ステップ1（category）を返す。
+// 進行中の古いセッションは ABANDONED にする。
+// ステップ1の質問とクイックリプライは固定（6.2.2）なので、LLM_MODE にかかわらず同じ
 export async function POST(request: NextRequest) {
-  if (isMockError(request)) return mockErrorResponse();
-  await mockDelay(400);
+  return handle(request, async () => {
+    const { supabase } = await requireUser();
+    const q = FIRST_QUESTION;
+    const { session, messages } = await startInterviewSession(
+      supabase,
+      {
+        state: "INTERVIEWING",
+        step: q.step,
+        step_index: q.step_index,
+        retry_count: 0,
+        slots: EMPTY_SLOTS,
+        goal_candidates: null,
+      },
+      q.ai_message,
+    );
 
-  const sessionId = crypto.randomUUID();
-  startInterviewSession(sessionId);
-
-  const question = INTERVIEW_QUESTIONS.category;
-  const turn = InterviewTurnSchema.parse({
-    session_id: sessionId,
-    state: "INTERVIEWING",
-    step: question.step,
-    step_index: question.stepIndex,
-    messages: [{ id: crypto.randomUUID(), role: "ai", text: question.aiMessage, created_at: nowIsoJst() }],
-    quick_replies: question.quickReplies,
-    goal_candidates: null,
-    goal_draft: null,
+    return InterviewTurnSchema.parse({
+      session_id: session.id,
+      state: "INTERVIEWING",
+      step: q.step,
+      step_index: q.step_index,
+      messages,
+      quick_replies: q.quick_replies,
+      goal_candidates: null,
+      goal_draft: null,
+    });
   });
-
-  return NextResponse.json(turn);
 }
