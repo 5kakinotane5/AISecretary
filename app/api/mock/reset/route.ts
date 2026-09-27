@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
 
     await resetDemoUser(supabase, user.id);
 
-    // TODO: 全APIを本番化したら削除。他の API がまだモックの状態（lib/mock/store）を読むため、
+    // TODO: replan を本番化したら削除。/api/plans/replan がまだモックの状態（lib/mock/store のデモ時刻）を読むため、
     // そちらも初期値に戻す（common.md 1.6「モックの状態と DB を混ぜない」の一時的な例外）
     resetState();
 

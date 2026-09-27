@@ -140,7 +140,7 @@ export function fetchCalendarWeek(start: string): Promise<WeekView> {
   return request(`/api/calendar/week?start=${encodeURIComponent(start)}`, WeekViewSchema);
 }
 
-/** GET /api/calendar/month?month=（month は "YYYY-MM"。データのない月は days が空配列） */
+/** GET /api/calendar/month?month=（month は "YYYY-MM"。その月の全日が返る） */
 export function fetchCalendarMonth(month: string): Promise<MonthView> {
   return request(`/api/calendar/month?month=${encodeURIComponent(month)}`, MonthViewSchema);
 }

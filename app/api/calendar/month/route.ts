@@ -1,16 +1,13 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { isMockError, mockDelay, mockErrorResponse } from "@/lib/mock/http";
-import { buildMonthView } from "@/lib/mock/calendar";
+import type { NextRequest } from "next/server";
+import { handle } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/auth";
+import { getMonthView, requireValidMonth } from "@/lib/server/calendar";
 
-// GET /api/calendar/month?month=（4章）
+// GET /api/calendar/month?month=YYYY-MM（plans-replan.md 11.3）：MonthView（その月の全日）
 export async function GET(request: NextRequest) {
-  if (isMockError(request)) return mockErrorResponse();
-  await mockDelay(400);
-
-  const month = request.nextUrl.searchParams.get("month");
-  if (!month) {
-    return NextResponse.json({ error: "month is required" }, { status: 400 });
-  }
-
-  return NextResponse.json(buildMonthView(month));
+  return handle(request, async () => {
+    const { user, supabase } = await requireUser();
+    const month = requireValidMonth(request.nextUrl.searchParams.get("month"));
+    return getMonthView(supabase, user.id, month);
+  });
 }
