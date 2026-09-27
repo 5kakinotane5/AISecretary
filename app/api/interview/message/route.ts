@@ -1,102 +1,90 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { InterviewMessageRequestSchema, InterviewTurnSchema, type InterviewMessage } from "@/lib/schemas";
-import { nowIsoJst } from "@/lib/datetime";
-import { isMockError, mockDelay, mockErrorResponse } from "@/lib/mock/http";
-import { getState, setInterviewGoalDraft, setInterviewState, setInterviewStepIndex } from "@/lib/mock/store";
-import { INTERVIEW_QUESTIONS, buildSummaryMessage, FINAL_CONFIRMATION_MESSAGE } from "@/mocks/interview-script";
-import { GOAL_TIME_CANDIDATES } from "@/mocks/goal-candidates";
-import { GOAL } from "@/mocks/goal";
+import type { NextRequest } from "next/server";
+import { InterviewMessageRequestSchema, InterviewTurnSchema } from "@/lib/schemas";
+import { toDateStr } from "@/lib/datetime";
+import { handle, HttpError, parseBody } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/auth";
+import { getNow } from "@/lib/server/clock";
+import { answerByScript } from "@/lib/server/interview-script";
+import { getInterviewSession, saveInterviewTurn, type InterviewSlots } from "@/lib/server/repositories/interview";
 
-function aiMessage(text: string): InterviewMessage {
-  return { id: crypto.randomUUID(), role: "ai", text, created_at: nowIsoJst() };
+// 抽出結果を slots にマージする。null・空配列では上書きしない（backend.md 6.2.1）
+function mergeSlots(slots: InterviewSlots, extracted: Partial<InterviewSlots>): InterviewSlots {
+  const merged = { ...slots };
+  for (const [key, value] of Object.entries(extracted) as [keyof InterviewSlots, unknown][]) {
+    if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) continue;
+    Object.assign(merged, { [key]: value });
+  }
+  return merged;
 }
 
-// POST /api/interview/message（4章・10.1〜10.3章）
-// text と selection はどちらか一方だけ（InterviewMessageRequestSchema の refine で検証済み）。
-// 台本は固定なので、入力内容にかかわらず現在のステップから次のステップへ進める。
+// POST /api/interview/message（backend.md 6.2.1・6.2.4、mock-spec 10.1・10.15）
+// ステップ1〜4 は text を受け、次のステップへ進む。ステップ4の回答ではステップ5の発言と3案（step 6）を返す
 export async function POST(request: NextRequest) {
-  if (isMockError(request)) return mockErrorResponse();
-  await mockDelay(800);
+  return handle(request, async () => {
+    const { user, supabase } = await requireUser();
+    const body = await parseBody(request, InterviewMessageRequestSchema);
 
-  const body = await request.json().catch(() => null);
-  const parsed = InterviewMessageRequestSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.message }, { status: 400 });
-  }
-  const { session_id, text, selection } = parsed.data;
+    const session = await getInterviewSession(supabase, body.session_id);
+    if (!session) throw new HttpError(404, "NOT_FOUND", "ヒアリングが見つかりません。最初からやり直してください");
 
-  const state = getState();
-  if (state.interview_session_id !== session_id) {
-    return NextResponse.json({ error: "session_id が無効です" }, { status: 400 });
-  }
-
-  // ステップ1〜4：自由入力・クイックリプライへの回答（10.3章：内容に関わらず台本どおり次に進む）
-  if (state.interview_step_index >= 1 && state.interview_step_index <= 4) {
-    if (text === undefined) {
-      return NextResponse.json({ error: "このステップでは text を送ってください" }, { status: 400 });
+    // 最終確認（ステップ9）は「確定する」ボタンを待つので、message は受け付けない（mock-spec 10.15）
+    if (session.state === "CONFIRMING") {
+      throw new HttpError(400, "INVALID_REQUEST", "確定ボタンを押してください");
     }
-    const nextIndex = state.interview_step_index + 1;
-    if (nextIndex <= 4) {
-      const key = (["category", "goal", "current_status", "conditions"] as const)[nextIndex - 1];
-      const question = INTERVIEW_QUESTIONS[key];
-      setInterviewStepIndex(nextIndex);
-      return NextResponse.json(
-        InterviewTurnSchema.parse({
-          session_id,
-          state: "INTERVIEWING",
-          step: question.step,
-          step_index: question.stepIndex,
-          messages: [aiMessage(question.aiMessage)],
-          quick_replies: question.quickReplies,
-          goal_candidates: null,
-          goal_draft: null,
-        }),
-      );
+    if (session.state !== "INTERVIEWING") {
+      throw new HttpError(409, "INVALID_STATE", "このヒアリングは終了しています。最初からやり直してください");
     }
 
-    // ステップ4（conditions）の回答 → ステップ5・6を1回の応答にまとめる（10.1章）
-    setInterviewStepIndex(6);
-    return NextResponse.json(
-      InterviewTurnSchema.parse({
-        session_id,
+    if (session.step_index === 6) {
+      if (body.selection === undefined) {
+        throw new HttpError(400, "INVALID_REQUEST", "上の案から選んでください");
+      }
+      // TODO: selection（step 6 → 9、要約と最終確認）は次の作業で作る（6.2.4・6.2.5）
+      throw new HttpError(500, "INTERNAL", "目標時間の案の選択はまだ使えません");
+    }
+
+    const stepIndex = session.step_index;
+    if (stepIndex !== 1 && stepIndex !== 2 && stepIndex !== 3 && stepIndex !== 4) {
+      throw new HttpError(409, "INVALID_STATE", "このヒアリングは続けられません。最初からやり直してください");
+    }
+    if (body.text === undefined) {
+      throw new HttpError(400, "INVALID_REQUEST", "このステップでは文章で答えてください");
+    }
+
+    // TODO: LLM_MODE=on（lib/llm/interview.ts、6.2.3）を作ったら、LLM_MODE=on かつ OPENAI_API_KEY があるときは
+    // LLM で抽出する（common.md 1.4）。今は LLM_MODE にかかわらず台本（6.2.6）で動かす
+    const today = toDateStr(await getNow(user.id, supabase));
+    const answer = answerByScript(stepIndex, session.slots, today);
+
+    const saved = await saveInterviewTurn(
+      supabase,
+      session,
+      {
         state: "INTERVIEWING",
-        step: "goal_candidates",
-        step_index: 6,
-        messages: [aiMessage(INTERVIEW_QUESTIONS.time_estimation.aiMessage)],
-        quick_replies: [],
-        goal_candidates: GOAL_TIME_CANDIDATES,
-        goal_draft: null,
-      }),
+        step: answer.next.step,
+        step_index: answer.next.step_index,
+        retry_count: 0, // ステップが進んだら0に戻す（台本では聞き直さない）
+        slots: mergeSlots(session.slots, answer.slots),
+        goal_candidates: answer.goal_candidates,
+      },
+      [
+        { role: "user", text: body.text },
+        { role: "ai", text: answer.next.ai_message },
+      ],
     );
-  }
-
-  // ステップ6〜7：3案のカードから選択 → ステップ8・9を1回の応答にまとめる（10.1・10.3章）
-  if (state.interview_step_index === 6) {
-    if (!selection) {
-      return NextResponse.json({ error: "このステップでは selection を送ってください" }, { status: 400 });
+    if (!saved) {
+      throw new HttpError(409, "INVALID_STATE", "ほかの操作でヒアリングが進みました。最初からやり直してください");
     }
-    const goalDraft = {
-      ...GOAL,
-      target_hours_per_week: selection.hours_per_week,
-      user_selected_plan: selection.style,
-    };
-    setInterviewGoalDraft(goalDraft);
-    setInterviewStepIndex(9);
-    setInterviewState("CONFIRMING");
-    return NextResponse.json(
-      InterviewTurnSchema.parse({
-        session_id,
-        state: "CONFIRMING",
-        step: "final_confirmation",
-        step_index: 9,
-        messages: [aiMessage(buildSummaryMessage(selection.hours_per_week)), aiMessage(FINAL_CONFIRMATION_MESSAGE)],
-        quick_replies: [],
-        goal_candidates: null,
-        goal_draft: goalDraft,
-      }),
-    );
-  }
 
-  // ステップ9（最終確認）は「確定する」ボタン（POST /api/interview/confirm）で進める
-  return NextResponse.json({ error: "現在のステップでは message を受け付けていません" }, { status: 400 });
+    return InterviewTurnSchema.parse({
+      session_id: session.id,
+      state: "INTERVIEWING",
+      step: answer.next.step,
+      step_index: answer.next.step_index,
+      messages: saved.filter((m) => m.role === "ai"), // 利用者の吹き出しは画面が出す（mock-spec 10.2）
+      quick_replies: answer.next.quick_replies,
+      goal_candidates: answer.goal_candidates,
+      goal_draft: null,
+    });
+  });
 }
