@@ -7,13 +7,13 @@ import {
   type ScheduleItem,
 } from "@/lib/schemas";
 import { addDays, ceilToMinutes, formatTime, getWeekStart, toDateStr } from "@/lib/datetime";
-import { extractReplanIntentByKeywords, type ReplanTaskOption } from "@/lib/llm/replan-keywords";
+import type { ReplanTaskOption } from "@/lib/llm/replan-keywords";
 import { handle, HttpError, parseBody } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
 import { withDisplayState } from "@/lib/server/calendar";
 import { getNow } from "@/lib/server/clock";
 import { buildPlanningContext } from "@/lib/server/planning-context";
-import { PROVISIONAL_END_NOTE, toReplanningIntent } from "@/lib/server/replan-intent";
+import { extractReplanIntent, PROVISIONAL_END_NOTE } from "@/lib/server/replan-intent";
 import { buildReplanRows } from "@/lib/server/replan-rows";
 import { upsertCheckin } from "@/lib/server/repositories/daily-checkins";
 import { getActivePlan, listPlanItems } from "@/lib/server/repositories/plans";
@@ -84,12 +84,8 @@ export async function POST(request: NextRequest) {
         start_at: item.start_at,
         end_at: item.end_at,
       }));
-    // TODO: LLM_MODE=on（lib/llm/replan-intent.ts、12.3.1）を作ったら、LLM で取り出し、失敗したらキーワードにする
-    const converted = toReplanningIntent(extractReplanIntentByKeywords(body.text, todayTasks), {
-      date: today,
-      now,
-      todayTasks,
-    });
+    // LLM_MODE=on なら LLM（12.3.1）。失敗したとき・off のときはキーワード（12.3.2）
+    const converted = await extractReplanIntent(body.text, { date: today, now, todayTasks });
     if (converted.type === "unknown") return unsupported(UNSUPPORTED_MESSAGE);
     const { intent } = converted;
     if (intent.type === "preference_change") return unsupported(UNSUPPORTED_MESSAGE);

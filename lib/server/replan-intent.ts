@@ -1,7 +1,13 @@
 import type { z } from "zod";
 import { ReplanningIntentSchema, type FixedEvent } from "@/lib/schemas";
 import { atJstTime } from "@/lib/datetime";
-import type { ReplanIntentLlm, ReplanTaskOption } from "@/lib/llm/replan-keywords";
+import { isLlmEnabled, LlmError } from "@/lib/llm/client";
+import {
+  extractReplanIntentByKeywords,
+  type ReplanIntentLlm,
+  type ReplanTaskOption,
+} from "@/lib/llm/replan-keywords";
+import { extractReplanIntentByLlm } from "@/lib/llm/replan-intent";
 
 // 意図（ReplanIntentLlmSchema の形）→ ReplanningIntent の変換・検証（plans-replan.md 12.3.1 の後半）。
 // キーワード（lib/llm/replan-keywords.ts）と LLM（lib/llm/replan-intent.ts）で共通に使う
@@ -90,4 +96,25 @@ export function toReplanningIntent(
     preference_changes: llm.preference_changes,
   });
   return { type: "ok", intent, provisional_end: provisionalEnd };
+}
+
+// 発言 → 意図（plans-replan.md 12.3）。LLM が有効なら LLM（12.3.1）、無効ならキーワード（12.3.2）。
+// LLM が失敗したとき（LlmError、または結果の変換で例外が出たとき）はキーワードに戻す。
+// LLM が unknown を返したときは失敗ではないので、そのまま unknown にする
+export async function extractReplanIntent(
+  text: string,
+  input: ReplanIntentInput,
+): Promise<ConvertedReplanIntent> {
+  if (isLlmEnabled()) {
+    try {
+      const llm = await extractReplanIntentByLlm(text, input);
+      return toReplanningIntent(llm, input);
+    } catch (e) {
+      if (!(e instanceof LlmError)) {
+        // 変換で出た例外。内容（発言など）は出さず、種類だけ残す
+        console.warn("[llm] replan_intent convert failed:", e instanceof Error ? e.name : typeof e);
+      }
+    }
+  }
+  return toReplanningIntent(extractReplanIntentByKeywords(text, input.todayTasks), input);
 }
