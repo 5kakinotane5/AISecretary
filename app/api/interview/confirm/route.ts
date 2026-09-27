@@ -6,8 +6,6 @@ import { getNow } from "@/lib/server/clock";
 import { SCRIPT_GOAL_TASKS } from "@/lib/server/interview-script";
 import { getInterviewSession } from "@/lib/server/repositories/interview";
 import { confirmGoalWithTasks } from "@/lib/server/repositories/goals";
-import { confirmGoal as confirmMockGoal, setInterviewState, startInterviewSession } from "@/lib/mock/store";
-
 // POST /api/interview/confirm（backend.md 6.2.4・8.1、FR-02-7）：{ session_id } → { state: "READY_FOR_PLANNING", goal }
 // 目標と目標タスクを保存し、状態を READY_FOR_PLANNING にする。スケジュールは作らない
 export async function POST(request: NextRequest) {
@@ -40,12 +38,6 @@ export async function POST(request: NextRequest) {
       tasks,
       now: await getNow(user.id, supabase),
     });
-
-    // TODO: 全APIを本番化したら削除。plans/generate などがまだモックの状態（lib/mock/store）を読むため、
-    // 確定したセッションと目標をそちらにも入れる（common.md 1.6「モックの状態と DB を混ぜない」の一時的な例外）
-    startInterviewSession(session.id);
-    setInterviewState("READY_FOR_PLANNING");
-    confirmMockGoal(goal);
 
     return InterviewConfirmResponseSchema.parse({ state: "READY_FOR_PLANNING", goal });
   });

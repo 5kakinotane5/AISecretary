@@ -13,3 +13,10 @@ export async function getUserPreference(
   if (error) throw error;
   return data ? UserPreferenceSchema.parse(data) : null;
 }
+
+// 家の場所の id（PlanningContext の home_location_id）。行がなければ null
+export async function getHomeLocationId(supabase: SupabaseClient): Promise<string | null> {
+  const { data, error } = await supabase.from("user_settings").select("home_location_id").maybeSingle();
+  if (error) throw error;
+  return data?.home_location_id ?? null;
+}

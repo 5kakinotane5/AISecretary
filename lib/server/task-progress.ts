@@ -92,13 +92,17 @@ export function computeTaskProgress(input: {
   };
 }
 
-// DB から読んで計算する。now は getNow() の値
-export async function loadTaskProgress(supabase: SupabaseClient, now: string): Promise<TaskProgress> {
+// DB から読んで計算する。now は getNow() の値。
+// 読み込んだ有効な目標（goal）も返す（planning-context.ts が goals・goal_time_bands に使う）
+export async function loadTaskProgress(
+  supabase: SupabaseClient,
+  now: string,
+): Promise<TaskProgress & { goal: ActiveGoalRecord | null }> {
   const [tasks, goal, doneLogs, elapsedItems] = await Promise.all([
     listTasks(supabase),
     getActiveGoalRecord(supabase),
     listTaskDoneLogs(supabase),
     listElapsedActivePlanTaskItems(supabase, now),
   ]);
-  return computeTaskProgress({ tasks, goal, doneLogs, elapsedItems, now });
+  return { ...computeTaskProgress({ tasks, goal, doneLogs, elapsedItems, now }), goal };
 }

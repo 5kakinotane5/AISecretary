@@ -1,25 +1,27 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { SelectPlanResponseSchema, type PlanStyle } from "@/lib/schemas";
-import { isMockError, mockDelay, mockErrorResponse } from "@/lib/mock/http";
+import type { NextRequest } from "next/server";
+import { SelectPlanResponseSchema } from "@/lib/schemas";
+import { handle, HttpError } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/auth";
+import { getNow } from "@/lib/server/clock";
+import { getPlan, selectPlan } from "@/lib/server/repositories/plans";
 import { setActivePlanStyle } from "@/lib/mock/store";
 
-const STYLE_BY_PLAN_ID: Record<string, PlanStyle> = {
-  plan_intensive: "intensive",
-  plan_balanced: "balanced",
-  plan_relaxed: "relaxed",
-};
-
-// POST /api/plans/{id}/select（4章）：{ active_plan_id }
+// POST /api/plans/{id}/select（plans-replan.md 11.1 FR-08-13）：{ active_plan_id }
+// select_plan(id, getNow())。候補でない id は404。
+// preference_weights の学習（P9.2、優先度B）は作らない
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/plans/[id]/select">) {
-  if (isMockError(request)) return mockErrorResponse();
-  await mockDelay(400);
+  return handle(request, async () => {
+    const { user, supabase } = await requireUser();
+    const { id } = await ctx.params;
 
-  const { id } = await ctx.params;
-  const style = STYLE_BY_PLAN_ID[id];
-  if (!style) {
-    return NextResponse.json({ error: `不明なプランIDです: ${id}` }, { status: 400 });
-  }
+    const plan = await getPlan(supabase, id);
+    if (!plan || plan.status !== "candidate") throw new HttpError(404, "NOT_FOUND", "選べる案が見つかりません");
+    await selectPlan(supabase, plan.id, await getNow(user.id, supabase));
 
-  setActivePlanStyle(style);
-  return NextResponse.json(SelectPlanResponseSchema.parse({ active_plan_id: id }));
+    // TODO: calendar を本番化したら削除。/today・/calendar がまだモックの状態（lib/mock/store の active_plan_style）を
+    // 見てモックの計画を出すため、選んだ案の style をそちらにも入れる（common.md 1.6「モックの状態と DB を混ぜない」の一時的な例外）
+    setActivePlanStyle(plan.style);
+
+    return SelectPlanResponseSchema.parse({ active_plan_id: plan.id });
+  });
 }
