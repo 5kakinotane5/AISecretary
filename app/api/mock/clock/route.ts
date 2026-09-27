@@ -4,7 +4,6 @@ import { toDateStr } from "@/lib/datetime";
 import { handle, HttpError } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
 import { getNow, requireDemoMode, setDemoNow } from "@/lib/server/clock";
-import { setDemoNow as setMockDemoNow } from "@/lib/mock/store";
 
 // GET /api/mock/clock（common.md 1.3）：デモモードのみ。今のデモ時刻 { now }（互換のため残す。画面は /api/clock を使う）
 export async function GET(request: NextRequest) {
@@ -39,10 +38,6 @@ export async function POST(request: NextRequest) {
       const eighteen = `${toDateStr(current)}T18:00:00+09:00`;
       now = current < eighteen ? await setDemoNow(user.id, supabase, eighteen) : current;
     }
-
-    // TODO: 全APIを本番化したら削除。/api/plans/replan がまだモックの時刻（lib/mock/clock.ts）を使うため、
-    // 同じ値にそろえておく（common.md 1.6「モックの状態と DB を混ぜない」の一時的な例外）
-    setMockDemoNow(now);
 
     return MockClockResponseSchema.parse({ now });
   });
