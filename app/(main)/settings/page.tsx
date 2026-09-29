@@ -82,7 +82,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** 表示だけの4つの欄（生活リズム・よく行く場所・移動時間・目的地） */
+/** 表示だけの4つの欄（生活リズム・よく行く場所・移動時間・長期目標） */
 function SettingsSections({ data }: { data: SettingsResponse }) {
   const { preferences, locations, travel_times: travelTimes, goal } = data;
   // 場所の名前が引けないときは、推測で埋めずに id をそのまま出す

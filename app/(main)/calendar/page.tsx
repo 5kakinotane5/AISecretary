@@ -37,7 +37,7 @@ const VIEW_MODES: CalendarViewMode[] = ["month", "week", "day"];
 const DEFAULT_MODE: CalendarViewMode = "week";
 
 /**
- * /calendar：あなたの航海図（mock-spec.md 2.6、design-spec.md 6章・9.2）。
+ * /calendar：あなたの予定表（mock-spec.md 2.6、design-spec.md 6章・9.2）。
  * GET /api/mock/clock でデモ時刻を読み、その日を含む週から表示する。
  * 日表示のタイムライン・詳細シートに使うタスクと場所は GET /api/tasks・GET /api/settings から取る。
  * 週・日・月のデータは表示を切り替えるたびに GET /api/calendar/week・day・month で取る
@@ -206,7 +206,7 @@ function DaySection({
           ) : null}
           <Timeline
             items={result.data.items}
-            // 「現在地」「次の航路」の強調は今日だけ（ほかの日に出すと、その日の最初の予定が「次の航路」になるため）
+            // 「現在地」「次の予定」の強調は今日だけ（ほかの日に出すと、その日の最初の予定が「次の予定」になるため）
             now={date === today ? now : null}
             tasks={tasks}
             locations={locations}

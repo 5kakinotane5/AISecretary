@@ -25,7 +25,7 @@ import type { ScheduleItem } from "@/lib/schemas";
 const NOTICE_MS = 3000;
 
 /**
- * /today：今日の航路（mock-spec.md 2.4・10.7・10.12・10.20、design-spec.md 6章・9.4・9.8）。
+ * /today：今日の予定（mock-spec.md 2.4・10.7・10.12・10.20、design-spec.md 6章・9.4・9.8）。
  * GET /api/mock/clock でデモ時刻を読み、その日の計画を GET /api/calendar/day で取得する。
  * タスク（締切・候補）と場所（表示名）は GET /api/tasks・GET /api/settings から取る。
  */
@@ -72,7 +72,7 @@ export default function TodayPage() {
       </Suspense>
 
       <header className="px-4 pt-4 pb-12 text-white" style={{ background: "var(--gradient-header)" }}>
-        {/* 読み込み中は挨拶と日付の位置にスケルトンを出し、カードの見出しと同じ「今日の航路」は出さない（10.21章） */}
+        {/* 読み込み中は挨拶と日付の位置にスケルトンを出し、カードの見出しと同じ「今日の予定」は出さない（10.21章） */}
         <div className="flex min-h-11 items-center justify-between gap-2">
           {data ? <p className="text-sm opacity-90">{getGreeting(data.now)}</p> : null}
           {result.status === "loading" ? <Skeleton className="h-4 w-52 rounded-full bg-white/20" /> : null}
@@ -89,7 +89,7 @@ export default function TodayPage() {
         ) : null}
       </header>
 
-      {/* 白いカード「今日の航路」を上部に少し重ねる（design-spec.md 6章） */}
+      {/* 白いカード「今日の予定」を上部に少し重ねる（design-spec.md 6章） */}
       <div className="-mt-8 px-4 pb-4">
         <SurfaceCard className="flex flex-col gap-3">
           <h2 className="text-lg font-bold">{SCREEN_LABELS.today}</h2>

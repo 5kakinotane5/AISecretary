@@ -229,23 +229,23 @@ export function formatDeadlineBadge(deadlineAt: string): string {
   return `締切 ${formatMonthDay(deadlineAt)}`;
 }
 
-// ---------- 航路プラン（design-spec.md 4章） ----------
+// ---------- 予定プラン（design-spec.md 4章） ----------
 export const PLAN_STYLE_LABELS: Record<PlanStyle, string> = {
-  intensive: "集中の航路",
-  balanced: "バランスの航路",
-  relaxed: "ゆとりの航路",
+  intensive: "集中の予定",
+  balanced: "バランスの予定",
+  relaxed: "ゆとりの予定",
 };
 
 // ---------- 画面の言葉づかい（design-spec.md 4章） ----------
 export const SCREEN_LABELS = {
-  today: "今日の航路",
-  calendar: "航海図",
-  replan: "AIとの対話",
-  replanButton: "航路を調整する",
+  today: "今日の予定",
+  calendar: "予定表",
+  replan: "チャット",
+  replanButton: "予定を調整する",
   buffer: "余白",
   currentTimeLine: "現在地",
   // 現在時刻を含む予定がないときに、次に始まる予定の行に付ける（design-spec.md 9.8）
-  nextRoute: "次の航路",
+  nextRoute: "次の予定",
   goal: "目的地",
   interview: "航海の準備（目的地を決める）",
 } as const;
@@ -253,17 +253,17 @@ export const SCREEN_LABELS = {
 /** タブバー（design-spec.md 5.2。mock-spec.md 1.2 の表を置き換え） */
 export const TAB_ITEMS: { href: "/today" | "/calendar" | "/replan" | "/settings"; label: string; icon: LucideIcon }[] = [
   { href: "/today", label: "ホーム", icon: House },
-  { href: "/calendar", label: "航海図", icon: MapIcon },
-  { href: "/replan", label: "AIと対話", icon: MessageCircle },
+  { href: "/calendar", label: "予定表", icon: MapIcon },
+  { href: "/replan", label: "チャット", icon: MessageCircle },
   { href: "/settings", label: "設定", icon: Settings },
 ];
 
 /** ヘッダーの挨拶文（design-spec.md 4章）。demo_now などのISO日時からJSTの時間帯で出し分ける */
 export function getGreeting(isoStr: string): string {
   const hour = getJstHour(isoStr);
-  if (hour >= 5 && hour < 11) return "おはよう、今日もよい航路を。";
-  if (hour >= 11 && hour < 17) return "こんにちは、今日の航路は順調ですか。";
-  return "おつかれさま、今日の航路をふり返ろう。";
+  if (hour >= 5 && hour < 11) return "おはよう、今日もよい予定を。";
+  if (hour >= 11 && hour < 17) return "こんにちは、今日の予定は順調ですか。";
+  return "おつかれさま、今日の予定をふり返ろう。";
 }
 
 // ---------- 目標時間3案（mock-spec.md 5.8・10.2） ----------
@@ -298,14 +298,14 @@ export const ONBOARDING_LABELS = {
   taglineEn: "Navigate your uncertain future.",
   start: "はじめる",
   interviewTitle: "航海の準備",
-  plansTitle: "航路プランを選ぶ",
+  plansTitle: "予定プランを選ぶ",
   chooseCandidate: "これにする",
   confirmCandidate: "この内容で確定",
   confirmGoal: "確定する",
   generatePlans: "スケジュール作成",
   generating: "スケジュールを作成しています…",
   selectPlan: "このプランにする",
-  noPlans: "航路プランはまだありません",
+  noPlans: "予定プランはまだありません",
   backToInterview: "航海の準備へ",
   inputWhileChoosing: "上の案から選んでください",
   inputWhileConfirming: "確定ボタンを押してください",
@@ -324,7 +324,7 @@ export const TODAY_LABELS = {
 export const REPLAN_LABELS = {
   prompt: "予定の変更や、今の状態を教えてください",
   advancedClock: "デモのため、時刻を18:00に進めました",
-  adjusting: "航路を調整しています…",
+  adjusting: "予定を調整しています…",
   changesTitle: "変更点",
   unchanged: (count: number) => `変更なし ${count}件`,
   otherDaysTitle: "ほかの日への影響",
@@ -360,7 +360,7 @@ export function formatDemoChip(isoStr: string): string {
   return `デモ ${formatTime(isoStr)}`;
 }
 
-// ---------- 航海図（/calendar）の文言（design-spec.md 4章・6章、mock-spec.md 2.6） ----------
+// ---------- 予定表（/calendar）の文言（design-spec.md 4章・6章、mock-spec.md 2.6） ----------
 export type CalendarViewMode = "month" | "week" | "day";
 
 /** 月／週／日 の切り替え（この順に並べる。初期表示は週） */
@@ -371,7 +371,7 @@ export const CALENDAR_VIEW_LABELS: Record<CalendarViewMode, string> = {
 };
 
 export const CALENDAR_LABELS = {
-  title: "あなたの航海図",
+  title: "あなたの予定表",
   prev: { month: "前の月", week: "前の週", day: "前の日" } satisfies Record<CalendarViewMode, string>,
   next: { month: "次の月", week: "次の週", day: "次の日" } satisfies Record<CalendarViewMode, string>,
   noMonthData: "この月のデータはありません",
@@ -442,12 +442,12 @@ export const SETTINGS_LABELS = {
   noLocations: "登録されている場所はありません",
   travelTitle: "移動時間",
   noTravelTimes: "登録されている移動時間はありません",
-  goalTitle: SCREEN_LABELS.goal,
+  goalTitle: "長期目標",
   // 目標の確定前（GET /api/settings の goal が null。docs/design/frontend.md 14.2）
-  noGoal: `まだ${SCREEN_LABELS.goal}がありません`,
+  noGoal: "まだ長期目標がありません",
   deadline: "期限",
-  // design-spec.md 4章：目標（Goal）は画面上「目的地」（mock-spec.md 10.23）
-  consultGoal: `新しい${SCREEN_LABELS.goal}を相談する`,
+  // /settings では目標（Goal）を「長期目標」と表示する
+  consultGoal: "新しい長期目標を相談する",
   demoTitle: "デモ用",
   demoClock: "デモ時刻の切り替え",
   demoClockError: "デモ時刻を切り替えられませんでした。",
