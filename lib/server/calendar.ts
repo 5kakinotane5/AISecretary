@@ -40,14 +40,14 @@ async function loadSource(supabase: SupabaseClient, userId: string): Promise<Cal
   return { now, plan, planItems, fixedEvents, tasks };
 }
 
-// 表示用の値（DB には保存しない）。終わった項目は locked、そのうちタスクは completed。再計画の Before（12.2 の 5）でも使う。
+// 表示用の値（DB には保存しない）。終わった項目は locked。タスクの完了状態は利用者が保存した値を使う。
 // 進行中はタスク・固定予定・移動・睡眠なら locked、自由時間・バッファは locked: false（まだ使い方を変えられる）
 export function withDisplayState(item: ScheduleItem, now: string): ScheduleItem {
   const nowMs = Date.parse(now);
   const startMs = Date.parse(item.start_at);
   const endMs = Date.parse(item.end_at);
   if (endMs <= nowMs) {
-    return { ...item, locked: true, status: item.kind === "task" ? "completed" : item.status };
+    return { ...item, locked: true };
   }
   if (startMs < nowMs) {
     return { ...item, locked: item.kind !== "free" && item.kind !== "buffer" };

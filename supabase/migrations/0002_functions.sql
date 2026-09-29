@@ -55,7 +55,7 @@ begin
     and i.kind = 'task'
     and i.task_id is not null
     and i.carried = false
-    and i.end_at <= p_now;
+    and i.status = 'completed';
 
   update weekly_plans set status = 'discarded' where status = 'active';
   update weekly_plans set status = 'active', version = version + 1 where id = p_plan_id;

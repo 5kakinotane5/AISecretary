@@ -32,7 +32,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<"/api/tasks/
     await requireEditableTask(supabase, id);
 
     // remaining_minutes は「入力値 ＋ 実施済み」を保存する（GET で返る値が入力値と一致するように。9.2）
-    const done = await loadTaskDoneMinutes(supabase, now, id);
+    const done = await loadTaskDoneMinutes(supabase, id);
     const write = { ...values };
     if (values.remaining_minutes !== undefined) {
       write.remaining_minutes = values.remaining_minutes + done;

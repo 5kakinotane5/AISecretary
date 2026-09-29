@@ -238,14 +238,14 @@ export const PLAN_STYLE_LABELS: Record<PlanStyle, string> = {
 
 // ---------- 画面の言葉づかい（design-spec.md 4章） ----------
 export const SCREEN_LABELS = {
-  today: "今日の航路",
-  calendar: "航海図",
+  today: "今日の予定",
+  calendar: "予定表",
   replan: "AIとの対話",
-  replanButton: "航路を調整する",
+  replanButton: "予定を調整する",
   buffer: "余白",
   currentTimeLine: "現在地",
   // 現在時刻を含む予定がないときに、次に始まる予定の行に付ける（design-spec.md 9.8）
-  nextRoute: "次の航路",
+  nextRoute: "次の予定",
   goal: "目的地",
   interview: "航海の準備（目的地を決める）",
 } as const;
@@ -253,7 +253,7 @@ export const SCREEN_LABELS = {
 /** タブバー（design-spec.md 5.2。mock-spec.md 1.2 の表を置き換え） */
 export const TAB_ITEMS: { href: "/today" | "/calendar" | "/replan" | "/settings"; label: string; icon: LucideIcon }[] = [
   { href: "/today", label: "ホーム", icon: House },
-  { href: "/calendar", label: "航海図", icon: MapIcon },
+  { href: "/calendar", label: "予定表", icon: MapIcon },
   { href: "/replan", label: "AIと対話", icon: MessageCircle },
   { href: "/settings", label: "設定", icon: Settings },
 ];
@@ -261,9 +261,9 @@ export const TAB_ITEMS: { href: "/today" | "/calendar" | "/replan" | "/settings"
 /** ヘッダーの挨拶文（design-spec.md 4章）。demo_now などのISO日時からJSTの時間帯で出し分ける */
 export function getGreeting(isoStr: string): string {
   const hour = getJstHour(isoStr);
-  if (hour >= 5 && hour < 11) return "おはよう、今日もよい航路を。";
-  if (hour >= 11 && hour < 17) return "こんにちは、今日の航路は順調ですか。";
-  return "おつかれさま、今日の航路をふり返ろう。";
+  if (hour >= 5 && hour < 11) return "おはようございます。今日の予定を確認しましょう。";
+  if (hour >= 11 && hour < 17) return "こんにちは。今日の予定は順調ですか。";
+  return "おつかれさまです。今日の予定をふり返りましょう。";
 }
 
 // ---------- 目標時間3案（mock-spec.md 5.8・10.2） ----------
@@ -316,6 +316,9 @@ export const TODAY_LABELS = {
   taskTotal: "タスク",
   bufferTotal: SCREEN_LABELS.buffer,
   freeTotal: "自由時間",
+  achievement: "今日の達成率",
+  noTasks: "今日のタスクはありません",
+  completionError: "完了状態を更新できませんでした。もう一度お試しください。",
   noPlan: "この日の計画はまだありません",
   noPlanHint: "固定の予定だけを表示しています",
   updated: "計画を更新しました",
@@ -371,7 +374,7 @@ export const CALENDAR_VIEW_LABELS: Record<CalendarViewMode, string> = {
 };
 
 export const CALENDAR_LABELS = {
-  title: "あなたの航海図",
+  title: "予定表",
   prev: { month: "前の月", week: "前の週", day: "前の日" } satisfies Record<CalendarViewMode, string>,
   next: { month: "次の月", week: "次の週", day: "次の日" } satisfies Record<CalendarViewMode, string>,
   noMonthData: "この月のデータはありません",
@@ -437,17 +440,22 @@ export const SETTINGS_LABELS = {
   rhythmTitle: "生活リズム",
   sleep: "睡眠",
   dailyWorkLimit: "1日の作業上限",
+  saveRhythm: "生活リズムを保存",
+  savingRhythm: "保存しています…",
+  rhythmSaved: "生活リズムを保存しました。",
+  rhythmSaveError: "生活リズムを保存できませんでした。入力内容を確認してください。",
+  sleepStart: "睡眠の開始",
+  sleepEnd: "睡眠の終了",
   minBuffer: `${SCREEN_LABELS.buffer}の最低量`,
   locationsTitle: "よく行く場所",
   noLocations: "登録されている場所はありません",
   travelTitle: "移動時間",
   noTravelTimes: "登録されている移動時間はありません",
-  goalTitle: SCREEN_LABELS.goal,
+  goalTitle: "長期目標",
   // 目標の確定前（GET /api/settings の goal が null。docs/design/frontend.md 14.2）
-  noGoal: `まだ${SCREEN_LABELS.goal}がありません`,
+  noGoal: "まだ長期目標がありません",
   deadline: "期限",
-  // design-spec.md 4章：目標（Goal）は画面上「目的地」（mock-spec.md 10.23）
-  consultGoal: `新しい${SCREEN_LABELS.goal}を相談する`,
+  consultGoal: "新しい長期目標を相談する",
   demoTitle: "デモ用",
   demoClock: "デモ時刻の切り替え",
   demoClockError: "デモ時刻を切り替えられませんでした。",
