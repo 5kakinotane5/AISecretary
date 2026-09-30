@@ -37,7 +37,7 @@ const VIEW_MODES: CalendarViewMode[] = ["month", "week", "day"];
 const DEFAULT_MODE: CalendarViewMode = "week";
 
 /**
- * /calendar：あなたの航海図（mock-spec.md 2.6、design-spec.md 6章・9.2）。
+ * /calendar：予定表（mock-spec.md 2.6、design-spec.md 6章・9.2）。
  * GET /api/mock/clock でデモ時刻を読み、その日を含む週から表示する。
  * 日表示のタイムライン・詳細シートに使うタスクと場所は GET /api/tasks・GET /api/settings から取る。
  * 週・日・月のデータは表示を切り替えるたびに GET /api/calendar/week・day・month で取る
@@ -51,22 +51,26 @@ export default function CalendarPage() {
 
   return (
     <MainShell>
-      <PageHeader title={CALENDAR_LABELS.title} gradient="deep" />
-
-      <div className="flex flex-col gap-4 px-4 py-4">
-        {base.status === "loading" ? (
-          <>
-            <Skeleton className="h-12 w-full rounded-full" />
-            <SurfaceCard>
-              <LoadingState rows={6} />
-            </SurfaceCard>
-          </>
-        ) : null}
-        {base.status === "error" ? <ErrorState onRetry={base.retry} /> : null}
-        {base.status === "success" ? (
-          <CalendarBody now={base.data.now} tasks={base.data.tasks} locations={base.data.locations} />
-        ) : null}
-      </div>
+      {base.status === "success" ? (
+        <CalendarBody now={base.data.now} tasks={base.data.tasks} locations={base.data.locations} />
+      ) : (
+        <>
+          <div className="sticky top-0 z-20">
+            <PageHeader title={CALENDAR_LABELS.title} gradient="deep" />
+          </div>
+          <div className="flex flex-col gap-4 px-4 py-4">
+            {base.status === "loading" ? (
+              <>
+                <Skeleton className="h-12 w-full rounded-full" />
+                <SurfaceCard>
+                  <LoadingState rows={6} />
+                </SurfaceCard>
+              </>
+            ) : null}
+            {base.status === "error" ? <ErrorState onRetry={base.retry} /> : null}
+          </div>
+        </>
+      )}
     </MainShell>
   );
 }
@@ -98,33 +102,40 @@ function CalendarBody({ now, tasks, locations }: { now: string; tasks: Task[]; l
   }
 
   return (
-    <>
-      <Tabs value={mode} onValueChange={(value) => setMode(value as CalendarViewMode)}>
-        <TabsList aria-label="表示の切り替え" className={SEGMENT_LIST}>
-          {VIEW_MODES.map((m) => (
-            <TabsTrigger key={m} value={m} className={SEGMENT_TRIGGER}>
-              {CALENDAR_VIEW_LABELS[m]}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+    <div className="flex flex-col">
+      <div className="sticky top-0 z-20 bg-background shadow-sm">
+        <PageHeader title={CALENDAR_LABELS.title} gradient="deep" className="py-1.5" />
+        <div className="px-4 pb-1">
+          <Tabs value={mode} onValueChange={(value) => setMode(value as CalendarViewMode)}>
+            <TabsList aria-label="表示の切り替え" className={SEGMENT_LIST}>
+              {VIEW_MODES.map((m) => (
+                <TabsTrigger key={m} value={m} className={SEGMENT_TRIGGER}>
+                  {CALENDAR_VIEW_LABELS[m]}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
 
-      <div className="flex items-center justify-between">
-        <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.prev[mode]} onClick={() => move(-1)}>
-          <ChevronLeft className="size-6" aria-hidden />
-        </Button>
-        <p className="text-base font-bold tabular-nums" aria-live="polite">
-          {period}
-        </p>
-        <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.next[mode]} onClick={() => move(1)}>
-          <ChevronRight className="size-6" aria-hidden />
-        </Button>
+          <div className="flex items-center justify-between">
+            <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.prev[mode]} onClick={() => move(-1)}>
+              <ChevronLeft className="size-6" aria-hidden />
+            </Button>
+            <p className="text-base font-bold tabular-nums" aria-live="polite">
+              {period}
+            </p>
+            <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.next[mode]} onClick={() => move(1)}>
+              <ChevronRight className="size-6" aria-hidden />
+            </Button>
+          </div>
+        </div>
       </div>
 
-      {mode === "week" ? <WeekSection weekStart={weekStart} today={today} onDaySelect={openDay} /> : null}
-      {mode === "day" ? <DaySection date={date} now={now} today={today} tasks={tasks} locations={locations} /> : null}
-      {mode === "month" ? <MonthSection month={month} today={today} onDateSelect={openDay} /> : null}
-    </>
+      <div className="flex flex-col gap-4 px-4 py-4">
+        {mode === "week" ? <WeekSection weekStart={weekStart} today={today} onDaySelect={openDay} /> : null}
+        {mode === "day" ? <DaySection date={date} now={now} today={today} tasks={tasks} locations={locations} /> : null}
+        {mode === "month" ? <MonthSection month={month} today={today} onDateSelect={openDay} /> : null}
+      </div>
+    </div>
   );
 }
 
@@ -206,7 +217,7 @@ function DaySection({
           ) : null}
           <Timeline
             items={result.data.items}
-            // 「現在地」「次の航路」の強調は今日だけ（ほかの日に出すと、その日の最初の予定が「次の航路」になるため）
+            // 「現在地」「次の予定」の強調は今日だけ（ほかの日に出すと、その日の最初の予定が「次の予定」になるため）
             now={date === today ? now : null}
             tasks={tasks}
             locations={locations}

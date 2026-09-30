@@ -16,8 +16,8 @@ import {
 import { addDays, toJstIso } from "@/lib/datetime";
 import { HttpError } from "../http";
 
-// 有効な計画のタスク項目のうち、実施済みとみなすもの（補正 C-5）
-export type ElapsedTaskItem = { task_id: string; date: string; start_at: string; end_at: string };
+// 有効な計画で利用者が完了にしたタスク枠
+export type CompletedTaskItem = { task_id: string; date: string; start_at: string; end_at: string };
 
 // 計画（weekly_plans の1行）の見出し
 export type PlanHeader = { id: string; style: PlanStyle; week_start: string; status: string };
@@ -111,11 +111,8 @@ export async function listPlanItems(
   return byPlan;
 }
 
-// 有効な計画のタスク項目で、carried = false かつ end_at ≤ now のもの。計画がなければ空配列
-export async function listElapsedActivePlanTaskItems(
-  supabase: SupabaseClient,
-  now: string,
-): Promise<ElapsedTaskItem[]> {
+// 有効な計画のうち、明示的に完了したタスク項目。計画がなければ空配列
+export async function listCompletedActivePlanTaskItems(supabase: SupabaseClient): Promise<CompletedTaskItem[]> {
   const planId = await getActivePlanId(supabase);
   if (!planId) return [];
   const { data, error } = await supabase
@@ -124,8 +121,8 @@ export async function listElapsedActivePlanTaskItems(
     .eq("weekly_plan_id", planId)
     .eq("kind", "task")
     .eq("carried", false)
+    .eq("status", "completed")
     .not("task_id", "is", null)
-    .lte("end_at", now);
   if (error) throw error;
   return data.map((row) => ({
     task_id: row.task_id,
@@ -133,6 +130,28 @@ export async function listElapsedActivePlanTaskItems(
     start_at: toJstIso(row.start_at),
     end_at: toJstIso(row.end_at),
   }));
+}
+
+// 今日の有効計画にあるタスク枠だけ完了状態を更新する。DB 関数内で版番号も進め、再計画案を失効させる
+export async function setActivePlanTaskCompletion(
+  supabase: SupabaseClient,
+  itemId: string,
+  date: string,
+  completed: boolean,
+): Promise<"planned" | "completed"> {
+  const { data, error } = await supabase.rpc("set_task_slot_completion", {
+    p_item_id: itemId,
+    p_date: date,
+    p_completed: completed,
+  });
+  if (error?.message === "NOT_FOUND") {
+    throw new HttpError(404, "NOT_FOUND", "今日の計画タスクが見つかりません");
+  }
+  if (error?.message === "INVALID_STATE") {
+    throw new HttpError(409, "INVALID_STATE", "今日の有効な計画タスクだけ変更できます");
+  }
+  if (error) throw error;
+  return data === "completed" ? "completed" : "planned";
 }
 
 // 3案を保存する（save_generation を rpc。backend.md 4.4、plans-replan.md 11.1）。

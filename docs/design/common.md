@@ -113,7 +113,7 @@ vitest.config.mts            # 1.7
 | 軽作業 | 目標に紐づかず、`buffer_fit: "high"` かつ `estimated_minutes ≤ 30` のタスク（例：メール返信、資料整理） |
 | 高集中タスク | `concentration: "high"`、または目標タスクで `concentration: "medium"` 以上のもの |
 | 有効な計画 | `weekly_plans.status = 'active'` の案（利用者ごとに最大1件） |
-| 実施済み | 「実施済みの記録（`task_done_logs`）」＋「有効な計画のタスク項目のうち、引き継ぎでない（`carried = false`）もので `end_at ≤ now` のもの」（補正 C-5。8.2） |
+| 実施済み | `task_done_logs` と、有効な計画で利用者が完了にしたタスク枠（`status = completed`、`carried = false`）。時刻経過だけでは完了にしない |
 
 ### 1.6 モックのファイルの扱い
 
@@ -224,6 +224,8 @@ CI（`.github/workflows/ci.yml`）の最後に `- run: npm test` を追加する
 | `POST /api/plans/replan` | F-12 | A / B | モックと同じ |
 | `POST /api/plans/replan/accept` | F-12 | A | モックと同じ |
 | `GET /api/settings` | F-05 | A | **goal が null になりうる**（3.2） |
+| `PATCH /api/settings` | F-05 | A | 睡眠時間・1日の作業上限を更新。最低バッファ量は変更しない |
+| `PATCH /api/plan-items/completion` | F-10 | A | 今日の有効計画にあるタスク枠の完了状態を更新し、計画 version を進める |
 | `GET /api/tasks` | F-06 | A | モックと同じ |
 | ★`POST /api/tasks`・`PATCH /api/tasks/{id}`・`DELETE /api/tasks/{id}` | F-06 | A | 9.2（画面なし） |
 | ★`POST /api/checkin`・`GET /api/checkin?date=` | F-07 | A | 9.3（画面なし） |
@@ -272,6 +274,8 @@ callStructured<T>(options: {
 | スキーマ | 使う場所 | 章 |
 |---|---|---|
 | `ClockResponseSchema` | `GET /api/clock`（`{ now, demo_mode }`） | 1.3 |
+| `SettingsUpdateRequestSchema`・`SettingsUpdateResponseSchema` | 生活リズムの更新 | 9.1 |
+| `PlanItemCompletionRequestSchema`・`PlanItemCompletionResponseSchema` | 今日の計画タスク枠の完了状態更新 | 11.2 |
 | `ApiErrorCodeSchema`・`ApiErrorSchema` | すべての API のエラー応答 | 2.2 |
 | `OkResponseSchema` | `POST /api/auth/logout`・`DELETE /api/tasks/{id}` | 2.3 |
 | `DailyCheckinSchema`・`CheckinRequestSchema`・`CheckinResponseSchema` | チェックイン | 9.3 |
@@ -283,7 +287,7 @@ callStructured<T>(options: {
 | `InfeasibleSchema`・`ValidationResultSchema` | 成立しない場合・Validator の結果 | 10.11・10.13 |
 | `EngineGenerateResultSchema`・`EngineReplanResultSchema` | Engine の生成・再計画の結果 | 10.2 |
 
-型（`z.infer`）：`ClockResponse`・`ApiErrorCode`・`DailyCheckin`・`TimeBand`・`GoalTimeBands`・`PlanningContext`・`ReasonCode`・`PlannedItem`・`ObjectiveVector`・`EnginePlan`・`Infeasible`・`ValidationResult`・`EngineGenerateResult`・`EngineReplanResult`。
+型（`z.infer`）：`ClockResponse`・`SettingsUpdateRequest`・`PlanItemCompletionRequest`・`PlanItemCompletionResponse`・`ApiErrorCode`・`DailyCheckin`・`TimeBand`・`GoalTimeBands`・`PlanningContext`・`ReasonCode`・`PlannedItem`・`ObjectiveVector`・`EnginePlan`・`Infeasible`・`ValidationResult`・`EngineGenerateResult`・`EngineReplanResult`。
 
 決まり：
 
@@ -296,9 +300,11 @@ callStructured<T>(options: {
 | スキーマ | 変更 | 理由 |
 |---|---|---|
 | `SettingsResponseSchema.goal` | `GoalSchema` → `GoalSchema.nullable()` | 目標の確定前（ログイン直後・リセット直後）に返せないため。画面は対応済み（14.2） |
+| `SettingsUpdateRequestSchema` | 睡眠時刻は有効な `HH:mm`、開始・終了は異なる時刻、作業上限は15分刻みの60〜960分 | `/settings` でユーザーが変更できる生活リズムだけを受け取る。最低バッファは対象外 |
+| `PlanItemCompletionRequestSchema`・`PlanItemCompletionResponseSchema` | 今日のタスク枠の完了状態を送受信 | 利用者がチェックした枠だけを完了として保持する |
 | `ValidationIssueCodeSchema` | `PAST_PLACEMENT`・`LOCKED_ITEM_CHANGED`・`CANDIDATES_TOO_SIMILAR` を追加 | 10.11。`CANDIDATES_TOO_SIMILAR` は warnings でだけ使う。`GOAL_HOURS_MISMATCH` は本番でも使う（コメントを直した） |
 
-上記以外の既存スキーマ（`ScheduleItemSchema`・`ScheduleCandidateSchema`・`ReplanProposalSchema` など）は変えていない。`MockClockResponseSchema` も残す。
+`ScheduleItemSchema` の形と DB 列はそのまま使い、`status` は利用者が更新する。`MockClockResponseSchema` も残す。
 
 ### 3.3 LLM 用のスキーマ
 

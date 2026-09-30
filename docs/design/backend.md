@@ -6,7 +6,7 @@
 
 ### 4.1 方針
 
-- SQL の正は `supabase/migrations/` のファイル（`0001_init.sql`・`0002_functions.sql`）。Supabase ダッシュボードの SQL Editor に貼り付けて、番号順に1回だけ実行する（Supabase CLI は使わない）。変えるときは新しい番号のファイルを足し、実行したことを PR の説明に書く
+- SQL の正は `supabase/migrations/` のファイル（`0001_init.sql`・`0002_functions.sql`・`0003_task_completion.sql`）。Supabase ダッシュボードの SQL Editor に貼り付けて、番号順に1回だけ実行する（Supabase CLI は使わない）。変えるときは新しい番号のファイルを足し、実行したことを PR の説明に書く
 - 型：日時は `timestamptz`、日付は `date`、ID は `uuid default gen_random_uuid()`
 - すべての表に `user_id uuid not null default auth.uid() references auth.users(id) on delete cascade` と RLS を付ける
 - 複数の表をまとめて変える操作（案の保存・選択・目標の確定・再計画の確定）は、4.4 の SQL 関数（`supabase.rpc()`）で1トランザクションにする
@@ -38,14 +38,15 @@
 
 外部キーの先が同じ利用者のデータであることは、アプリ側で「参照先を自分のクライアントで読めること」を確かめて保証する（読めなければ 400 `INVALID_REQUEST`）。
 
-### 4.4 トランザクション用の関数（`supabase/migrations/0002_functions.sql`）
+### 4.4 トランザクション用の関数（`supabase/migrations/0002_functions.sql`・`0003_task_completion.sql`）
 
 すべて `security invoker`（呼んだ利用者の権限で動き、RLS が効く）。実行できるのは `authenticated`（ログイン中の利用者）だけにしている（`anon` と `public` からは revoke）。API からは `supabase.rpc("関数名", { 引数 })` で呼ぶ。エラーは `raise exception '<CODE>'` で投げるので、API はエラーの message の CODE を見て 2.2 のエラーに変換する。
 
 | 関数 | 何をするか | 投げるエラー | 呼ぶ API |
 |---|---|---|---|
 | `save_generation(p_session_id, p_plans, p_items)` | 前の候補を discarded にし、3案（`features` を含む）と項目を入れ、セッションを PLAN_PROPOSED にする | `NOT_FOUND`（セッションがない） | `POST /api/plans/generate`（11.1） |
-| `select_plan(p_plan_id, p_now)` | 今までの有効な計画の実施済み（`carried = false`、`end_at ≤ p_now` のタスク）を `task_done_logs` に写し、その案を active に、同じ生成の他の2案と前の active を discarded にする。`version` +1 | `NOT_FOUND`（候補でない） | `POST /api/plans/{id}/select`（11.1） |
+| `select_plan(p_plan_id, p_now)` | 今までの有効な計画のうち利用者が完了にしたタスク（`carried = false`）を `task_done_logs` に写し、その案を active に、同じ生成の他の2案と前の active を discarded にする。`version` +1 | `NOT_FOUND`（候補でない） | `POST /api/plans/{id}/select`（11.1） |
+| `set_task_slot_completion(p_item_id, p_date, p_completed)` | 今日の有効計画にあるタスク枠の完了状態を更新し、同一トランザクションで計画の `version` を +1 | `NOT_FOUND`・`INVALID_STATE` | `PATCH /api/plan-items/completion`（11.2） |
 | `confirm_goal(p_session_id, p_goal, p_tasks)` | 前の有効な目標の目標タスクを消して目標を archived にし、新しい目標と目標タスクを入れ、セッションを READY_FOR_PLANNING にする。目標の id を返す | `NOT_FOUND`（セッションがない） | `POST /api/interview/confirm`（8.1） |
 | `apply_replan(p_proposal_id)` | 提案の予定を `fixed_events` に入れ、影響のある日の項目を置き換え、`version` +1、提案を accepted（同じ日の他の pending は discarded） | `NOT_FOUND`、`PROPOSAL_EXPIRED`（pending でない・期限切れ・計画の version が違う） | `POST /api/plans/replan/accept`（12.6） |
 
@@ -171,7 +172,7 @@ POST /api/interview/message（text）
 - `deadline`：年がない日付（「12月13日」）は `now` 以降で最も近い日付にする（日付の正規化であり推測ではない）。「年内」「来月くらい」など日が決まらない表現は null にし、原文を `conditions` に残す。`now` より前の日付になったものは null
 - `priority` は質問しない。初期値 `"medium"`（**補正 C-4**）
 - 時間帯（`weekday_time_band`・`weekend_time_band`）は、利用者が時間帯を言った場合だけ入れる。「朝」「午前」→ morning、「昼」「午後」→ daytime、「夕方」「夜」→ evening。「平日は」「土日は」の区別がなければ両方に同じ値を入れる。原文は `conditions` にも残す。時間帯を聞くための追加の質問はしない（ステップ4の質問文に「勉強しやすい時間帯」を含めるだけ。mock-spec 5.7 の台本と同じ）
-- ステップ4で上限に達したときや task_name を仮置きしたときは、要約（6.2.5）の末尾に「内容が違う場合は、設定の『新しい目的地を相談する』からやり直せます。」を付ける
+- ステップ4で上限に達したときや task_name を仮置きしたときは、要約（6.2.5）の末尾に「内容が違う場合は、設定の『新しい長期目標を相談する』からやり直せます。」を付ける
 
 #### 6.2.3 LLM：抽出＋次の発言（`lib/llm/interview.ts`）
 
@@ -343,7 +344,7 @@ POST /api/interview/message（text）
 今週の目標分 W = target_hours_per_week × 60                         … 目標の created_at が今週の月曜より前
                = 15分単位に丸め(target_hours_per_week × 60 × 残り日数 ÷ 7) … 目標を今週作った場合（残り日数 = 今日〜日曜）
 実施済み D = task_done_logs のうち今週（week_start〜）のその目標のタスクの分
-           ＋ 有効な計画のうち、その目標のタスク項目で carried = false かつ end_at ≤ now の分（補正 C-5）
+           ＋ 有効な計画のうち、その目標のタスク項目で status = completed かつ carried = false の分
 残り R = max(0, W − D)
 ```
 
@@ -351,7 +352,7 @@ POST /api/interview/message（text）
 
 - 目標の `created_at` は、confirm のときの `getNow()`（デモ時刻）を入れる
 - 時間帯の希望：slots の `weekday_time_band`・`weekend_time_band` を `goals` の同名の列に保存し、PlanningContext の `goal_time_bands` で Engine に渡す（**補正 C-21**。`GoalSchema` は変えない）
-- **実施済みの記録**：完了の操作（ボタン）は作らず、「終了時刻を過ぎた計画のタスクは実施済み」とみなす。計画を選び直すと前の計画は discarded になるため、`select_plan` が切り替えの前に、前の計画の実施済みの分を `task_done_logs` に写す。作り直した案に写した過去の項目（`carried = true`）は数えない（二重計上を防ぐ）
+- **実施済みの記録**：`/today` のタスク枠ごとのチェックで `daily_plan_items.status` を更新する。時刻が過ぎただけでは完了にしない。計画を選び直すと前の計画は discarded になるため、`select_plan` が切り替えの前に、利用者が完了にした分を `task_done_logs` に写す。作り直した案に写した過去の項目（`carried = true`）は数えない（二重計上を防ぐ）。完了状態の変更は計画の `version` も同じトランザクションで進め、古い再計画案を失効させる
 
 - 週の途中で目標を作っても、無理な量を残りの日に詰め込まない（日割り。**補正 C-15**）。デモは月曜7:00なので W = 360
 - `GET /api/tasks` の目標タスクの `remaining_minutes` は R（同じ目標のタスクで共有）
@@ -369,9 +370,9 @@ POST /api/interview/message（text）
 | goals | `status = active`（0件か1件） |
 | goal_time_bands | 有効な目標の `weekday_time_band`・`weekend_time_band` |
 | goal_week_target_minutes / goal_done_minutes | 8.2 |
-| tasks | `status != completed` の全件。締切タスク・任意タスク・軽作業の `remaining_minutes` は「DB の値 − そのタスクの実施済み（`task_done_logs` の全期間＋有効な計画の carried = false かつ end_at ≤ now の分）」（0未満は0）。目標タスクは 8.2 の R |
+| tasks | `status != completed` の全件。締切タスク・任意タスク・軽作業の `remaining_minutes` は「DB の値 − そのタスクの実施済み（`task_done_logs` の全期間＋有効な計画のうち status = completed・carried = false の分）」（0未満は0）。目標タスクは 8.2 の R |
 | checkin | 今日の `daily_checkins`（なければ null） |
-| locked_items | 有効な計画が今週のものなら、その項目のうち `end_at ≤ now` のもの（生成時。作り直しても実施済みを消さないため）。再計画時は 12.2 |
+| locked_items | 有効な計画が今週のものなら、その項目のうち `end_at ≤ now` または `status = completed` のもの（生成時。作り直しても過去の時間枠と完了状態を変えないため）。再計画時は 12.2 |
 
 `tasks` で残りが0になったタスクは、Engine に渡さない。
 
@@ -391,10 +392,13 @@ POST /api/interview/message（text）
 | ID | 要件 |
 |---|---|
 | FR-05-1 | 固定予定・場所・移動時間表は seed で用意する。**登録・編集の画面と API は作らない**（要件定義 4.3 の注記どおり） |
-| FR-05-2 | `/settings` で場所・移動時間表・生活リズムを閲覧できる（モックのまま） |
+| FR-05-2 | `/settings` で場所・移動時間表・生活リズムを表示する。睡眠時間と1日の作業上限は編集できる。最低バッファ量・場所・移動時間は表示のみ |
 | FR-05-3 | Planning Engine は固定予定を変更しない |
 | FR-05-4 | 場所が異なる予定の間に移動を入れる（10.4） |
 | FR-05-5 | 移動時間表にない組み合わせが必要になったら、計画は作らず 422（「移動時間表に『{A}→{B}』を登録してください」） |
+| FR-05-6 | `PATCH /api/settings` は睡眠の開始・終了時刻と1日の作業上限だけを更新する。最低バッファ量は変更せず、設定変更だけで有効な計画は書き換えない |
+
+`daily_work_limit_minutes` は15分単位の60〜960分。睡眠時刻は異なる有効な `HH:mm` を受け付け、就寝が起床より遅い場合は翌日にまたぐ。
 
 #### 9.1.2 繰り返しの展開（`expandFixedEvents(events, fromDate, toDate)`。`lib/planning/skeleton.ts` に置き、calendar からも使う）
 

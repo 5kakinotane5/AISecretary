@@ -15,17 +15,16 @@ import { Timeline } from "@/components/timeline/Timeline";
 import { buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiData } from "@/hooks/use-api-data";
-import { fetchCalendarDay, fetchDemoNow, fetchSettings, fetchTasks } from "@/lib/api";
+import { fetchCalendarDay, fetchDemoNow, fetchSettings, fetchTasks, updatePlanItemCompletion } from "@/lib/api";
 import { formatDateLong, toDateStr } from "@/lib/datetime";
-import { SCREEN_LABELS, TODAY_LABELS, formatHours, getGreeting } from "@/lib/labels";
-import { sumMinutesOfKind } from "@/lib/schedule";
+import { SCREEN_LABELS, TODAY_LABELS, getGreeting } from "@/lib/labels";
 import type { ScheduleItem } from "@/lib/schemas";
 
 /** 「計画を更新しました」を出しておく時間 */
 const NOTICE_MS = 3000;
 
 /**
- * /today：今日の航路（mock-spec.md 2.4・10.7・10.12・10.20、design-spec.md 6章・9.4・9.8）。
+ * /today：今日の予定（mock-spec.md 2.4・10.7・10.12・10.20、design-spec.md 6章・9.4・9.8）。
  * GET /api/mock/clock でデモ時刻を読み、その日の計画を GET /api/calendar/day で取得する。
  * タスク（締切・候補）と場所（表示名）は GET /api/tasks・GET /api/settings から取る。
  */
@@ -46,14 +45,38 @@ export default function TodayPage() {
   );
   const [selected, setSelected] = useState<ScheduleItem | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [taskStatusOverrides, setTaskStatusOverrides] = useState<Record<string, "planned" | "completed">>({});
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [completionError, setCompletionError] = useState(false);
 
   const data = result.status === "success" || result.status === "empty" ? result.data : null;
+  const items = data?.day.items.map((item) => ({
+    ...item,
+    status: item.kind === "task" ? (taskStatusOverrides[item.id] ?? item.status) : item.status,
+  })) ?? [];
+  const taskItems = items.filter((item) => item.kind === "task");
+  const completedTaskCount = taskItems.filter((item) => item.status === "completed").length;
+  const completionPercent = taskItems.length === 0 ? 0 : Math.round((completedTaskCount / taskItems.length) * 100);
   const locationName = (id: string | null) =>
     id ? (data?.settings.locations.find((l) => l.id === id)?.name ?? null) : null;
 
   function handleItemSelect(item: ScheduleItem) {
     setSelected(item);
     setSheetOpen(true);
+  }
+
+  async function handleTaskCompletionChange(item: ScheduleItem, completed: boolean) {
+    if (!data || pendingTaskId !== null) return;
+    setPendingTaskId(item.id);
+    setCompletionError(false);
+    try {
+      await updatePlanItemCompletion(item.id, data.day.date, completed);
+      setTaskStatusOverrides((current) => ({ ...current, [item.id]: completed ? "completed" : "planned" }));
+    } catch {
+      setCompletionError(true);
+    } finally {
+      setPendingTaskId(null);
+    }
   }
 
   const bottom = (
@@ -71,8 +94,8 @@ export default function TodayPage() {
         <UpdatedNotice />
       </Suspense>
 
-      <header className="px-4 pt-4 pb-12 text-white" style={{ background: "var(--gradient-header)" }}>
-        {/* 読み込み中は挨拶と日付の位置にスケルトンを出し、カードの見出しと同じ「今日の航路」は出さない（10.21章） */}
+      <header className="sticky top-0 z-20 min-h-[20dvh] px-4 pt-3 pb-3 text-white" style={{ background: "var(--gradient-header)" }}>
+        {/* 読み込み中は挨拶と日付の位置にスケルトンを出し、カードの見出しと同じ「今日の予定」は出さない（10.21章） */}
         <div className="flex min-h-11 items-center justify-between gap-2">
           {data ? <p className="text-sm opacity-90">{getGreeting(data.now)}</p> : null}
           {result.status === "loading" ? <Skeleton className="h-4 w-52 rounded-full bg-white/20" /> : null}
@@ -80,17 +103,19 @@ export default function TodayPage() {
         </div>
         {data ? <h1 className="text-2xl font-bold">{formatDateLong(data.day.date)}</h1> : null}
         {result.status === "loading" ? <Skeleton className="h-8 w-40 rounded-full bg-white/20" /> : null}
-        {data && result.status === "success" ? (
-          <dl className="mt-3 flex flex-wrap gap-2 text-xs">
-            <Total label={TODAY_LABELS.taskTotal} minutes={sumMinutesOfKind(data.day.items, "task")} />
-            <Total label={TODAY_LABELS.bufferTotal} minutes={sumMinutesOfKind(data.day.items, "buffer")} />
-            <Total label={TODAY_LABELS.freeTotal} minutes={sumMinutesOfKind(data.day.items, "free")} />
-          </dl>
+        {data ? (
+          <div className="mt-2 flex min-h-8 items-center gap-2 text-sm" aria-live="polite">
+            <span className="font-medium">{taskItems.length === 0 ? TODAY_LABELS.noTasks : TODAY_LABELS.achievement}</span>
+            {taskItems.length > 0 ? (
+              <span className="rounded-full bg-white/15 px-3 py-1 font-bold tabular-nums">
+                {completionPercent}%　{completedTaskCount}/{taskItems.length}件
+              </span>
+            ) : null}
+          </div>
         ) : null}
       </header>
 
-      {/* 白いカード「今日の航路」を上部に少し重ねる（design-spec.md 6章） */}
-      <div className="-mt-8 px-4 pb-4">
+      <div className="px-4 py-4">
         <SurfaceCard className="flex flex-col gap-3">
           <h2 className="text-lg font-bold">{SCREEN_LABELS.today}</h2>
 
@@ -106,14 +131,18 @@ export default function TodayPage() {
                 </p>
               ) : null}
               <Timeline
-                items={result.data.day.items}
+                items={items}
                 now={result.data.now}
                 tasks={result.data.tasks}
                 locations={result.data.settings.locations}
                 onItemSelect={handleItemSelect}
+                onTaskCompletionChange={handleTaskCompletionChange}
+                pendingTaskId={pendingTaskId}
+                autoScrollToHighlight
               />
             </>
           ) : null}
+          {completionError ? <p role="alert" className="text-sm text-destructive">{TODAY_LABELS.completionError}</p> : null}
         </SurfaceCard>
       </div>
 
@@ -125,15 +154,6 @@ export default function TodayPage() {
         locationName={locationName(selected?.location_id ?? null)}
       />
     </MainShell>
-  );
-}
-
-function Total({ label, minutes }: { label: string; minutes: number }) {
-  return (
-    <div className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1">
-      <dt className="opacity-90">{label}</dt>
-      <dd className="font-bold tabular-nums">{formatHours(minutes / 60)}</dd>
-    </div>
   );
 }
 

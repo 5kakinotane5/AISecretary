@@ -12,6 +12,8 @@ import {
   ReplanResponseSchema,
   SelectPlanResponseSchema,
   SettingsResponseSchema,
+  SettingsUpdateResponseSchema,
+  PlanItemCompletionResponseSchema,
   TasksResponseSchema,
   WeekViewSchema,
   type DayView,
@@ -23,6 +25,8 @@ import {
   type ReplanResponse,
   type ScheduleCandidate,
   type SettingsResponse,
+  type SettingsUpdateRequest,
+  type PlanItemCompletionResponse,
   type Task,
   type WeekView,
 } from "./schemas";
@@ -148,6 +152,26 @@ export function fetchCalendarMonth(month: string): Promise<MonthView> {
 /** GET /api/settings */
 export function fetchSettings(): Promise<SettingsResponse> {
   return request("/api/settings", SettingsResponseSchema);
+}
+
+/** PATCH /api/settings：生活リズムを更新 */
+export function updateSettings(body: SettingsUpdateRequest): Promise<SettingsResponse["preferences"]> {
+  return request("/api/settings", SettingsUpdateResponseSchema, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  }).then(({ preferences }) => preferences);
+}
+
+/** PATCH /api/plan-items/completion：今日のタスク枠の完了状態を更新 */
+export function updatePlanItemCompletion(
+  itemId: string,
+  date: string,
+  completed: boolean,
+): Promise<PlanItemCompletionResponse> {
+  return request("/api/plan-items/completion", PlanItemCompletionResponseSchema, {
+    method: "PATCH",
+    body: JSON.stringify({ item_id: itemId, date, completed }),
+  });
 }
 
 /** GET /api/mock/clock：今のデモ時刻（demo_now）を読む（10.20章） */

@@ -130,7 +130,8 @@ Secret key に `NEXT_PUBLIC_` を付けると、サイトを開いた人全員�
 1. 左メニューの **SQL Editor → New query**
 2. `supabase/migrations/0001_init.sql` の中身を貼って **Run**
 3. 同じように `0002_functions.sql` を **Run**
-4. **Table Editor** で次を確かめる
+4. 同じように `0003_task_completion.sql` を **Run**（タスク完了チェックを使うため）
+5. **Table Editor** で次を確かめる
    - [ ] 13個の表がある
    - [ ] すべての表に鍵のマーク（RLS 有効）が付いている
 
@@ -400,7 +401,7 @@ await supabase.from("tasks").delete().eq("id", id);
 
 ## 10. トランザクション（rpc）
 
-複数の表をまとめて変える操作は、`0002_functions.sql` の SQL 関数を `supabase.rpc()` で呼ぶ（4.4）。
+複数の表をまとめて変える操作は、`0002_functions.sql` と `0003_task_completion.sql` の SQL 関数を `supabase.rpc()` で呼ぶ（4.4）。
 
 | 関数 | 呼ぶ API |
 |---|---|
@@ -408,6 +409,7 @@ await supabase.from("tasks").delete().eq("id", id);
 | `select_plan(p_plan_id, p_now)` | `POST /api/plans/{id}/select` |
 | `confirm_goal(p_session_id, p_goal, p_tasks)` | `POST /api/interview/confirm` |
 | `apply_replan(p_proposal_id)` | `POST /api/plans/replan/accept` |
+| `set_task_slot_completion(p_item_id, p_date, p_completed)` | `PATCH /api/plan-items/completion` |
 
 ```ts
 const { data: goalId, error } = await supabase.rpc("confirm_goal", {

@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
-import { SettingsResponseSchema } from "@/lib/schemas";
-import { handle, HttpError } from "@/lib/server/http";
+import { SettingsResponseSchema, SettingsUpdateRequestSchema, SettingsUpdateResponseSchema } from "@/lib/schemas";
+import { handle, HttpError, parseBody } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
-import { getUserPreference } from "@/lib/server/repositories/user-settings";
+import { getUserPreference, updateUserPreference } from "@/lib/server/repositories/user-settings";
 import { listLocations } from "@/lib/server/repositories/locations";
 import { listTravelTimes } from "@/lib/server/repositories/travel-times";
 import { getActiveGoal } from "@/lib/server/repositories/goals";
@@ -30,5 +30,15 @@ export async function GET(request: NextRequest) {
     );
 
     return SettingsResponseSchema.parse({ preferences, locations, travel_times, goal });
+  });
+}
+
+// PATCH /api/settings：生活リズムだけを更新。計画・固定予定は自動変更しない
+export async function PATCH(request: NextRequest) {
+  return handle(request, async () => {
+    const input = await parseBody(request, SettingsUpdateRequestSchema);
+    const { supabase } = await requireUser();
+    const preferences = await updateUserPreference(supabase, input);
+    return SettingsUpdateResponseSchema.parse({ preferences });
   });
 }
