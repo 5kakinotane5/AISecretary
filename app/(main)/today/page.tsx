@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorState } from "@/components/common/ErrorState";
@@ -12,12 +11,11 @@ import { DemoNowChip } from "@/components/layout/DemoNowChip";
 import { MainShell } from "@/components/layout/MainShell";
 import { ItemDetailSheet } from "@/components/timeline/ItemDetailSheet";
 import { Timeline } from "@/components/timeline/Timeline";
-import { buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiData } from "@/hooks/use-api-data";
 import { fetchCalendarDay, fetchDemoNow, fetchSettings, fetchTasks, updatePlanItemCompletion } from "@/lib/api";
 import { formatDateLong, toDateStr } from "@/lib/datetime";
-import { SCREEN_LABELS, TODAY_LABELS, getGreeting } from "@/lib/labels";
+import { SCREEN_LABELS, TODAY_LABELS } from "@/lib/labels";
 import type { ScheduleItem } from "@/lib/schemas";
 
 /** 「計画を更新しました」を出しておく時間 */
@@ -79,30 +77,20 @@ export default function TodayPage() {
     }
   }
 
-  const bottom = (
-    <div className="border-t bg-card px-4 pt-3 pb-3">
-      <Link href="/replan" className={buttonVariants({ size: "cta" })}>
-        {SCREEN_LABELS.replanButton}
-      </Link>
-    </div>
-  );
-
   return (
-    <MainShell bottom={bottom}>
+    <MainShell>
       {/* useSearchParams を使う部分は Suspense で囲む（Next.js の use-search-params.md「Prerendering」） */}
       <Suspense fallback={null}>
         <UpdatedNotice />
       </Suspense>
 
       <header className="sticky top-0 z-20 min-h-[20dvh] px-4 pt-3 pb-3 text-white" style={{ background: "var(--gradient-header)" }}>
-        {/* 読み込み中は挨拶と日付の位置にスケルトンを出し、カードの見出しと同じ「今日の予定」は出さない（10.21章） */}
+        {/* 読み込み中は日付の位置にスケルトンを出し、カードの見出しと同じ「今日の予定」は出さない（10.21章） */}
         <div className="flex min-h-11 items-center justify-between gap-2">
-          {data ? <p className="text-sm opacity-90">{getGreeting(data.now)}</p> : null}
-          {result.status === "loading" ? <Skeleton className="h-4 w-52 rounded-full bg-white/20" /> : null}
+          {data ? <h1 className="text-2xl font-bold">{formatDateLong(data.day.date)}</h1> : null}
+          {result.status === "loading" ? <Skeleton className="h-8 w-40 rounded-full bg-white/20" /> : null}
           {data ? <DemoNowChip now={data.now} /> : null}
         </div>
-        {data ? <h1 className="text-2xl font-bold">{formatDateLong(data.day.date)}</h1> : null}
-        {result.status === "loading" ? <Skeleton className="h-8 w-40 rounded-full bg-white/20" /> : null}
         {data ? (
           <div className="mt-2 flex min-h-8 items-center gap-2 text-sm" aria-live="polite">
             <span className="font-medium">{taskItems.length === 0 ? TODAY_LABELS.noTasks : TODAY_LABELS.achievement}</span>

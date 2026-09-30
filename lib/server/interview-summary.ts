@@ -47,7 +47,7 @@ function nearDeadlineTasks(tasks: Task[], today: string): Task[] {
 }
 
 // task_name を仮置きしたときに要約の末尾に付ける一文（6.2.2）
-export const PROVISIONAL_NOTE = "内容が違う場合は、設定の『新しい長期目標を相談する』からやり直せます。";
+export const PROVISIONAL_NOTE = "内容が違う場合は、設定の『新しい目標を相談する』からやり直せます。";
 
 // ステップ8の要約（要件定義 6.2.4 の定型文。6.2.5）。
 // options.provisional が true なら、末尾に仮置きの一文（6.2.2）を付ける
