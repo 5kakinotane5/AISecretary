@@ -12,7 +12,7 @@ import { SurfaceCard } from "@/components/common/SurfaceCard";
 import { DemoNowChip } from "@/components/layout/DemoNowChip";
 import { MainShell } from "@/components/layout/MainShell";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { useApiData } from "@/hooks/use-api-data";
 import { fetchDemoNow, fetchSettings, resetMock, setDemoNow } from "@/lib/api";
 import { formatDateLong, toDateStr } from "@/lib/datetime";
@@ -173,7 +173,11 @@ function SettingsSections({ data }: { data: SettingsResponse }) {
             ) : null}
           </div>
         )}
-        <Link href="/interview" className={cn(buttonVariants({ variant: "brand-outline", size: "cta" }))}>
+        {/* /interview（新しい目標のヒアリング）への入口。タブバーにない画面なので残し、目立たないテキストリンクにする */}
+        <Link
+          href="/interview"
+          className="inline-flex min-h-11 items-center self-start text-sm font-medium text-primary underline underline-offset-4"
+        >
           {SETTINGS_LABELS.consultGoal}
         </Link>
       </Section>

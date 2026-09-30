@@ -35,7 +35,7 @@ import type {
   ReplanChange,
   TravelModeSchema,
 } from "./schemas";
-import { formatMonthDay, formatTime, getJstHour } from "./datetime";
+import { formatMonthDay, formatTime } from "./datetime";
 
 type ItemKind = z.infer<typeof ItemKindSchema>;
 type FixedCategory = z.infer<typeof FixedCategorySchema>;
@@ -240,8 +240,7 @@ export const PLAN_STYLE_LABELS: Record<PlanStyle, string> = {
 export const SCREEN_LABELS = {
   today: "今日の予定",
   calendar: "予定表",
-  replan: "チャット",
-  replanButton: "予定を調整する",
+  replan: "計画づくり",
   buffer: "余白",
   currentTimeLine: "現在地",
   // 現在時刻を含む予定がないときに、次に始まる予定の行に付ける（design-spec.md 9.8）
@@ -254,17 +253,9 @@ export const SCREEN_LABELS = {
 export const TAB_ITEMS: { href: "/today" | "/calendar" | "/replan" | "/settings"; label: string; icon: LucideIcon }[] = [
   { href: "/today", label: "ホーム", icon: House },
   { href: "/calendar", label: "予定表", icon: MapIcon },
-  { href: "/replan", label: "チャット", icon: MessageCircle },
+  { href: "/replan", label: "計画づくり", icon: MessageCircle },
   { href: "/settings", label: "設定", icon: Settings },
 ];
-
-/** ヘッダーの挨拶文（design-spec.md 4章）。demo_now などのISO日時からJSTの時間帯で出し分ける */
-export function getGreeting(isoStr: string): string {
-  const hour = getJstHour(isoStr);
-  if (hour >= 5 && hour < 11) return "おはよう、今日もよい一日を。";
-  if (hour >= 11 && hour < 17) return "こんにちは、今日の予定は順調ですか。";
-  return "おつかれさま、今日の予定をふり返ろう。";
-}
 
 // ---------- 目標時間3案（mock-spec.md 5.8・10.2） ----------
 export const GOAL_PLAN_STYLE_LABELS: Record<GoalPlanStyle, string> = {
