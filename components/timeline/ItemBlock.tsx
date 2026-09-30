@@ -15,6 +15,8 @@ type ItemBlockProps = {
   suggestedTaskTitle?: string | null;
   /** 簡略表示（左右に2本並べるとき）。補足の行は時刻だけにする */
   compact?: boolean;
+  /** 時刻軸側に開始・終了を表示する場合は、ブロック内の時刻を省く */
+  showTime?: boolean;
   /** 渡すとタップできるブロックになる（タスク・バッファの詳細シートを開く） */
   onSelect?: () => void;
 };
@@ -29,6 +31,7 @@ export function ItemBlock({
   deadlineAt,
   suggestedTaskTitle,
   compact = false,
+  showTime = true,
   onSelect,
 }: ItemBlockProps) {
   const appearance = getItemAppearance(item.kind, item.fixed_category);
@@ -52,7 +55,7 @@ export function ItemBlock({
         {item.locked ? <Lock size={12} className="shrink-0 text-muted-foreground" aria-label="固定" /> : null}
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-        <span className="tabular-nums">{formatTimeRange(item.start_at, item.end_at)}</span>
+        {showTime ? <span className="tabular-nums">{formatTimeRange(item.start_at, item.end_at)}</span> : null}
         {locationName && !compact ? <span className="max-w-full truncate">{locationName}</span> : null}
         {suggestedTaskTitle && !compact ? <span>候補：{suggestedTaskTitle}</span> : null}
         {deadlineAt && !compact ? <DeadlineBadge deadlineAt={deadlineAt} /> : null}

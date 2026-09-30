@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import {
+  ClockResponseSchema,
   DayViewSchema,
   GeneratePlansResponseSchema,
   InterviewConfirmResponseSchema,
@@ -17,6 +18,7 @@ import {
   TasksResponseSchema,
   WeekViewSchema,
   type DayView,
+  type ClockResponse,
   type InterviewConfirmResponse,
   type InterviewMessageRequest,
   type InterviewTurn,
@@ -172,6 +174,11 @@ export function updatePlanItemCompletion(
     method: "PATCH",
     body: JSON.stringify({ item_id: itemId, date, completed }),
   });
+}
+
+/** GET /api/clock：通常時刻とデモ時刻を同じ契約で読む。 */
+export function fetchClock(): Promise<ClockResponse> {
+  return request("/api/clock", ClockResponseSchema);
 }
 
 /** GET /api/mock/clock：今のデモ時刻（demo_now）を読む（10.20章） */
