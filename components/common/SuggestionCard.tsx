@@ -19,9 +19,9 @@ type SuggestionCardProps = {
 };
 
 /**
- * おすすめ・候補カード（design-spec.md 5.6：「今日のおすすめ航路」）。
+ * おすすめ・候補カード（design-spec.md 5.6：デザインイメージの「今日のおすすめ航路」）。
  * 白いカードに、左にパステル色の丸いアイコン、右にタイトル（太字）と補足。
- * 目標時間3案（/interview）、再計画の変更点（/replan）、航路プランの比較（/plans）で使う。
+ * 目標時間3案（/interview）、再計画の変更点（/replan）、予定プランの比較（/plans）で使う。
  */
 export function SuggestionCard({
   icon: Icon,

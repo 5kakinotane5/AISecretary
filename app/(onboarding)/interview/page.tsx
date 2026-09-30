@@ -33,7 +33,7 @@ function entriesOf(turn: InterviewTurn): ChatEntry[] {
 }
 
 /**
- * /interview：航海の準備（目的地を決める）（mock-spec.md 2.2・5.7・10.1〜10.3、design-spec.md 6章）。
+ * /interview：航海の準備（目標を決める）（mock-spec.md 2.2・5.7・10.1〜10.3、design-spec.md 6章）。
  * - クイックリプライ・自由入力 → POST /api/interview/message（text）
  * - 目標時間3案 → 「これにする」→ ±0.5時間の調整 →「この内容で確定」→ POST /api/interview/message（selection）
  * - 最終確認の「確定する」→ POST /api/interview/confirm → 下部に「スケジュール作成」

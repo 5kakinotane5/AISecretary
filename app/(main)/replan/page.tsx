@@ -27,7 +27,7 @@ type Message = { id: number; role: "user" | "assistant"; text: string };
 type SendState = { status: "idle" } | { status: "sending" } | { status: "error"; lastText: string };
 
 /**
- * /replan：AIとの対話（mock-spec.md 2.5・10.6・10.20、design-spec.md 6章・9.4）。
+ * /replan：計画づくり（mock-spec.md 2.5・10.6・10.20、design-spec.md 6章・9.4）。
  * 開いたら GET /api/mock/clock で時刻を読み、18:00より前なら POST /api/mock/clock で18:00を明示して送る。
  * 「この計画にする」→ POST /api/plans/replan/accept → /today?updated=1。「やめておく」→ /today（何も変えない）。
  */

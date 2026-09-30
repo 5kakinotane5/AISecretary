@@ -16,12 +16,6 @@ const timeFormatter = new Intl.DateTimeFormat("ja-JP", {
   hourCycle: "h23",
 });
 
-const hourFormatter = new Intl.DateTimeFormat("ja-JP", {
-  timeZone: JST_TIME_ZONE,
-  hour: "numeric",
-  hourCycle: "h23",
-});
-
 const isoFieldFormatter = new Intl.DateTimeFormat("ja-JP", {
   timeZone: JST_TIME_ZONE,
   year: "numeric",
@@ -89,12 +83,6 @@ export function formatPeriod(startDateStr: string, endDateStr: string): string {
 /** "07:00" */
 export function formatTime(isoStr: string): string {
   return timeFormatter.format(toJstInstant(isoStr));
-}
-
-/** JSTの時（0〜23）。あいさつ文の出し分けなどに使う */
-export function getJstHour(isoStr: string): number {
-  // format() は "7時" のように単位が付くため、数字の部分だけを取り出す
-  return Number(hourFormatter.formatToParts(toJstInstant(isoStr)).find((p) => p.type === "hour")?.value);
 }
 
 /**
