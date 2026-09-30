@@ -132,7 +132,7 @@ A の作業が C を待つことはない。逆に、C の作業には A の API
 |---|---|
 | `lib/api.ts` の `fetchClock()`、各画面を `/api/clock` に切り替え（14.1・14.2） | `GET /api/clock` は完了。**C はすぐ進められる**ことを伝える |
 | 401 なら `/login` に移す（14.1） | A の API は 401 を返すようになっている |
-| `/today` の「目的地を相談する」（14.2） | calendar の本番化（`has_plan: false`）で確かめられる |
+| `/today` の「目標を相談する」（14.2） | calendar の本番化（`has_plan: false`）で確かめられる |
 | `/interview` の「スケジュール作成」の失敗表示（14.2） | `plans/generate` の 422 で確かめられる |
 | `REPLAN_QUICK_REPLIES` を「20時から1時間予定が入った」などに変更（14.2） | 今の画面は「18時から予定が入った」のまま。C に伝える |
 

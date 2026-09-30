@@ -19,11 +19,11 @@ API の形がモックと同じものは、画面を変えない。変えるの�
 
 | 画面・部品 | 変更 |
 |---|---|
-| `/today` | `fetchDemoNow()` → `fetchClock()`。`demo_mode` のときだけ `DemoNowChip`。`has_plan: false` のとき、空の表示に「目的地を相談する」ボタン（→ `/interview`。副ボタンの見た目）を足す |
+| `/today` | `fetchDemoNow()` → `fetchClock()`。`demo_mode` のときだけ `DemoNowChip`。`has_plan: false` のとき、空の表示に「目標を相談する」ボタン（→ `/interview`。副ボタンの見た目）を足す |
 | `/calendar` | `fetchDemoNow()` → `fetchClock()`（`now` だけ使う） |
 | `/replan` | `fetchDemoNow()` → `fetchClock()`。18:00 への繰り上げ（`setDemoNow`）と「デモのため、時刻を18:00に進めました」は `demo_mode` のときだけ。チップも `demo_mode` のときだけ |
-| `/settings` | 時刻は `fetchClock()`。「デモ用」の欄（時刻の切り替え・リセット）とチップは `demo_mode` のときだけ。（**対応済み**）`goal` が null のとき、「目的地」の欄に「まだ目的地がありません」（`SETTINGS_LABELS.noGoal`）と「新しい目的地を相談する」ボタンだけを出す |
-| `/plans` | （**対応済み**）比較表の目標の行の見出しに `settings.goal?.task_name ?? SCREEN_LABELS.goal`（「目的地」）を渡す |
+| `/settings` | 時刻は `fetchClock()`。「デモ用」の欄（時刻の切り替え・リセット）とチップは `demo_mode` のときだけ。（**対応済み**）`goal` が null のとき、「長期目標」の欄に「まだ目標がありません」（`SETTINGS_LABELS.noGoal`）と「新しい目標を相談する」ボタンだけを出す |
+| `/plans` | （**対応済み**）比較表の目標の行の見出しに `settings.goal?.task_name ?? SCREEN_LABELS.goal`（「長期目標」）を渡す |
 | `/interview` | 「スケジュール作成」が失敗したら、`ApiError.message`（422 なら計画が作れない理由）をボタンの上に出す |
 | `lib/labels.ts` | `REPLAN_QUICK_REPLIES` を「今日は疲れた」「20時から1時間予定が入った」「今日はもう勉強したくない」の3つにする（対応していない「今から30分だけ何かやりたい」は外す）。上の新しい文言を足す |
 
@@ -37,6 +37,6 @@ API の形がモックと同じものは、画面を変えない。変えるの�
 ### 14.4 受け入れテスト（手動・390px）
 
 - [ ] `DEMO_MODE` を外すと、チップ・デモ用の欄・18:00 の繰り上げが出ず、どの画面もエラーにならない
-- [ ] リセット直後に `/settings` を開くと、目的地の欄が空の表示になり、500 にならない
-- [ ] 計画のない週の `/today` に「目的地を相談する」が出る
+- [ ] リセット直後に `/settings` を開くと、長期目標の欄が空の表示になり、500 にならない
+- [ ] 計画のない週の `/today` に「目標を相談する」が出る
 - [ ] 計画が作れないとき、`/interview` に理由が出る
