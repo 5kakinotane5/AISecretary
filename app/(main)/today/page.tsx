@@ -84,15 +84,19 @@ export default function TodayPage() {
         <UpdatedNotice />
       </Suspense>
 
-      <header className="sticky top-0 z-20 min-h-[20dvh] px-4 pt-3 pb-3 text-white" style={{ background: "var(--gradient-header)" }}>
+      {/* 高さは固定せず、中身（日付とチップの1行・達成率の1行）と上下12pxの余白で決める。セーフエリアの分は上に足す */}
+      <header
+        className="sticky top-0 z-20 px-4 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-3 text-white"
+        style={{ background: "var(--gradient-header)" }}
+      >
         {/* 読み込み中は日付の位置にスケルトンを出し、カードの見出しと同じ「今日の予定」は出さない（10.21章） */}
-        <div className="flex min-h-11 items-center justify-between gap-2">
+        <div className="flex min-h-9 items-center justify-between gap-2">
           {data ? <h1 className="text-2xl font-bold">{formatDateLong(data.day.date)}</h1> : null}
           {result.status === "loading" ? <Skeleton className="h-8 w-40 rounded-full bg-white/20" /> : null}
           {data ? <DemoNowChip now={data.now} /> : null}
         </div>
         {data ? (
-          <div className="mt-2 flex min-h-8 items-center gap-2 text-sm" aria-live="polite">
+          <div className="mt-1 flex min-h-7 items-center gap-2 text-sm" aria-live="polite">
             <span className="font-medium">{taskItems.length === 0 ? TODAY_LABELS.noTasks : TODAY_LABELS.achievement}</span>
             {taskItems.length > 0 ? (
               <span className="rounded-full bg-white/15 px-3 py-1 font-bold tabular-nums">
@@ -103,7 +107,7 @@ export default function TodayPage() {
         ) : null}
       </header>
 
-      <div className="px-4 py-4">
+      <div className="px-4 pt-3 pb-4">
         <SurfaceCard className="flex flex-col gap-3">
           <h2 className="text-lg font-bold">{SCREEN_LABELS.today}</h2>
 
