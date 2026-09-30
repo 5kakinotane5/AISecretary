@@ -24,7 +24,7 @@ import type { PlanStyle } from "@/lib/schemas";
 const DEFAULT_STYLE: PlanStyle = "balanced";
 
 /**
- * /plans：予定プランを選ぶ（mock-spec.md 2.3・10.19、design-spec.md 6章）。
+ * /plans：コースを選ぶ（mock-spec.md 2.3・10.19、design-spec.md 6章）。
  * 画面を開いたら GET /api/plans/candidates で3案を取得する（generate の結果はブラウザに保存しない）。
  * 比較表の目標の行の見出しに使う目標名は GET /api/settings の goal から取る。
  * まだ生成していなければ空の表示と「航海の準備へ」を出す。戻るボタン・進行状況は出さない（10.19章）。

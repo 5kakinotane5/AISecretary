@@ -298,7 +298,7 @@ export const ONBOARDING_LABELS = {
   taglineEn: "Navigate your uncertain future.",
   start: "はじめる",
   interviewTitle: "航海の準備",
-  plansTitle: "予定プランを選ぶ",
+  plansTitle: "コースを選ぶ",
   chooseCandidate: "これにする",
   confirmCandidate: "この内容で確定",
   confirmGoal: "確定する",

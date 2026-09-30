@@ -13,7 +13,7 @@ type PageHeaderProps = {
   progress?: { current: number; total: number };
   /** タイトルの右に置くもの（デモ時刻のチップなど。design-spec.md 9.4） */
   trailing?: ReactNode;
-  /** 背景のグラデーション（design-spec.md 2.2・6章）。deep＝航海の準備・チャット、header＝予定プランを選ぶ */
+  /** 背景のグラデーション（design-spec.md 2.2・6章）。deep＝航海の準備・チャット、header＝コースを選ぶ */
   gradient: "deep" | "header";
   className?: string;
 };
