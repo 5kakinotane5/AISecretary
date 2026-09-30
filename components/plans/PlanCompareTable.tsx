@@ -7,7 +7,7 @@ type PlanCompareTableProps = {
   candidates: ScheduleCandidate[];
   /** 選択中の案（その列を --brand-purple-pale で示す） */
   selectedId: string | null;
-  /** 目標の task_name（GET /api/settings の goal）。目標の行の見出し「目的地（TOEIC学習）」に使う */
+  /** 目標の task_name（GET /api/settings の goal）。目標の行の見出し「長期目標（TOEIC学習）」に使う */
   goalName: string;
   className?: string;
 };
@@ -26,7 +26,7 @@ function buildRows(goalName: string): { label: string; format: (s: PlanSummary) 
 
 /**
  * 予定プラン3案の比較表（mock-spec.md 2.3、design-spec.md 5.6・6章）。
- * 3案を横に並べ、行はタスク・余白・自由時間・移動・目的地（目標の task_name）・締切タスク。
+ * 3案を横に並べ、行はタスク・余白・自由時間・移動・長期目標（目標の task_name）・締切タスク。
  * 3案の違いを説明文だけにしないため、数値で並べて見せる。
  */
 export function PlanCompareTable({ candidates, selectedId, goalName, className }: PlanCompareTableProps) {

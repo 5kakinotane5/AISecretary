@@ -231,9 +231,9 @@ export function formatDeadlineBadge(deadlineAt: string): string {
 
 // ---------- 予定プラン（design-spec.md 4章） ----------
 export const PLAN_STYLE_LABELS: Record<PlanStyle, string> = {
-  intensive: "集中の予定",
-  balanced: "バランスの予定",
-  relaxed: "ゆとりの予定",
+  intensive: "集中コース",
+  balanced: "バランスコース",
+  relaxed: "ゆとりコース",
 };
 
 // ---------- 画面の言葉づかい（design-spec.md 4章） ----------
@@ -246,8 +246,8 @@ export const SCREEN_LABELS = {
   currentTimeLine: "現在地",
   // 現在時刻を含む予定がないときに、次に始まる予定の行に付ける（design-spec.md 9.8）
   nextRoute: "次の予定",
-  goal: "目的地",
-  interview: "航海の準備（目的地を決める）",
+  goal: "長期目標",
+  interview: "航海の準備（目標を決める）",
 } as const;
 
 /** タブバー（design-spec.md 5.2。mock-spec.md 1.2 の表を置き換え） */
@@ -261,7 +261,7 @@ export const TAB_ITEMS: { href: "/today" | "/calendar" | "/replan" | "/settings"
 /** ヘッダーの挨拶文（design-spec.md 4章）。demo_now などのISO日時からJSTの時間帯で出し分ける */
 export function getGreeting(isoStr: string): string {
   const hour = getJstHour(isoStr);
-  if (hour >= 5 && hour < 11) return "おはよう、今日もよい予定を。";
+  if (hour >= 5 && hour < 11) return "おはよう、今日もよい一日を。";
   if (hour >= 11 && hour < 17) return "こんにちは、今日の予定は順調ですか。";
   return "おつかれさま、今日の予定をふり返ろう。";
 }
@@ -442,12 +442,12 @@ export const SETTINGS_LABELS = {
   noLocations: "登録されている場所はありません",
   travelTitle: "移動時間",
   noTravelTimes: "登録されている移動時間はありません",
-  goalTitle: "長期目標",
+  goalTitle: SCREEN_LABELS.goal,
   // 目標の確定前（GET /api/settings の goal が null。docs/design/frontend.md 14.2）
-  noGoal: "まだ長期目標がありません",
+  noGoal: "まだ目標がありません",
   deadline: "期限",
-  // /settings では目標（Goal）を「長期目標」と表示する
-  consultGoal: "新しい長期目標を相談する",
+  // 見出しは「長期目標」、文やボタンでは「目標」と表示する（design-spec.md 4章）
+  consultGoal: "新しい目標を相談する",
   demoTitle: "デモ用",
   demoClock: "デモ時刻の切り替え",
   demoClockError: "デモ時刻を切り替えられませんでした。",
