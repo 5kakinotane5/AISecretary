@@ -13,7 +13,7 @@ import { ItemDetailSheet } from "@/components/timeline/ItemDetailSheet";
 import { Timeline } from "@/components/timeline/Timeline";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiData } from "@/hooks/use-api-data";
-import { fetchCalendarDay, fetchDemoNow, fetchSettings, fetchTasks, updatePlanItemCompletion } from "@/lib/api";
+import { fetchCalendarDay, fetchClock, fetchSettings, fetchTasks, updatePlanItemCompletion } from "@/lib/api";
 import { formatDateLong, toDateStr } from "@/lib/datetime";
 import { SCREEN_LABELS, TODAY_LABELS } from "@/lib/labels";
 import type { ScheduleItem } from "@/lib/schemas";
@@ -23,19 +23,20 @@ const NOTICE_MS = 3000;
 
 /**
  * /today：今日の予定（mock-spec.md 2.4・10.7・10.12・10.20、design-spec.md 6章・9.4・9.8）。
- * GET /api/mock/clock でデモ時刻を読み、その日の計画を GET /api/calendar/day で取得する。
+ * GET /api/clock で通常・デモ共通の現在時刻を読み、その日の計画を GET /api/calendar/day で取得する。
  * タスク（締切・候補）と場所（表示名）は GET /api/tasks・GET /api/settings から取る。
  */
 export default function TodayPage() {
   const result = useApiData(
     async () => {
-      const now = await fetchDemoNow();
+      const clock = await fetchClock();
+      const now = clock.now;
       const [day, tasks, settings] = await Promise.all([
         fetchCalendarDay(toDateStr(now)),
         fetchTasks(),
         fetchSettings(),
       ]);
-      return { now, day, tasks, settings };
+      return { now, demoMode: clock.demo_mode, day, tasks, settings };
     },
     [],
     // 固定予定もない日は「データなし」。計画がなく固定予定だけの日は、その旨を添えて表示する
@@ -93,7 +94,7 @@ export default function TodayPage() {
         <div className="flex min-h-9 items-center justify-between gap-2">
           {data ? <h1 className="text-2xl font-bold">{formatDateLong(data.day.date)}</h1> : null}
           {result.status === "loading" ? <Skeleton className="h-8 w-40 rounded-full bg-white/20" /> : null}
-          {data ? <DemoNowChip now={data.now} /> : null}
+          {data?.demoMode ? <DemoNowChip now={data.now} /> : null}
         </div>
         {data ? (
           <div className="mt-1 flex min-h-7 items-center gap-2 text-sm" aria-live="polite">
@@ -131,6 +132,7 @@ export default function TodayPage() {
                 onTaskCompletionChange={handleTaskCompletionChange}
                 pendingTaskId={pendingTaskId}
                 autoScrollToHighlight
+                showTimeAxis
               />
             </>
           ) : null}

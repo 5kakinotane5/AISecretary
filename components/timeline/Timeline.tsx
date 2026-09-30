@@ -28,6 +28,8 @@ type TimelineProps = {
   pendingTaskId?: string | null;
   /** 現在または次の予定へ初期スクロールする */
   autoScrollToHighlight?: boolean;
+  /** /today 用。開始・終了時刻の軸と、現在時刻を示す横線を表示する */
+  showTimeAxis?: boolean;
   className?: string;
 };
 
@@ -41,10 +43,10 @@ const TIME_COL_COMPACT = "w-9";
 const RAIL_WIDTH = 24;
 
 /** 1行の横並び（簡略表示では時刻の列と間隔を詰める） */
-function rowClasses(compact: boolean): { row: string; timeCol: string } {
+function rowClasses(compact: boolean, showTimeAxis = false): { row: string; timeCol: string } {
   return {
     row: cn("flex items-stretch", compact ? "gap-1.5" : "gap-3"),
-    timeCol: cn(compact ? TIME_COL_COMPACT : TIME_COL, "flex shrink-0 items-center justify-end"),
+    timeCol: cn(compact ? TIME_COL_COMPACT : showTimeAxis ? "w-14" : TIME_COL, "flex shrink-0 items-center justify-end"),
   };
 }
 
@@ -65,19 +67,22 @@ export function Timeline({
   onTaskCompletionChange,
   pendingTaskId = null,
   autoScrollToHighlight = false,
+  showTimeAxis = false,
   className,
 }: TimelineProps) {
   const taskById = new Map(tasks.map((t) => [t.id, t] as const));
   const locationNameById = new Map(locations.map((l) => [l.id, l.name] as const));
   const highlight = now ? findHighlight(items, now) : null;
-  const classes = rowClasses(compact);
+  const currentItem = now ? items.find((item) => containsTime(item, now)) : undefined;
+  const scrollTargetId = currentItem?.id ?? highlight?.itemId ?? null;
+  const classes = rowClasses(compact, showTimeAxis);
   const highlightRef = useRef<HTMLLIElement | null>(null);
 
   useEffect(() => {
-    if (autoScrollToHighlight && highlight?.itemId) {
+    if (autoScrollToHighlight && scrollTargetId) {
       highlightRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [autoScrollToHighlight, highlight?.itemId]);
+  }, [autoScrollToHighlight, scrollTargetId]);
 
   const lineBetween = (a: ScheduleItem | undefined, b: ScheduleItem | undefined): LineStyle => {
     if (!a || !b) return "none";
@@ -89,11 +94,23 @@ export function Timeline({
       {items.map((item, index) => {
         const top = lineBetween(items[index - 1], item);
         const bottom = lineBetween(item, items[index + 1]);
+        const currentPosition = now && currentItem?.id === item.id ? currentPositionPercent(item, now) : null;
+        const isScrollTarget = autoScrollToHighlight && scrollTargetId === item.id;
 
         if (item.kind === "sleep") {
           return (
-            <CompactRow key={item.id} item={item} top={top} bottom={bottom} compact={compact}>
-              {item.title} {formatTimeRange(item.start_at, item.end_at)}
+            <CompactRow
+              key={item.id}
+              item={item}
+              top={top}
+              bottom={bottom}
+              compact={compact}
+              showTimeAxis={showTimeAxis}
+              currentPosition={currentPosition}
+              currentTime={currentPosition !== null ? now : null}
+              rowRef={isScrollTarget ? highlightRef : undefined}
+            >
+              {item.title} {showTimeAxis ? null : formatTimeRange(item.start_at, item.end_at)}
             </CompactRow>
           );
         }
@@ -106,8 +123,11 @@ export function Timeline({
               top={top}
               bottom={bottom}
               compact={compact}
+              showTimeAxis={showTimeAxis}
               highlight={highlight?.itemId === item.id ? highlight.kind : null}
-              rowRef={autoScrollToHighlight && highlight?.itemId === item.id ? highlightRef : undefined}
+              currentPosition={currentPosition}
+              currentTime={currentPosition !== null ? now : null}
+              rowRef={isScrollTarget ? highlightRef : undefined}
             >
               移動 {diffMinutes(item.start_at, item.end_at)}分
               {item.travel && !compact ? `（${TRAVEL_MODE_LABELS[item.travel.mode]}）` : null}
@@ -122,11 +142,16 @@ export function Timeline({
         return (
           <li
             key={item.id}
-            ref={autoScrollToHighlight && highlight?.itemId === item.id ? highlightRef : undefined}
-            className={cn(classes.row, "gap-1")}
+            ref={isScrollTarget ? highlightRef : undefined}
+            className={cn(classes.row, "relative gap-1 scroll-mt-28")}
           >
             <div className={classes.timeCol}>
-              <TimeLabel isoStr={item.start_at} highlight={highlight?.itemId === item.id ? highlight.kind : null} />
+              <TimeLabel
+                startAt={item.start_at}
+                endAt={item.end_at}
+                showEnd={showTimeAxis}
+                highlight={highlight?.itemId === item.id ? highlight.kind : null}
+              />
             </div>
             <Rail top={top} bottom={bottom}>
               <ItemCircle item={item} />
@@ -138,6 +163,7 @@ export function Timeline({
                 deadlineAt={task?.deadline_at ?? null}
                 suggestedTaskTitle={suggested?.title ?? null}
                 compact={compact}
+                showTime={!showTimeAxis}
                 onSelect={selectable ? () => onItemSelect(item) : undefined}
               />
             </div>
@@ -161,6 +187,7 @@ export function Timeline({
                 </span>
               </button>
             ) : null}
+            {currentPosition !== null && now && showTimeAxis ? <CurrentTimeLine now={now} position={currentPosition} /> : null}
           </li>
         );
       })}
@@ -170,6 +197,12 @@ export function Timeline({
 
 function containsTime(item: ScheduleItem, isoStr: string): boolean {
   return diffMinutes(item.start_at, isoStr) >= 0 && diffMinutes(isoStr, item.end_at) > 0;
+}
+
+function currentPositionPercent(item: ScheduleItem, now: string): number {
+  const duration = diffMinutes(item.start_at, item.end_at);
+  if (duration <= 0) return 0;
+  return Math.min(100, Math.max(0, (diffMinutes(item.start_at, now) / duration) * 100));
 }
 
 /**
@@ -195,6 +228,9 @@ function CompactRow({
   bottom,
   highlight = null,
   compact,
+  showTimeAxis = false,
+  currentPosition = null,
+  currentTime = null,
   rowRef,
   children,
 }: {
@@ -203,6 +239,9 @@ function CompactRow({
   bottom: LineStyle;
   highlight?: Highlight["kind"] | null;
   compact: boolean;
+  showTimeAxis?: boolean;
+  currentPosition?: number | null;
+  currentTime?: string | null;
   rowRef?: Ref<HTMLLIElement>;
   children: ReactNode;
 }) {
@@ -210,18 +249,23 @@ function CompactRow({
   // getTravelIcon の戻り値をそのまま <Icon /> にすると react-hooks/static-components に
   // 引っかかるため、プロパティ経由で参照する
   const icon = { Icon: item.travel ? getTravelIcon(item.travel.mode) : appearance.icon };
-  const classes = rowClasses(compact);
+  const classes = rowClasses(compact, showTimeAxis);
 
   return (
-    <li ref={rowRef} className={classes.row}>
+    <li ref={rowRef} className={cn(classes.row, "relative min-h-10 scroll-mt-28")}>
       <div className={classes.timeCol}>
-        {highlight ? <HighlightText kind={highlight} /> : null}
+        {showTimeAxis ? (
+          <TimeLabel startAt={item.start_at} endAt={item.end_at} showEnd highlight={highlight} />
+        ) : highlight ? (
+          <HighlightText kind={highlight} />
+        ) : null}
       </div>
       <Rail top={top} bottom={bottom} />
       <div className="flex min-h-8 min-w-0 flex-1 items-center gap-1.5 py-1 text-xs text-muted-foreground">
         <icon.Icon size={14} style={{ color: appearance.iconColor }} aria-hidden />
         <span className="tabular-nums">{children}</span>
       </div>
+      {currentPosition !== null && currentTime && showTimeAxis ? <CurrentTimeLine now={currentTime} position={currentPosition} /> : null}
     </li>
   );
 }
@@ -291,17 +335,53 @@ function HighlightText({ kind }: { kind: Highlight["kind"] }) {
   );
 }
 
-/**
- * 左の時刻。強調する行は時刻を角丸の枠で囲み、その下に「現在地」「次の予定」を小さく添える（design-spec.md 5.4・9.8）
- */
-function TimeLabel({ isoStr, highlight }: { isoStr: string; highlight: Highlight["kind"] | null }) {
-  if (highlight) {
-    return (
-      <span className="flex flex-col items-end gap-0.5">
-        <HighlightChip>{formatTime(isoStr)}</HighlightChip>
-        <HighlightText kind={highlight} />
-      </span>
-    );
+/** 左の時刻軸。/todayでは開始と終了を上下に並べ、予定の長さを読み取りやすくする。 */
+function TimeLabel({
+  startAt,
+  endAt,
+  showEnd,
+  highlight,
+}: {
+  startAt: string;
+  endAt: string;
+  showEnd: boolean;
+  highlight: Highlight["kind"] | null;
+}) {
+  if (!showEnd) {
+    if (highlight) {
+      return (
+        <span className="flex flex-col items-end gap-0.5">
+          <HighlightChip>{formatTime(startAt)}</HighlightChip>
+          <HighlightText kind={highlight} />
+        </span>
+      );
+    }
+    return <span className="text-xs font-medium text-muted-foreground tabular-nums">{formatTime(startAt)}</span>;
   }
-  return <span className="text-xs font-medium text-muted-foreground tabular-nums">{formatTime(isoStr)}</span>;
+
+  return (
+    <span className="flex h-full min-h-11 flex-col items-end justify-between py-1 text-[11px] leading-none font-medium text-muted-foreground tabular-nums">
+      <span>{formatTime(startAt)}</span>
+      {highlight ? <HighlightText kind={highlight} /> : <span aria-hidden className="h-px w-2 bg-(--purple-gray-light)" />}
+      <span>{formatTime(endAt)}</span>
+    </span>
+  );
+}
+
+/** 現在時刻を正確な位置に示す横線。予定の種類の色とは競合しないブランド紫を使う。 */
+function CurrentTimeLine({ now, position }: { now: string; position: number }) {
+  return (
+    <div
+      aria-label={`現在時刻 ${formatTime(now)}`}
+      className="pointer-events-none absolute inset-x-0 z-10 flex -translate-y-1/2 items-center gap-1"
+      style={{ top: `${position}%` }}
+    >
+      <span className="w-14 shrink-0 rounded-full bg-(--brand-purple) px-1.5 py-1 text-center text-[10px] leading-none font-bold text-white tabular-nums shadow-sm">
+        {formatTime(now)}
+      </span>
+      <span className="relative h-0 flex-1 border-t-2 border-(--brand-purple)">
+        <span className="absolute -top-1.25 -left-1 size-2 rounded-full bg-(--brand-purple)" />
+      </span>
+    </div>
+  );
 }
