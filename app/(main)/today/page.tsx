@@ -13,7 +13,7 @@ import { ItemDetailSheet } from "@/components/timeline/ItemDetailSheet";
 import { Timeline } from "@/components/timeline/Timeline";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiData } from "@/hooks/use-api-data";
-import { fetchCalendarDay, fetchDemoNow, fetchSettings, fetchTasks } from "@/lib/api";
+import { fetchCalendarDay, fetchDemoNow, fetchSettings, fetchTasks, updatePlanItemCompletion } from "@/lib/api";
 import { formatDateLong, toDateStr } from "@/lib/datetime";
 import { SCREEN_LABELS, TODAY_LABELS, formatHours } from "@/lib/labels";
 import { sumMinutesOfKind } from "@/lib/schedule";
@@ -44,8 +44,18 @@ export default function TodayPage() {
   );
   const [selected, setSelected] = useState<ScheduleItem | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [taskStatusOverrides, setTaskStatusOverrides] = useState<Record<string, "planned" | "completed">>({});
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [completionError, setCompletionError] = useState(false);
 
   const data = result.status === "success" || result.status === "empty" ? result.data : null;
+  const items = data?.day.items.map((item) => ({
+    ...item,
+    status: item.kind === "task" ? (taskStatusOverrides[item.id] ?? item.status) : item.status,
+  })) ?? [];
+  const taskItems = items.filter((item) => item.kind === "task");
+  const completedTaskCount = taskItems.filter((item) => item.status === "completed").length;
+  const completionPercent = taskItems.length === 0 ? 0 : Math.round((completedTaskCount / taskItems.length) * 100);
   const locationName = (id: string | null) =>
     id ? (data?.settings.locations.find((l) => l.id === id)?.name ?? null) : null;
 
@@ -94,14 +104,18 @@ export default function TodayPage() {
                 </p>
               ) : null}
               <Timeline
-                items={result.data.day.items}
+                items={items}
                 now={result.data.now}
                 tasks={result.data.tasks}
                 locations={result.data.settings.locations}
                 onItemSelect={handleItemSelect}
+                onTaskCompletionChange={handleTaskCompletionChange}
+                pendingTaskId={pendingTaskId}
+                autoScrollToHighlight
               />
             </>
           ) : null}
+          {completionError ? <p role="alert" className="text-sm text-destructive">{TODAY_LABELS.completionError}</p> : null}
         </SurfaceCard>
       </div>
 
@@ -113,15 +127,6 @@ export default function TodayPage() {
         locationName={locationName(selected?.location_id ?? null)}
       />
     </MainShell>
-  );
-}
-
-function Total({ label, minutes }: { label: string; minutes: number }) {
-  return (
-    <div className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1">
-      <dt className="opacity-90">{label}</dt>
-      <dd className="font-bold tabular-nums">{formatHours(minutes / 60)}</dd>
-    </div>
   );
 }
 

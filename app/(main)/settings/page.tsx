@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CircleAlert, MapPin, RotateCcw } from "lucide-react";
@@ -14,12 +14,11 @@ import { MainShell } from "@/components/layout/MainShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useApiData } from "@/hooks/use-api-data";
-import { fetchDemoNow, fetchSettings, resetMock, setDemoNow } from "@/lib/api";
+import { fetchDemoNow, fetchSettings, resetMock, setDemoNow, updateSettings } from "@/lib/api";
 import { formatDateLong, toDateStr } from "@/lib/datetime";
 import {
   DEMO_CLOCK_TIMES,
   SETTINGS_LABELS,
-  formatClockRange,
   formatHoursPerWeek,
   formatMinutes,
   formatRoute,
@@ -31,7 +30,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * /settings：設定（mock-spec.md 2.7、design-spec.md 6章：白いカードに項目を並べる）。
- * 生活リズム・場所・移動時間・目標は GET /api/settings から取り、表示だけする。
+ * 生活リズムは PATCH /api/settings で編集可能。場所・移動時間・長期目標は表示のみ。
  * デモ用の欄は GET・POST /api/mock/clock と POST /api/mock/reset を呼ぶ。
  */
 export default function SettingsPage() {
@@ -90,13 +89,42 @@ function SettingsSections({ data }: { data: SettingsResponse }) {
 
   return (
     <>
-      <Section title={SETTINGS_LABELS.rhythmTitle}>
-        <dl className="flex flex-col divide-y">
-          <Row label={SETTINGS_LABELS.sleep} value={formatClockRange(preferences.sleep_start, preferences.sleep_end)} />
-          <Row label={SETTINGS_LABELS.dailyWorkLimit} value={formatMinutes(preferences.daily_work_limit_minutes)} />
-          <Row label={SETTINGS_LABELS.minBuffer} value={formatMinutes(preferences.min_buffer_minutes)} />
-        </dl>
+      <Section title={SETTINGS_LABELS.goalTitle}>
+        {goal === null ? (
+          <p className="text-sm text-muted-foreground">{SETTINGS_LABELS.noGoal}</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <p className="text-base font-bold">
+              {goal.task_name}
+              {goal.target_hours_per_week !== null ? (
+                <span className="text-primary">
+                  {"　"}
+                  {formatHoursPerWeek(goal.target_hours_per_week)}
+                </span>
+              ) : null}
+            </p>
+            {goal.deadline ? (
+              <p className="text-sm text-muted-foreground">
+                {SETTINGS_LABELS.deadline} {formatDateLong(goal.deadline)}
+              </p>
+            ) : null}
+            {goal.conditions.length > 0 ? (
+              <ul className="flex flex-wrap gap-1.5">
+                {goal.conditions.map((condition) => (
+                  <li key={condition} className="rounded-xl bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                    {condition}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        )}
+        <Link href="/interview" className={cn(buttonVariants({ variant: "brand-outline", size: "cta" }))}>
+          {SETTINGS_LABELS.consultGoal}
+        </Link>
       </Section>
+
+      <RhythmEditor preferences={preferences} />
 
       <Section title={SETTINGS_LABELS.locationsTitle}>
         {locations.length === 0 ? (
@@ -182,6 +210,94 @@ function SettingsSections({ data }: { data: SettingsResponse }) {
         </Link>
       </Section>
     </>
+  );
+}
+
+function RhythmEditor({ preferences }: { preferences: SettingsResponse["preferences"] }) {
+  const [sleepStart, setSleepStart] = useState(preferences.sleep_start);
+  const [sleepEnd, setSleepEnd] = useState(preferences.sleep_end);
+  const [dailyWorkLimit, setDailyWorkLimit] = useState(String(preferences.daily_work_limit_minutes));
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setSaveMessage(null);
+    setSaveFailed(false);
+    try {
+      const updated = await updateSettings({
+        sleep_start: sleepStart,
+        sleep_end: sleepEnd,
+        daily_work_limit_minutes: Number(dailyWorkLimit),
+      });
+      setSleepStart(updated.sleep_start);
+      setSleepEnd(updated.sleep_end);
+      setDailyWorkLimit(String(updated.daily_work_limit_minutes));
+      setSaveMessage(SETTINGS_LABELS.rhythmSaved);
+    } catch {
+      setSaveFailed(true);
+      setSaveMessage(SETTINGS_LABELS.rhythmSaveError);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section title={SETTINGS_LABELS.rhythmTitle}>
+      <form className="flex flex-col gap-3" onSubmit={save}>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm text-muted-foreground">
+            {SETTINGS_LABELS.sleepStart}
+            <input
+              type="time"
+              required
+              value={sleepStart}
+              onChange={(event) => setSleepStart(event.target.value)}
+              className="h-11 min-w-0 rounded-xl border bg-background px-3 font-bold text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+          </label>
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm text-muted-foreground">
+            {SETTINGS_LABELS.sleepEnd}
+            <input
+              type="time"
+              required
+              value={sleepEnd}
+              onChange={(event) => setSleepEnd(event.target.value)}
+              className="h-11 min-w-0 rounded-xl border bg-background px-3 font-bold text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+          </label>
+        </div>
+        <label className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+          {SETTINGS_LABELS.dailyWorkLimit}
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              required
+              min={60}
+              max={960}
+              step={15}
+              value={dailyWorkLimit}
+              onChange={(event) => setDailyWorkLimit(event.target.value)}
+              className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-3 font-bold text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+            <span className="text-sm">分</span>
+          </div>
+        </label>
+        <dl className="flex flex-col">
+          <Row label={SETTINGS_LABELS.minBuffer} value={formatMinutes(preferences.min_buffer_minutes)} />
+        </dl>
+        <Button type="submit" size="cta" disabled={saving}>
+          {saving ? SETTINGS_LABELS.savingRhythm : SETTINGS_LABELS.saveRhythm}
+        </Button>
+        {saveMessage ? (
+          <p role={saveFailed ? "alert" : "status"} className={cn("text-sm", saveFailed ? "text-destructive" : "text-muted-foreground")}>
+            {saveMessage}
+          </p>
+        ) : null}
+      </form>
+    </Section>
   );
 }
 

@@ -52,7 +52,7 @@ function normalizeBeforeItem(item: ScheduleItem & { reason_code?: unknown }): Pl
 function normalizeBefore(days: readonly DayPlan[], now: string): PlannedDay[] {
   return days.map((day) => ({ date: day.date, items: day.items.map((rawItem) => {
     const item = normalizeBeforeItem(rawItem);
-    if (item.end_at <= now) return { ...item, locked: true, status: item.kind === "task" ? "completed" as const : item.status };
+    if (item.end_at <= now) return { ...item, locked: true };
     if (item.start_at < now && item.end_at > now) {
       if (["task", "fixed", "travel", "sleep"].includes(item.kind)) return { ...item, locked: true };
       if (["free", "buffer"].includes(item.kind)) return { ...item, locked: false };

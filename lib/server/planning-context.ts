@@ -15,16 +15,16 @@ import { getHomeLocationId, getUserPreference } from "./repositories/user-settin
 // Planning Engine の入力を DB から組み立てる（backend.md 8.3）。
 // 会話の文章（interview_messages・slots）は含めない（FR-04-2）
 
-// 生成のときの locked_items：有効な計画が今週のものなら、その項目のうち end_at ≤ now のもの（8.3）。
-// 作り直しても実施済みを消さないため。locked は true、タスクは実施済み（status: completed。11.3 と同じ見なし）にする
+// 生成のときの locked_items：有効な計画が今週のものなら、過去の項目と明示的に完了した項目（8.3）。
+// 作り直しても過去の枠・完了状態を変えない。経過しただけでは完了扱いしない
 async function loadLockedItems(supabase: SupabaseClient, weekStart: string, now: string): Promise<ScheduleItem[]> {
   const active = await getActivePlan(supabase);
   if (!active || active.week_start !== weekStart) return [];
   const entries = (await listPlanItems(supabase, [active.id])).get(active.id) ?? [];
   return entries
     .map((e) => e.item)
-    .filter((item) => item.end_at <= now)
-    .map((item) => ({ ...item, locked: true, status: item.kind === "task" ? "completed" : item.status }));
+    .filter((item) => item.end_at <= now || item.status === "completed")
+    .map((item) => ({ ...item, locked: true }));
 }
 
 // style：生成は null、再計画は有効な計画の style

@@ -81,7 +81,7 @@
 | C-2 | 8.1 daily_plans | 表を作らず `daily_plan_items.date` で日を表す | 4.2 |
 | C-3 | 9章 | `/` はログイン済みなら `/today` | 5.2 |
 | C-4 | 6.4 | `priority` は質問せず初期値 medium | 6.2.2 |
-| C-5 | 6.6 | 完了の操作は作らず、終了時刻を過ぎた計画のタスクを実施済みとみなす（計画の切り替え時は `task_done_logs` に記録） | 1.5・8.2 |
+| C-5 | 6.6 | 完了の操作を作らず、終了時刻を過ぎた計画のタスクを実施済みとみなす（計画の切り替え時は `task_done_logs` に記録。C-23 で変更） | 1.5・8.2 |
 | C-6 | 6.5.3 | 移動の位置：自宅発は直前、自宅以外発は直後。同じ場所が続くときは帰宅しない | 10.4 |
 | C-7 | 6.9 | バッファの考え方を、タスク間のバッファ（15／30分の選択）・先頭のバッファ・目的 Buffer・候補・状態の Fit に対応づけ | P4〜P6・10.3 |
 | C-8 | 6.8.3 | 予定間15分は絶対条件、1日合計60分は警告（自由時間も数える） | 10.11 |
@@ -99,10 +99,11 @@
 | C-20 | 6.11 | 計画のない日は固定予定だけ（睡眠・移動なし）。毎週の予定は全部の週に出す | 9.1.2・11.3 |
 | C-21 | 6.2.2・6.8（時間帯） | 目標タスクの時間帯の希望（平日・週末）をヒアリングで取り、希望の時間帯の中にだけ置く（Fit のゲート） | 6.2.2・8.2・P4.1 |
 | C-22 | 6.12.1 | 再計画で足す予定が固定予定・睡眠と重なるときは入れず、理由を返す | 12.2 |
+| C-23 | 6.6 | `/today` のタスク枠を利用者がチェックした場合だけ完了とし、時刻経過では完了にしない | 8.2・11.2 |
 
 ### 15.2 スキーマの変更（まとめ）
 
-3章のとおり。追加：`ObjectiveVectorSchema`・`TimeBandSchema`・`GoalTimeBandsSchema`・`ClockResponseSchema`・`ApiErrorSchema`・`OkResponseSchema`・`DailyCheckinSchema`・`CheckinRequestSchema`・`CheckinResponseSchema`・`TaskCreateRequestSchema`・`TaskUpdateRequestSchema`・`TaskResponseSchema`・`PlanningContextSchema`・`ReasonCodeSchema`・`PlannedItemSchema`・`EnginePlanSchema`・`InfeasibleSchema`・`ValidationResultSchema`・`EngineGenerateResultSchema`・`EngineReplanResultSchema`・LLM 用（3.3）。変更：`SettingsResponseSchema.goal`（nullable）、`ValidationIssueCodeSchema`（3つ追加）。
+3章のとおり。追加：`ObjectiveVectorSchema`・`TimeBandSchema`・`GoalTimeBandsSchema`・`ClockResponseSchema`・`SettingsUpdateRequestSchema`・`SettingsUpdateResponseSchema`・`PlanItemCompletionRequestSchema`・`PlanItemCompletionResponseSchema`・`ApiErrorSchema`・`OkResponseSchema`・`DailyCheckinSchema`・`CheckinRequestSchema`・`CheckinResponseSchema`・`TaskCreateRequestSchema`・`TaskUpdateRequestSchema`・`TaskResponseSchema`・`PlanningContextSchema`・`ReasonCodeSchema`・`PlannedItemSchema`・`EnginePlanSchema`・`InfeasibleSchema`・`ValidationResultSchema`・`EngineGenerateResultSchema`・`EngineReplanResultSchema`・LLM 用（3.3）。変更：`SettingsResponseSchema.goal`（nullable）、`ValidationIssueCodeSchema`（3つ追加）。
 
 ### 15.3 環境変数（`.env.example`）
 

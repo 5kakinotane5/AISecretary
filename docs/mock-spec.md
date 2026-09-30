@@ -164,7 +164,7 @@ Claude Code がモックを実装するための仕様書。要件は `docs/requ
 
 見た目は `docs/design-spec.md` 5.4（タイムライン）・6章（`/today`）・9章（9.4 デモ時刻、9.8 現在地・次の予定、9.9 移動の表示）に従う。
 
-**上部**：`--gradient-header` の帯に、挨拶・日付「10月5日（月）」・今日の合計（タスク ／ 余白 ／ 自由時間）。右上にデモ時刻のチップ「デモ 7:00」（`demo_now`。design-spec 9.4）。読み込み中は挨拶と日付の位置にスケルトンを出す（10.21参照）
+**上部**：`--gradient-header` の帯に、挨拶・日付「10月5日（月）」・今日のタスク達成率（完了したタスク枠数／今日のタスク枠数）。右上にデモ時刻のチップ「デモ 7:00」（`demo_now`。design-spec 9.4）。日付・達成率を含む上部約20%はスクロール中も固定する。読み込み中は挨拶と日付の位置にスケルトンを出す（10.21参照）
 
 **本文**：白いカード「今日の予定」を上部に少し重ねて置き、その中に今日のタイムライン
 
@@ -206,6 +206,8 @@ Claude Code がモックを実装するための仕様書。要件は `docs/requ
 
 ### 2.6 `/calendar` カレンダー
 
+画面名とタブ名は「予定表」。ヘッダー、月／週／日の切り替え、期間移動の機構を上部約20%にまとめ、スクロール中も固定する。
+
 **上部**：月／週／日 のセグメントボタン（初期表示は週）、期間の表示と「＜」「＞」
 
 **月表示**
@@ -232,7 +234,8 @@ Claude Code がモックを実装するための仕様書。要件は `docs/requ
 
 ### 2.7 `/settings` 設定
 
-- **生活リズム**：睡眠 0:00〜7:30、1日の作業上限 6時間、バッファの最低量 15分（表示のみ）
+- **長期目標**を最初に表示。現在の目標と条件を表示し、「新しい長期目標を相談する」ボタンから `/interview` へ進む
+- **生活リズム**：睡眠開始・終了時刻と1日の作業上限は編集できる。余白の最低量は固定表示で編集できない
 - **よく行く場所**：名前と住所の一覧（表示のみ）
 - **移動時間**：「自宅 → 架空大学 つばさキャンパス　50分（徒歩＋電車）」の形式で一覧（表示のみ）
 - **目標**（画面の見出しは「長期目標」）：現在の目標「TOEIC学習　週6時間」（`task_name` と `target_hours_per_week`）と条件（`conditions`）のチップ、「新しい目標を相談する」のテキストリンク（→ `/interview`）。10.23参照
@@ -535,6 +538,8 @@ export type MockCheckResult = z.infer<typeof MockCheckResultSchema>;
 | `POST /api/plans/replan` | `{ date, text }` | `ReplanProposal` または `{ supported: false, message }` | 1200ms |
 | `POST /api/plans/replan/accept` | `{ proposal_id }` | `DayView` | 400ms |
 | `GET /api/settings` | — | `{ preferences, locations, travel_times, goal }` | 400ms |
+| `PATCH /api/settings` | `{ sleep_start, sleep_end, daily_work_limit_minutes }` | `{ preferences }`（最低バッファ量はそのまま） | 400ms |
+| `PATCH /api/plan-items/completion` | `{ item_id, date, completed }` | `{ item_id, status }` | 400ms |
 | `GET /api/tasks` | — | `{ tasks: Task[] }`（既存の `TaskSchema`。10.17参照） | 400ms |
 | `GET /api/mock/clock` | — | `{ now }`（今の `demo_now` を返すだけ。時刻は変えない。10.20参照） | 0 |
 | `POST /api/mock/clock` | `{ now }`（省略すると、18:00より前なら18:00に進める） | `{ now }` | 0 |
@@ -1499,7 +1504,7 @@ mocks/
 - 列のボタンの読み上げには、その日の概要を入れる（例：「10月7日（水）　タスク3件・余白45分・締切なし。予定を見る」）。タスクの件数・余白の合計・締切の件数は、表示に使っている `GET /api/calendar/week` のデータから作る
 - design-spec.md 9.12にも記載。2.6章を修正済み
 
-### 10.23 `/settings` の目標の表示・ボタン名・デモ用の欄
+### 10.23 `/settings` の長期目標の表示・ボタン名・デモ用の欄
 
 **目標の表示**
 

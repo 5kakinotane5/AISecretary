@@ -4,7 +4,7 @@ import { addDays, diffMinutes, getWeekStart, toDateStr } from "@/lib/datetime";
 import { getActiveGoalRecord, type ActiveGoalRecord } from "./repositories/goals";
 import { listTasks } from "./repositories/tasks";
 import { listTaskDoneLogs, type TaskDoneLog } from "./repositories/task-done-logs";
-import { listElapsedActivePlanTaskItems, type ElapsedTaskItem } from "./repositories/plans";
+import { listCompletedActivePlanTaskItems, type CompletedTaskItem } from "./repositories/plans";
 
 // タスクの残り時間と、目標の今週の目標分・実施済み（backend.md 8.2・8.3）。
 // GET /api/tasks と PlanningContext の組み立て（planning-context.ts）で使う
@@ -28,24 +28,24 @@ export function goalWeekTargetMinutes(record: ActiveGoalRecord, weekStart: strin
   return round15((full * remainingDays) / 7);
 }
 
-const itemMinutes = (item: ElapsedTaskItem) => diffMinutes(item.start_at, item.end_at);
+const itemMinutes = (item: CompletedTaskItem) => diffMinutes(item.start_at, item.end_at);
 
-// 締切・任意・軽作業の実施済み（task_id → 分）：task_done_logs の全期間 ＋ 経過した計画の項目
-function sumDoneByTask(doneLogs: TaskDoneLog[], elapsedItems: ElapsedTaskItem[]): Map<string, number> {
+// 締切・任意・軽作業の実施済み（task_id → 分）：task_done_logs の全期間 ＋ 明示的に完了した計画の項目
+function sumDoneByTask(doneLogs: TaskDoneLog[], completedItems: CompletedTaskItem[]): Map<string, number> {
   const doneByTask = new Map<string, number>();
   const add = (taskId: string, minutes: number) => doneByTask.set(taskId, (doneByTask.get(taskId) ?? 0) + minutes);
   for (const log of doneLogs) add(log.task_id, log.minutes);
-  for (const item of elapsedItems) add(item.task_id, itemMinutes(item));
+  for (const item of completedItems) add(item.task_id, itemMinutes(item));
   return doneByTask;
 }
 
 // 目標タスク以外の1件の実施済み（分）。PATCH の remaining_minutes の保存と、POST・PATCH の応答に使う
-export async function loadTaskDoneMinutes(supabase: SupabaseClient, now: string, taskId: string): Promise<number> {
-  const [doneLogs, elapsedItems] = await Promise.all([
+export async function loadTaskDoneMinutes(supabase: SupabaseClient, taskId: string): Promise<number> {
+  const [doneLogs, completedItems] = await Promise.all([
     listTaskDoneLogs(supabase),
-    listElapsedActivePlanTaskItems(supabase, now),
+    listCompletedActivePlanTaskItems(supabase),
   ]);
-  return sumDoneByTask(doneLogs, elapsedItems).get(taskId) ?? 0;
+  return sumDoneByTask(doneLogs, completedItems).get(taskId) ?? 0;
 }
 
 // 読み込んだ値から残り時間を計算する（DB に触れない）
@@ -53,12 +53,12 @@ export function computeTaskProgress(input: {
   tasks: Task[];               // completed を含む全件（remaining_minutes は DB の値）
   goal: ActiveGoalRecord | null;
   doneLogs: TaskDoneLog[];
-  elapsedItems: ElapsedTaskItem[];
+  completedItems: CompletedTaskItem[];
   now: string;
 }): TaskProgress {
-  const { tasks, goal, doneLogs, elapsedItems, now } = input;
+  const { tasks, goal, doneLogs, completedItems, now } = input;
   const weekStart = getWeekStart(toDateStr(now));
-  const doneByTask = sumDoneByTask(doneLogs, elapsedItems);
+  const doneByTask = sumDoneByTask(doneLogs, completedItems);
 
   // 目標の W と D。D は今週の分だけ（task_done_logs も計画の項目も date ≥ week_start）
   const goalWeekTarget: Record<string, number> = {};
@@ -71,7 +71,7 @@ export function computeTaskProgress(input: {
       doneLogs
         .filter((l) => goalTaskIds.has(l.task_id) && l.date >= weekStart)
         .reduce((sum, l) => sum + l.minutes, 0) +
-      elapsedItems
+      completedItems
         .filter((i) => goalTaskIds.has(i.task_id) && i.date >= weekStart)
         .reduce((sum, i) => sum + itemMinutes(i), 0);
   }
@@ -98,11 +98,11 @@ export async function loadTaskProgress(
   supabase: SupabaseClient,
   now: string,
 ): Promise<TaskProgress & { goal: ActiveGoalRecord | null }> {
-  const [tasks, goal, doneLogs, elapsedItems] = await Promise.all([
+  const [tasks, goal, doneLogs, completedItems] = await Promise.all([
     listTasks(supabase),
     getActiveGoalRecord(supabase),
     listTaskDoneLogs(supabase),
-    listElapsedActivePlanTaskItems(supabase, now),
+    listCompletedActivePlanTaskItems(supabase),
   ]);
-  return { ...computeTaskProgress({ tasks, goal, doneLogs, elapsedItems, now }), goal };
+  return { ...computeTaskProgress({ tasks, goal, doneLogs, completedItems, now }), goal };
 }

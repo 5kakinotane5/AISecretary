@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
+import { useEffect, useRef } from "react";
+import { Check } from "lucide-react";
 import { ItemBlock } from "./ItemBlock";
 import { SCREEN_LABELS, TRAVEL_MODE_LABELS, getItemAppearance, getTravelIcon } from "@/lib/labels";
 import { diffMinutes, formatTime, formatTimeRange } from "@/lib/datetime";
@@ -21,6 +23,11 @@ type TimelineProps = {
   compact?: boolean;
   /** 渡すと、タスクとバッファのブロックがタップできるようになる（mock-spec.md 2.4） */
   onItemSelect?: (item: ScheduleItem) => void;
+  /** 今日のタスク枠の完了状態を切り替える。渡したときだけチェックボタンを表示する */
+  onTaskCompletionChange?: (item: ScheduleItem, completed: boolean) => void;
+  pendingTaskId?: string | null;
+  /** 現在または次の予定へ初期スクロールする */
+  autoScrollToHighlight?: boolean;
   className?: string;
 };
 
@@ -55,12 +62,22 @@ export function Timeline({
   locations = [],
   compact = false,
   onItemSelect,
+  onTaskCompletionChange,
+  pendingTaskId = null,
+  autoScrollToHighlight = false,
   className,
 }: TimelineProps) {
   const taskById = new Map(tasks.map((t) => [t.id, t] as const));
   const locationNameById = new Map(locations.map((l) => [l.id, l.name] as const));
   const highlight = now ? findHighlight(items, now) : null;
   const classes = rowClasses(compact);
+  const highlightRef = useRef<HTMLLIElement | null>(null);
+
+  useEffect(() => {
+    if (autoScrollToHighlight && highlight?.itemId) {
+      highlightRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollToHighlight, highlight?.itemId]);
 
   const lineBetween = (a: ScheduleItem | undefined, b: ScheduleItem | undefined): LineStyle => {
     if (!a || !b) return "none";
@@ -90,6 +107,7 @@ export function Timeline({
               bottom={bottom}
               compact={compact}
               highlight={highlight?.itemId === item.id ? highlight.kind : null}
+              rowRef={autoScrollToHighlight && highlight?.itemId === item.id ? highlightRef : undefined}
             >
               移動 {diffMinutes(item.start_at, item.end_at)}分
               {item.travel && !compact ? `（${TRAVEL_MODE_LABELS[item.travel.mode]}）` : null}
@@ -102,7 +120,11 @@ export function Timeline({
         const suggested = item.suggested_task_id ? taskById.get(item.suggested_task_id) : undefined;
 
         return (
-          <li key={item.id} className={classes.row}>
+          <li
+            key={item.id}
+            ref={autoScrollToHighlight && highlight?.itemId === item.id ? highlightRef : undefined}
+            className={cn(classes.row, "gap-1")}
+          >
             <div className={classes.timeCol}>
               <TimeLabel isoStr={item.start_at} highlight={highlight?.itemId === item.id ? highlight.kind : null} />
             </div>
@@ -119,6 +141,26 @@ export function Timeline({
                 onSelect={selectable ? () => onItemSelect(item) : undefined}
               />
             </div>
+            {item.kind === "task" && onTaskCompletionChange ? (
+              <button
+                type="button"
+                aria-label={item.status === "completed" ? `未完了に戻す：${item.title}` : `完了にする：${item.title}`}
+                aria-pressed={item.status === "completed"}
+                disabled={pendingTaskId === item.id}
+                onClick={() => onTaskCompletionChange(item, item.status !== "completed")}
+                className="flex size-11 shrink-0 items-center justify-center rounded-xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+              >
+                <span
+                  aria-hidden
+                  className={cn(
+                    "flex size-6 items-center justify-center rounded-md border-2",
+                    item.status === "completed" ? "border-(--brand-purple) bg-(--brand-purple) text-white" : "border-muted-foreground/50 bg-background",
+                  )}
+                >
+                  {item.status === "completed" ? <Check size={16} strokeWidth={3} /> : null}
+                </span>
+              </button>
+            ) : null}
           </li>
         );
       })}
@@ -153,6 +195,7 @@ function CompactRow({
   bottom,
   highlight = null,
   compact,
+  rowRef,
   children,
 }: {
   item: ScheduleItem;
@@ -160,6 +203,7 @@ function CompactRow({
   bottom: LineStyle;
   highlight?: Highlight["kind"] | null;
   compact: boolean;
+  rowRef?: Ref<HTMLLIElement>;
   children: ReactNode;
 }) {
   const appearance = getItemAppearance(item.kind, item.fixed_category);
@@ -169,7 +213,7 @@ function CompactRow({
   const classes = rowClasses(compact);
 
   return (
-    <li className={classes.row}>
+    <li ref={rowRef} className={classes.row}>
       <div className={classes.timeCol}>
         {highlight ? <HighlightText kind={highlight} /> : null}
       </div>

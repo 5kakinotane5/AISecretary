@@ -287,6 +287,29 @@ export const SettingsResponseSchema = z.object({
   goal: GoalSchema.nullable(), // 目標の確定前は null（docs/design/common.md 3.2）
 });
 
+/** PATCH /api/settings：生活リズムのみ更新し、最低バッファ量は変更しない */
+const ClockTimeSchema = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
+export const SettingsUpdateRequestSchema = z.object({
+  sleep_start: ClockTimeSchema,
+  sleep_end: ClockTimeSchema,
+  daily_work_limit_minutes: z.number().int().min(60).max(960).multipleOf(15),
+}).refine((value) => value.sleep_start !== value.sleep_end, {
+  path: ["sleep_end"],
+  message: "睡眠の開始時刻と終了時刻は異なる時刻にしてください",
+});
+export const SettingsUpdateResponseSchema = z.object({ preferences: UserPreferenceSchema });
+
+/** PATCH /api/plan-items/completion：今日の計画タスク枠の完了状態を更新 */
+export const PlanItemCompletionRequestSchema = z.object({
+  item_id: z.uuid(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  completed: z.boolean(),
+});
+export const PlanItemCompletionResponseSchema = z.object({
+  item_id: z.uuid(),
+  status: z.enum(["planned", "completed"]),
+});
+
 /** GET /api/tasks */
 export const TasksResponseSchema = z.object({ tasks: z.array(TaskSchema) });
 
@@ -508,6 +531,9 @@ export type Level = z.infer<typeof LevelSchema>;
 export type MockLoginResponse = z.infer<typeof MockLoginResponseSchema>;
 export type InterviewConfirmResponse = z.infer<typeof InterviewConfirmResponseSchema>;
 export type SettingsResponse = z.infer<typeof SettingsResponseSchema>;
+export type SettingsUpdateRequest = z.infer<typeof SettingsUpdateRequestSchema>;
+export type PlanItemCompletionRequest = z.infer<typeof PlanItemCompletionRequestSchema>;
+export type PlanItemCompletionResponse = z.infer<typeof PlanItemCompletionResponseSchema>;
 export type ReplanChange = z.infer<typeof ReplanChangeSchema>;
 export type ReplanResponse = z.infer<typeof ReplanResponseSchema>;
 export type ClockResponse = z.infer<typeof ClockResponseSchema>;

@@ -51,22 +51,26 @@ export default function CalendarPage() {
 
   return (
     <MainShell>
-      <PageHeader title={CALENDAR_LABELS.title} gradient="deep" />
-
-      <div className="flex flex-col gap-4 px-4 py-4">
-        {base.status === "loading" ? (
-          <>
-            <Skeleton className="h-12 w-full rounded-full" />
-            <SurfaceCard>
-              <LoadingState rows={6} />
-            </SurfaceCard>
-          </>
-        ) : null}
-        {base.status === "error" ? <ErrorState onRetry={base.retry} /> : null}
-        {base.status === "success" ? (
-          <CalendarBody now={base.data.now} tasks={base.data.tasks} locations={base.data.locations} />
-        ) : null}
-      </div>
+      {base.status === "success" ? (
+        <CalendarBody now={base.data.now} tasks={base.data.tasks} locations={base.data.locations} />
+      ) : (
+        <>
+          <div className="sticky top-0 z-20">
+            <PageHeader title={CALENDAR_LABELS.title} gradient="deep" />
+          </div>
+          <div className="flex flex-col gap-4 px-4 py-4">
+            {base.status === "loading" ? (
+              <>
+                <Skeleton className="h-12 w-full rounded-full" />
+                <SurfaceCard>
+                  <LoadingState rows={6} />
+                </SurfaceCard>
+              </>
+            ) : null}
+            {base.status === "error" ? <ErrorState onRetry={base.retry} /> : null}
+          </div>
+        </>
+      )}
     </MainShell>
   );
 }
@@ -98,33 +102,40 @@ function CalendarBody({ now, tasks, locations }: { now: string; tasks: Task[]; l
   }
 
   return (
-    <>
-      <Tabs value={mode} onValueChange={(value) => setMode(value as CalendarViewMode)}>
-        <TabsList aria-label="表示の切り替え" className={SEGMENT_LIST}>
-          {VIEW_MODES.map((m) => (
-            <TabsTrigger key={m} value={m} className={SEGMENT_TRIGGER}>
-              {CALENDAR_VIEW_LABELS[m]}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+    <div className="flex flex-col">
+      <div className="sticky top-0 z-20 bg-background shadow-sm">
+        <PageHeader title={CALENDAR_LABELS.title} gradient="deep" className="py-1.5" />
+        <div className="px-4 pb-1">
+          <Tabs value={mode} onValueChange={(value) => setMode(value as CalendarViewMode)}>
+            <TabsList aria-label="表示の切り替え" className={SEGMENT_LIST}>
+              {VIEW_MODES.map((m) => (
+                <TabsTrigger key={m} value={m} className={SEGMENT_TRIGGER}>
+                  {CALENDAR_VIEW_LABELS[m]}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
 
-      <div className="flex items-center justify-between">
-        <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.prev[mode]} onClick={() => move(-1)}>
-          <ChevronLeft className="size-6" aria-hidden />
-        </Button>
-        <p className="text-base font-bold tabular-nums" aria-live="polite">
-          {period}
-        </p>
-        <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.next[mode]} onClick={() => move(1)}>
-          <ChevronRight className="size-6" aria-hidden />
-        </Button>
+          <div className="flex items-center justify-between">
+            <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.prev[mode]} onClick={() => move(-1)}>
+              <ChevronLeft className="size-6" aria-hidden />
+            </Button>
+            <p className="text-base font-bold tabular-nums" aria-live="polite">
+              {period}
+            </p>
+            <Button variant="brand-text" className="size-11 rounded-full" aria-label={CALENDAR_LABELS.next[mode]} onClick={() => move(1)}>
+              <ChevronRight className="size-6" aria-hidden />
+            </Button>
+          </div>
+        </div>
       </div>
 
-      {mode === "week" ? <WeekSection weekStart={weekStart} today={today} onDaySelect={openDay} /> : null}
-      {mode === "day" ? <DaySection date={date} now={now} today={today} tasks={tasks} locations={locations} /> : null}
-      {mode === "month" ? <MonthSection month={month} today={today} onDateSelect={openDay} /> : null}
-    </>
+      <div className="flex flex-col gap-4 px-4 py-4">
+        {mode === "week" ? <WeekSection weekStart={weekStart} today={today} onDaySelect={openDay} /> : null}
+        {mode === "day" ? <DaySection date={date} now={now} today={today} tasks={tasks} locations={locations} /> : null}
+        {mode === "month" ? <MonthSection month={month} today={today} onDateSelect={openDay} /> : null}
+      </div>
+    </div>
   );
 }
 
