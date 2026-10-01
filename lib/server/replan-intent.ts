@@ -116,5 +116,8 @@ export async function extractReplanIntent(
       }
     }
   }
-  return toReplanningIntent(extractReplanIntentByKeywords(text, input.todayTasks), input);
+  return toReplanningIntent(
+    extractReplanIntentByKeywords(text, input.todayTasks, input.now),
+    input,
+  );
 }

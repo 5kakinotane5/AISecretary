@@ -40,7 +40,44 @@
   - 入力: AIが「案1：タスク削減」「案2：明日へ繰り越し」を出した後に「案2でお願い」と返答
   - 期待する挙動: 案2の内容を正確に反映したスケジュールデータを作成する。
 
-## 6. 口語・長文表現
-- [ ] **ラフな言葉遣い・雑談**
-  - 入力: 「今日ガチでだるい」「ワンチャン明日でよくね？」
-  - 期待する挙動: 文脈を正しく理解し、過度に固い専門用語を使わずに調整案を返す。
+## 6. 口語
+
+再計画の発言 → 意図（docs/design/plans-replan.md 12.3）が、口語の言い方でも正しく分かれるかを確かめる。予定の組み直しは対象外。
+
+- 前提：now = 10/5（月）18:00。今日の now 以降のタスク = TOEICリスニング演習、TOEIC単語、ES作成（企業A）
+- 終わりの時刻がない予定は、変換で1時間の仮置きになる（補正 C-10）
+- キーワード（`LLM_MODE=off`）では fatigue はいつも high。表の fatigue の値は LLM の期待
+- テスト：表のデータは `lib/llm/__tests__/replan-scenarios.ts`。キーワードは `replan-keywords.test.ts`（○の行）、LLM は `replan-intent.live.test.ts`（全行。`RUN_LIVE_LLM=1` のときだけ）
+
+| # | 入力 | 期待（intent と中身） | キーワードで当てるか |
+|---|---|---|---|
+| 1 | 今日は疲れた | state_change（fatigue high） | ○ |
+| 2 | ガチでだるい | state_change | ○ |
+| 3 | 眠すぎ | state_change | ○ |
+| 4 | ねむ | state_change | ○ |
+| 5 | 頭回らん | state_change（fatigue medium） | ○ |
+| 6 | 疲労やばい | state_change | ○ |
+| 7 | やる気ゼロ | state_change（fatigue medium） | ○ |
+| 8 | 集中続かない | state_change（fatigue medium） | ○ |
+| 9 | 集中できひん | state_change（fatigue medium） | ○ |
+| 10 | だるくない、元気 | unknown | ×（キーワードは state_change になる。既知の限界） |
+| 11 | 今日は頑張れそう | unknown | ○ |
+| 12 | やる気出てきた | unknown | ○ |
+| 13 | 20時からバイト入った | new_fixed_event 20:00–21:00 | ○ |
+| 14 | 20時から飲み会 | new_fixed_event 20:00–21:00 | ○ |
+| 15 | 20:00から会議 | new_fixed_event 20:00–21:00 | ○ |
+| 16 | 夜8時から約束 | new_fixed_event 20:00–21:00 | ○ |
+| 17 | 8時半から用事 | new_fixed_event 20:30–21:30 | ○ |
+| 18 | 20時から1時間半バイト | new_fixed_event 20:00–21:30 | ○ |
+| 19 | 20時〜22時バイト | new_fixed_event 20:00–22:00 | ○ |
+| 20 | 明日の10時から面接 | unknown | ○ |
+| 21 | 今日はもう勉強したくない | task_change：3件すべて postpone | ○ |
+| 22 | 勉強やりたくない | task_change：3件すべて postpone | ○ |
+| 23 | 今日はもうええわ | task_change：3件すべて postpone | ○ |
+| 24 | もう無理ぽ | task_change：3件すべて postpone | ○ |
+| 25 | ESやりたくない | task_change：ES作成（企業A）だけ postpone | ○ |
+| 26 | ESは明日でいいや | task_change：ES作成（企業A）だけ postpone | ○ |
+| 27 | リスニング明日に回して | task_change：TOEICリスニング演習だけ postpone | ○ |
+| 28 | ワンチャン明日でよくね？ | task_change：3件すべて postpone | ○ |
+| 29 | 疲れたから今日はもう勉強したくない | task_change：3件すべて postpone | ○ |
+| 30 | 明日の天気は？ | unknown | ○ |
