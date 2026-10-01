@@ -134,7 +134,7 @@ applyOps(input: {
 4. **キューを並べる**（順番は変えない）
    - 前から順に、直前に置いたタスクの終わり（＋`min_buffer_minutes` のバッファ）以降で、入る最初の空きに置く
    - タスクの後ろには、空きに余裕があれば `min_buffer_minutes` のバッファ（kind buffer）を置く。次がアンカーならバッファが短くてもよい
-   - 今日のタスク合計（完了済みを含む）が `daily_work_limit_minutes` を超える、置くと今日のバッファ＋自由時間の合計が `min_daily_buffer_minutes` を下回る（Validator の BUFFER_SHORTAGE。「予定のずれに備える時間」を守るため）、または入らない → 溢れに入れる。明日以降に置くとき（6）も同じ2つを守る
+   - 今日のタスク合計（完了済みを含む）が `daily_work_limit_minutes` を超える、または入らない → 溢れに入れる
    - 分割はしない
 5. **今日の残りの空き**はすべて自由時間（kind free・title「自由時間」）。隣り合う自由時間は1つにまとめる
 6. **溢れを明日以降に置く**：締切の早い順 → 締切なし（目標・任意）の順
@@ -258,7 +258,7 @@ user（JSON。キーは英語、値は日本語のまま）：
   ],
   "later_tasks": [{ "id": "...", "title": "ES作成（企業A）", "date": "2026-10-06", "start": "18:00", "end": "19:00", "deadline": "10/12" }],
   "goals": [{ "name": "TOEIC学習", "week_target_minutes": 360 }],
-  "settings": { "sleep_start": "00:00", "min_buffer_minutes": 15, "daily_work_limit_minutes": 360 },
+  "settings": { "sleep_start": "00:00", "min_buffer_minutes": 15, "daily_work_limit_minutes": 480 },
   "feedback": [{ "label": "...", "errors": ["夕食（19:00〜19:45）と重なるため入れられません"] }]
 }
 ```
