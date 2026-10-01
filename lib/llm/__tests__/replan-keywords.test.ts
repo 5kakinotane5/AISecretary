@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { extractReplanIntentByKeywords, type ReplanTaskOption } from "@/lib/llm/replan-keywords";
+import {
+  extractReplanIntentByKeywords,
+  taskKeys,
+  type ReplanTaskOption,
+} from "@/lib/llm/replan-keywords";
 import { PROVISIONAL_END_NOTE, toReplanningIntent } from "@/lib/server/replan-intent";
+import {
+  SCENARIO_DATE,
+  SCENARIO_NOW,
+  SCENARIO_ROWS,
+  SCENARIO_TASKS,
+  describeExpect,
+  describeResult,
+  matchesExpect,
+} from "@/lib/llm/__tests__/replan-scenarios";
 
 // 10/5（月）18:00。今日の now 以降のタスク項目
 const DATE = "2026-10-05";
@@ -233,5 +246,78 @@ describe("意図の変換・検証（12.3.1。LLM の出力を想定）", () => 
       { date: DATE, now: NOW, todayTasks: TASKS },
     );
     expect(result.type === "ok" && result.intent.type).toBe("preference_change");
+  });
+});
+
+describe("口語の発言（キーワード。docs/scenarios/replan-chat.md「6. 口語」）", () => {
+  const input = { date: SCENARIO_DATE, now: SCENARIO_NOW, todayTasks: SCENARIO_TASKS };
+  const runScenario = (text: string, tasks = SCENARIO_TASKS) =>
+    toReplanningIntent(extractReplanIntentByKeywords(text, tasks, SCENARIO_NOW), {
+      ...input,
+      todayTasks: tasks,
+    });
+
+  it.each(SCENARIO_ROWS.filter((row) => row.keyword).map((row) => [row.no, row.text, row] as const))(
+    "%i「%s」",
+    (_no, text, row) => {
+      const result = runScenario(text);
+      expect(
+        matchesExpect(result, row.expect, false),
+        `${describeResult(result)} ≠ ${describeExpect(row.expect)}`,
+      ).toBe(true);
+    },
+  );
+
+  it("既知の限界：「だるくない、元気」はキーワードでは state_change になる", () => {
+    expect(runScenario("だるくない、元気")).toMatchObject({ intent: { type: "state_change" } });
+  });
+
+  it("タスクのキー：括弧・空白・一般的な語・「の」と、英数字 → 日本語の境目で分ける", () => {
+    expect(taskKeys("ES作成（企業A）")).toEqual(["es", "企業a"]);
+    expect(taskKeys("TOEICリスニング演習")).toEqual(["toeic", "リスニング"]);
+    expect(taskKeys("TOEIC単語")).toEqual(["toeic", "単語"]);
+    expect(taskKeys("統計学の課題")).toEqual(["統計学"]);
+  });
+
+  it("「統計学は明日でいいや」→ 統計学の課題だけ postpone", () => {
+    const tasks: ReplanTaskOption[] = [
+      ...SCENARIO_TASKS,
+      {
+        task_id: "t-stats",
+        title: "統計学の課題",
+        start_at: "2026-10-05T21:15:00+09:00",
+        end_at: "2026-10-05T22:00:00+09:00",
+      },
+    ];
+    const result = runScenario("統計学は明日でいいや", tasks);
+    expect(result.type === "ok" && result.intent.task_changes).toEqual([
+      { task_id: "t-stats", action: "postpone" },
+    ]);
+  });
+
+  it("発言の側も NFKC・小文字にしてキーと比べる（「ｅｓは明日でいいや」）", () => {
+    const result = runScenario("ｅｓは明日でいいや");
+    expect(result.type === "ok" && result.intent.task_changes).toEqual([
+      { task_id: "t-es", action: "postpone" },
+    ]);
+  });
+
+  it.each([
+    ["20時から22:00まで用事", "20:00", "22:00"],
+    ["８時から１０時まで用事", "20:00", "22:00"], // 開始を +12 したので、終了（N ≤ 11）も +12
+    ["今晩9時から1時間ミーティング", "21:00", "22:00"],
+    ["20時15分から30分MTG", "20:15", "20:45"],
+    ["20時から2時間説明会", "20:00", "22:00"],
+    ["20時から1時間30分会議", "20:00", "21:30"],
+  ])("「%s」→ %s〜%s", (text, start, end) => {
+    const result = runScenario(text);
+    expect(result.type === "ok" && result.intent.new_fixed_events[0]).toMatchObject({
+      start_at: `${SCENARIO_DATE}T${start}:00+09:00`,
+      end_at: `${SCENARIO_DATE}T${end}:00+09:00`,
+    });
+  });
+
+  it("朝・午前があれば +12 しない（now より前なので捨て、unknown）", () => {
+    expect(runScenario("午前9時から授業").type).toBe("unknown");
   });
 });
