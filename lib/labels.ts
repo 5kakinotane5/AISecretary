@@ -347,6 +347,19 @@ export const REPLAN_LABELS = {
   acceptError: "計画を更新できませんでした。",
   sendError: "送信できませんでした。",
   choosePlan: "プランを選ぶ",
+  // 「数字で見る変化」（frontend.md 14.2）。自由時間＝内部の buffer＋free（design-spec.md 4章）
+  impactTitle: "数字で見る変化",
+  impactToday: "今日",
+  impactTask: "タスク",
+  impactFree: SCREEN_LABELS.freeTime,
+  impactOtherDays: "ほかの日",
+  impactNoOtherDays: "ほかの日への影響はありません",
+  impactDeadline: "締切",
+  deadlineOk: "すべて間に合います",
+  deadlineNoneMoved: "締切のあるタスクは動いていません",
+  deadlineLate: (titles: readonly string[]) => `間に合わないタスクがあります（${titles.join("、")}）`,
+  /** 増減を「+40分」「−40分」の文字で出す（色だけに頼らない） */
+  signedMinutes: (minutes: number) => `${minutes > 0 ? "+" : "−"}${Math.abs(minutes)}分`,
 } as const;
 
 /** /replan のクイックリプライ（mock-spec.md 2.5） */
