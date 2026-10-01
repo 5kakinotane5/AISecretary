@@ -1,8 +1,23 @@
 import { CHECKIN_LABELS } from "./labels";
-import type { DailyCheckin } from "./schemas";
+import type { DailyCheckin, Level } from "./schemas";
 
 /** /today の「今日の調子」で選べる3項目（frontend.md 14.2） */
 export type CheckinLevels = Pick<DailyCheckin, "mood" | "fatigue" | "concentration">;
+
+/**
+ * 調子が悪い側の値か：気分 low、疲労 medium・high、集中 low（frontend.md 14.2）。
+ * 「AIに相談する」を出す条件（consultTextFor）と、確定後の1行の総合の判定（overallCondition）の両方に使う
+ */
+export function isUnwellLevel(field: keyof CheckinLevels, level: Level): boolean {
+  switch (field) {
+    case "mood":
+      return level === "low";
+    case "fatigue":
+      return level === "medium" || level === "high";
+    case "concentration":
+      return level === "low";
+  }
+}
 
 /**
  * 「AIに相談する」で /replan に送る文。調子が悪い側でなければ null（ボタンを出さない）。
@@ -11,10 +26,9 @@ export type CheckinLevels = Pick<DailyCheckin, "mood" | "fatigue" | "concentrati
  */
 export function consultTextFor({ mood, fatigue, concentration }: CheckinLevels): string | null {
   const text = CHECKIN_LABELS.consultText;
-  if (fatigue === "high") return text.fatigueHigh;
-  if (fatigue === "medium") return text.fatigueMedium;
-  if (concentration === "low") return text.concentrationLow;
-  if (mood === "low") return text.moodLow;
+  if (fatigue && isUnwellLevel("fatigue", fatigue)) return fatigue === "high" ? text.fatigueHigh : text.fatigueMedium;
+  if (concentration && isUnwellLevel("concentration", concentration)) return text.concentrationLow;
+  if (mood && isUnwellLevel("mood", mood)) return text.moodLow;
   return null;
 }
 
@@ -27,4 +41,21 @@ export type CompleteCheckinLevels = { [K in keyof CheckinLevels]: NonNullable<Ch
  */
 export function isCheckinComplete(levels: CheckinLevels | null): levels is CompleteCheckinLevels {
   return levels !== null && levels.mood !== null && levels.fatigue !== null && levels.concentration !== null;
+}
+
+/** 確定後の1行に出す総合の調子（frontend.md 14.2） */
+export type OverallCondition = "good" | "normal" | "tired";
+
+/**
+ * 総合の調子：疲労 high、または調子が悪い側が2つ以上 → tired、1つ → normal、0 → good（frontend.md 14.2）。
+ * 悪い側の判定は consultTextFor と同じ isUnwellLevel を使う
+ */
+export function overallCondition(levels: CompleteCheckinLevels): OverallCondition {
+  const unwell = [
+    isUnwellLevel("mood", levels.mood),
+    isUnwellLevel("fatigue", levels.fatigue),
+    isUnwellLevel("concentration", levels.concentration),
+  ].filter(Boolean).length;
+  if (levels.fatigue === "high" || unwell >= 2) return "tired";
+  return unwell === 1 ? "normal" : "good";
 }

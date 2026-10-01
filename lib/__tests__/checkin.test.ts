@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { consultTextFor, isCheckinComplete, type CheckinLevels } from "@/lib/checkin";
+import {
+  consultTextFor,
+  isCheckinComplete,
+  isUnwellLevel,
+  overallCondition,
+  type CheckinLevels,
+  type CompleteCheckinLevels,
+  type OverallCondition,
+} from "@/lib/checkin";
 import { extractReplanIntentByKeywords } from "@/lib/llm/replan-keywords";
 import { CHECKIN_LABELS } from "@/lib/labels";
 
@@ -47,5 +55,36 @@ describe("確定済みか（frontend.md 14.2）", () => {
     { mood: "high", fatigue: "low", concentration: null },
   ])("%o は未確定", (levels) => {
     expect(isCheckinComplete(levels)).toBe(false);
+  });
+});
+
+describe("調子が悪い側の判定（frontend.md 14.2。相談の文と確定後の総合の判定で共用）", () => {
+  it.each<[keyof CheckinLevels, "low" | "medium" | "high", boolean]>([
+    ["mood", "low", true],
+    ["mood", "medium", false],
+    ["mood", "high", false],
+    ["fatigue", "low", false],
+    ["fatigue", "medium", true],
+    ["fatigue", "high", true],
+    ["concentration", "low", true],
+    ["concentration", "medium", false],
+    ["concentration", "high", false],
+  ])("%s %s → %s", (field, level, expected) => {
+    expect(isUnwellLevel(field, level)).toBe(expected);
+  });
+});
+
+describe("確定後の総合の調子（frontend.md 14.2）", () => {
+  it.each<[CompleteCheckinLevels, OverallCondition]>([
+    [{ mood: "low", fatigue: "high", concentration: "high" }, "tired"], // 悪い側2つ
+    [{ mood: "low", fatigue: "low", concentration: "low" }, "tired"], // 疲労以外で2つ
+    [{ mood: "medium", fatigue: "medium", concentration: "medium" }, "normal"], // 悪い側1つ
+    [{ mood: "high", fatigue: "low", concentration: "high" }, "good"], // 0
+  ])("%o → %s", (levels, expected) => {
+    expect(overallCondition(levels)).toBe(expected);
+  });
+
+  it("疲労 high だけでも tired", () => {
+    expect(overallCondition({ mood: "high", fatigue: "high", concentration: "high" })).toBe("tired");
   });
 });

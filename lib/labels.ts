@@ -323,6 +323,8 @@ export const CHECKIN_LABELS = {
   saveError: "調子を保存できませんでした。もう一度お試しください。",
   consultPrompt: "今日の予定を軽くしますか？",
   consult: "AIに相談する",
+  /** 確定後の1行に出す一言（lib/checkin.ts の overallCondition） */
+  overall: { good: "元気", normal: "ふつう", tired: "お疲れ気味" },
   fields: {
     mood: { label: "気分", options: { low: "落ち込み気味", medium: "ふつう", high: "良い" } },
     fatigue: { label: "疲労", options: { low: "元気", medium: "少し疲れた", high: "疲れている" } },
