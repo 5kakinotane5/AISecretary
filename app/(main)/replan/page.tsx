@@ -13,10 +13,11 @@ import { DemoNowChip } from "@/components/layout/DemoNowChip";
 import { MainShell } from "@/components/layout/MainShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ChangeList } from "@/components/replan/ChangeList";
+import { ReplanImpact } from "@/components/replan/ReplanImpact";
 import { Timeline } from "@/components/timeline/Timeline";
 import { Button } from "@/components/ui/button";
 import { useApiData } from "@/hooks/use-api-data";
-import { acceptReplan, ApiError, fetchDemoNow, requestReplan, setDemoNow } from "@/lib/api";
+import { acceptReplan, ApiError, fetchDemoNow, fetchTasks, requestReplan, setDemoNow } from "@/lib/api";
 import { toDateStr } from "@/lib/datetime";
 import { REPLAN_LABELS, REPLAN_QUICK_REPLIES, SCREEN_LABELS } from "@/lib/labels";
 import type { ReplanProposal } from "@/lib/schemas";
@@ -63,6 +64,9 @@ export default function ReplanPage() {
   const queryTextSentRef = useRef(false);
 
   const now = clock.status === "success" ? clock.data.now : null;
+  // 「数字で見る変化」のタスク名・締切に使う。取れなかったら締切の行だけ出さない（frontend.md 14.2）
+  const tasksResult = useApiData(fetchTasks, []);
+  const tasks = tasksResult.status === "success" ? tasksResult.data : null;
 
   // 新しい発言・結果が出たら、そこまでスクロールする
   useEffect(() => {
@@ -185,6 +189,7 @@ export default function ReplanPage() {
 
             {proposal ? (
               <>
+                <ReplanImpact proposal={proposal} tasks={tasks} />
                 <ChangeList proposal={proposal} />
 
                 <Button
