@@ -16,15 +16,21 @@ import { ChangeList } from "@/components/replan/ChangeList";
 import { Timeline } from "@/components/timeline/Timeline";
 import { Button } from "@/components/ui/button";
 import { useApiData } from "@/hooks/use-api-data";
-import { acceptReplan, fetchDemoNow, requestReplan, setDemoNow } from "@/lib/api";
+import { acceptReplan, ApiError, fetchDemoNow, requestReplan, setDemoNow } from "@/lib/api";
 import { toDateStr } from "@/lib/datetime";
 import { REPLAN_LABELS, REPLAN_QUICK_REPLIES, SCREEN_LABELS } from "@/lib/labels";
 import type { ReplanProposal } from "@/lib/schemas";
 
 type Message = { id: number; role: "user" | "assistant"; text: string };
 
-/** 送信・確定の進み具合。error のときは lastText を再送できる */
-type SendState = { status: "idle" } | { status: "sending" } | { status: "error"; lastText: string };
+/**
+ * 送信・確定の進み具合。error のときは lastText を再送できる。
+ * needsPlan は有効な計画がない（INVALID_STATE）ときのサーバーの文言。再送しても通らないので「プランを選ぶ」を出す
+ */
+type SendState =
+  | { status: "idle" }
+  | { status: "sending" }
+  | { status: "error"; lastText: string; needsPlan: string | null };
 
 /**
  * /replan：計画づくり（mock-spec.md 2.5・10.6・10.20、design-spec.md 6章・9.4）。
@@ -82,8 +88,9 @@ export default function ReplanPage() {
         setProposal(response);
       }
       setSend({ status: "idle" });
-    } catch {
-      setSend({ status: "error", lastText: text });
+    } catch (error) {
+      const needsPlan = error instanceof ApiError && error.code === "INVALID_STATE" ? error.message : null;
+      setSend({ status: "error", lastText: text, needsPlan });
     }
   }
 
@@ -161,7 +168,15 @@ export default function ReplanPage() {
             ) : null}
 
             {busy ? <LoadingState message={REPLAN_LABELS.adjusting} rows={2} /> : null}
-            {send.status === "error" ? (
+            {send.status === "error" && send.needsPlan !== null ? (
+              <div className="flex flex-col items-center">
+                <ErrorState message={send.needsPlan} className="pb-4" />
+                <Button variant="brand-outline" size="tap" onClick={() => router.push("/plans")}>
+                  {REPLAN_LABELS.choosePlan}
+                </Button>
+              </div>
+            ) : null}
+            {send.status === "error" && send.needsPlan === null ? (
               <ErrorState
                 message={REPLAN_LABELS.sendError}
                 onRetry={() => sendText(send.lastText, { echo: false })}

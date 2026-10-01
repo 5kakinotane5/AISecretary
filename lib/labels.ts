@@ -356,6 +356,7 @@ export const REPLAN_LABELS = {
   cancel: "やめておく",
   acceptError: "計画を更新できませんでした。",
   sendError: "送信できませんでした。",
+  choosePlan: "プランを選ぶ",
 } as const;
 
 /** /replan のクイックリプライ（mock-spec.md 2.5） */

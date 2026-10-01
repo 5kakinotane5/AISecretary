@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import {
+  ApiErrorSchema,
   CheckinResponseSchema,
   ClockResponseSchema,
   DayViewSchema,
@@ -18,6 +19,7 @@ import {
   PlanItemCompletionResponseSchema,
   TasksResponseSchema,
   WeekViewSchema,
+  type ApiErrorCode,
   type DayView,
   type ClockResponse,
   type InterviewConfirmResponse,
@@ -45,6 +47,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** サーバーが { error: { code, message } } を返したときの code。本文が読めなかったときは undefined */
+    readonly code?: ApiErrorCode,
   ) {
     super(message);
     this.name = "ApiError";
@@ -82,6 +86,9 @@ async function request<T>(path: string, schema: z.ZodType<T>, init?: RequestInit
     throw error;
   }
   if (!response.ok) {
+    // 本文が { error: { code, message } }（lib/server/http.ts）なら、その code と message を入れる
+    const body = ApiErrorSchema.safeParse(await response.json().catch(() => null));
+    if (body.success) throw new ApiError(response.status, body.data.error.message, body.data.error.code);
     throw new ApiError(response.status, `APIの呼び出しに失敗しました（${response.status}）`);
   }
   return schema.parse(await response.json());
