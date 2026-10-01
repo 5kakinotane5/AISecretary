@@ -318,6 +318,8 @@ export const TODAY_LABELS = {
 /** /today の「今日の調子」（チェックイン。frontend.md 14.2） */
 export const CHECKIN_LABELS = {
   title: "今日の調子",
+  inputTitle: "今日の調子は？",
+  submit: "決定",
   saveError: "調子を保存できませんでした。もう一度お試しください。",
   consultPrompt: "今日の予定を軽くしますか？",
   consult: "AIに相談する",

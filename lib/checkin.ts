@@ -17,3 +17,14 @@ export function consultTextFor({ mood, fatigue, concentration }: CheckinLevels):
   if (mood === "low") return text.moodLow;
   return null;
 }
+
+/** 3つとも入っている（null でない）チェックイン */
+export type CompleteCheckinLevels = { [K in keyof CheckinLevels]: NonNullable<CheckinLevels[K]> };
+
+/**
+ * 確定済みか：今日の checkin があり、気分・疲労・集中が3つとも null でない（frontend.md 14.2）。
+ * 確定済みなら /today は1行の表示にして、もう選ばせない（ロックは画面側だけ。API は上書きできる）
+ */
+export function isCheckinComplete(levels: CheckinLevels | null): levels is CompleteCheckinLevels {
+  return levels !== null && levels.mood !== null && levels.fatigue !== null && levels.concentration !== null;
+}

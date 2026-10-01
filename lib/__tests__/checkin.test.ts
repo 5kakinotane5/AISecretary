@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { consultTextFor, type CheckinLevels } from "@/lib/checkin";
+import { consultTextFor, isCheckinComplete, type CheckinLevels } from "@/lib/checkin";
 import { extractReplanIntentByKeywords } from "@/lib/llm/replan-keywords";
 import { CHECKIN_LABELS } from "@/lib/labels";
 
@@ -33,4 +33,19 @@ describe("「AIに相談する」で送る文（frontend.md 14.2）", () => {
       expect(intent.fatigue).not.toBeNull();
     },
   );
+});
+
+describe("確定済みか（frontend.md 14.2）", () => {
+  it("3つとも入っていれば確定済み", () => {
+    expect(isCheckinComplete({ mood: "medium", fatigue: "high", concentration: "low" })).toBe(true);
+  });
+
+  it.each<CheckinLevels | null>([
+    null,
+    NONE,
+    { mood: null, fatigue: "high", concentration: null }, // /replan で fatigue だけ入った
+    { mood: "high", fatigue: "low", concentration: null },
+  ])("%o は未確定", (levels) => {
+    expect(isCheckinComplete(levels)).toBe(false);
+  });
 });
