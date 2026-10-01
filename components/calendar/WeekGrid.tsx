@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { WEEK_LEGEND_ITEMS, formatWeekColumnLabel, getItemAppearance, getTravelIcon, type ItemAppearance } from "@/lib/labels";
 import { diffMinutes, formatDateLong, getDayOfMonth, getWeekdayJa } from "@/lib/datetime";
-import { sumMinutesOfKind } from "@/lib/schedule";
+import { mergeFreeTime, sumFreeTimeMinutes } from "@/lib/schedule";
 import type { DayView, ScheduleItem } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 
@@ -98,7 +98,7 @@ export function WeekGrid({ days, today, onDaySelect }: WeekGridProps) {
               day.date === today && "bg-(--brand-purple-pale)/30",
             )}
           >
-            {day.items.map((item) => (
+            {mergeFreeTime(day.items).map((item) => (
               <WeekBlock key={item.id} item={item} date={day.date} />
             ))}
           </button>
@@ -110,11 +110,11 @@ export function WeekGrid({ days, today, onDaySelect }: WeekGridProps) {
   );
 }
 
-/** 列のボタンの読み上げ。表示に使っている DayView から、タスクの件数・余白の合計・締切の件数を出す */
+/** 列のボタンの読み上げ。表示に使っている DayView から、タスクの件数・自由時間（buffer＋free）の合計・締切の件数を出す */
 function columnLabel(day: DayView): string {
   return formatWeekColumnLabel(formatDateLong(day.date), {
     taskCount: day.items.filter((item) => item.kind === "task").length,
-    bufferMinutes: sumMinutesOfKind(day.items, "buffer"),
+    freeMinutes: sumFreeTimeMinutes(day.items),
     deadlineCount: day.deadlines.length,
   });
 }
@@ -130,7 +130,7 @@ function blockPosition(item: ScheduleItem, date: string): { top: number; height:
   };
 }
 
-/** 薄い背景＋枠。移動・余白は破線の枠、睡眠は枠なしの薄い灰色、それ以外は左に細い線（丸印の色） */
+/** 薄い背景＋枠。移動は破線の枠、睡眠は枠なしの薄い灰色、それ以外は左に細い線（丸印の色） */
 function blockStyle(appearance: ItemAppearance, isSleep: boolean): CSSProperties {
   if (isSleep) return { backgroundColor: "var(--muted)" };
   if (appearance.dashedBorder) {
@@ -141,7 +141,7 @@ function blockStyle(appearance: ItemAppearance, isSleep: boolean): CSSProperties
 
 /**
  * 1つの予定のブロック。色は design-spec.md 2.3 の薄い背景＋左の細い線（丸印の色）。
- * 移動・余白は破線の枠、睡眠は薄い紫寄りの灰色
+ * 移動は破線の枠、睡眠は薄い紫寄りの灰色
  */
 function WeekBlock({ item, date }: { item: ScheduleItem; date: string }) {
   const position = blockPosition(item, date);

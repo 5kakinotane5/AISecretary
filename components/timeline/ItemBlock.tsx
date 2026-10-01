@@ -11,13 +11,13 @@ type ItemBlockProps = {
   locationName?: string | null;
   /** タスクの締切（task_id から引いたもの）。締切がなければ null */
   deadlineAt?: string | null;
-  /** バッファの候補タスク名（suggested_task_id から引いたもの） */
+  /** 自由時間の候補タスク名（suggested_task_id から引いたもの。複数あれば「・」でつないだもの） */
   suggestedTaskTitle?: string | null;
   /** 簡略表示（左右に2本並べるとき）。補足の行は時刻だけにする */
   compact?: boolean;
   /** 時刻軸側に開始・終了を表示する場合は、ブロック内の時刻を省く */
   showTime?: boolean;
-  /** 渡すとタップできるブロックになる（タスク・バッファの詳細シートを開く） */
+  /** 渡すとタップできるブロックになる（タスク・候補のある自由時間の詳細シートを開く） */
   onSelect?: () => void;
 };
 
@@ -36,7 +36,7 @@ export function ItemBlock({
 }: ItemBlockProps) {
   const appearance = getItemAppearance(item.kind, item.fixed_category);
   const completed = item.status === "completed";
-  // 内部の「バッファ」は画面上「余白」と表示する（design-spec.md 4章）
+  // 内部の「バッファ」は画面上「自由時間」と表示する（design-spec.md 4章）
   const title = item.kind === "buffer" ? appearance.label : item.title;
 
   const body = (

@@ -4,15 +4,16 @@ import { Check } from "lucide-react";
 import { ItemBlock } from "./ItemBlock";
 import { SCREEN_LABELS, TRAVEL_MODE_LABELS, getItemAppearance, getTravelIcon } from "@/lib/labels";
 import { diffMinutes, formatTime, formatTimeRange } from "@/lib/datetime";
+import { mergeFreeTime } from "@/lib/schedule";
 import type { Location, ScheduleItem, Task } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 
 type TimelineProps = {
-  /** その日の項目（開始時刻順） */
+  /** その日の項目。描画の前に mergeFreeTime で buffer を自由時間として表示し、隣り合う自由時間を1つにまとめる */
   items: ScheduleItem[];
   /** 現在時刻（demo_now）。「現在地」「次の予定」の強調に使う（design-spec.md 9.8） */
   now?: string | null;
-  /** 締切バッジとバッファの候補タスク名を出すためのタスク一覧 */
+  /** 締切バッジと自由時間の候補タスク名を出すためのタスク一覧 */
   tasks?: Task[];
   /** 場所の表示名を出すための場所一覧 */
   locations?: Location[];
@@ -21,7 +22,7 @@ type TimelineProps = {
    * 時刻の列と間隔を詰め、ブロックの補足（場所・候補・締切）と移動手段の文字を省く
    */
   compact?: boolean;
-  /** 渡すと、タスクとバッファのブロックがタップできるようになる（mock-spec.md 2.4） */
+  /** 渡すと、タスクと候補タスクのある自由時間のブロックがタップできるようになる（mock-spec.md 2.4） */
   onItemSelect?: (item: ScheduleItem) => void;
   /** 今日のタスク枠の完了状態を切り替える。渡したときだけチェックボタンを表示する */
   onTaskCompletionChange?: (item: ScheduleItem, completed: boolean) => void;
@@ -58,7 +59,7 @@ function rowClasses(compact: boolean, showTimeAxis = false): { row: string; time
  * - 現在時刻を含む予定の行を「現在地」、該当がなければ次に始まる予定の行を「次の予定」として強調する
  */
 export function Timeline({
-  items,
+  items: rawItems,
   now,
   tasks = [],
   locations = [],
@@ -70,6 +71,7 @@ export function Timeline({
   showTimeAxis = false,
   className,
 }: TimelineProps) {
+  const items = mergeFreeTime(rawItems);
   const taskById = new Map(tasks.map((t) => [t.id, t] as const));
   const locationNameById = new Map(locations.map((l) => [l.id, l.name] as const));
   const highlight = now ? findHighlight(items, now) : null;
@@ -135,9 +137,9 @@ export function Timeline({
           );
         }
 
-        const selectable = onItemSelect && (item.kind === "task" || item.kind === "buffer");
+        const selectable = onItemSelect && (item.kind === "task" || (item.kind === "free" && item.suggested_task_ids.length > 0));
         const task = item.task_id ? taskById.get(item.task_id) : undefined;
-        const suggested = item.suggested_task_id ? taskById.get(item.suggested_task_id) : undefined;
+        const suggestedTitles = item.suggested_task_ids.flatMap((id) => taskById.get(id)?.title ?? []);
 
         return (
           <li
@@ -161,7 +163,7 @@ export function Timeline({
                 item={item}
                 locationName={item.location_id ? (locationNameById.get(item.location_id) ?? null) : null}
                 deadlineAt={task?.deadline_at ?? null}
-                suggestedTaskTitle={suggested?.title ?? null}
+                suggestedTaskTitle={suggestedTitles.length > 0 ? suggestedTitles.join("・") : null}
                 compact={compact}
                 showTime={!showTimeAxis}
                 onSelect={selectable ? () => onItemSelect(item) : undefined}
@@ -296,7 +298,7 @@ function RailLine({ style, position }: { style: LineStyle; position: "top" | "bo
   );
 }
 
-/** 丸印（直径24px。design-spec.md 5.4）。余白は破線の輪、それ以外は塗りに白いアイコン */
+/** 丸印（直径24px。design-spec.md 5.4）。塗りに白いアイコン（circleStyle が ring のときだけ破線の輪） */
 function ItemCircle({ item }: { item: ScheduleItem }) {
   const appearance = getItemAppearance(item.kind, item.fixed_category);
   const Icon = appearance.icon;

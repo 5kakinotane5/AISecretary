@@ -22,12 +22,27 @@ API の形がモックと同じものは、画面を変えない。変えるの�
 | `/today` | `fetchDemoNow()` → `fetchClock()`。`demo_mode` のときだけ `DemoNowChip`。`has_plan: false` のとき、空の表示に「目標を相談する」ボタン（→ `/interview`。副ボタンの見た目）を足す |
 | `/calendar` | 表示名を「予定表」に変更。見出しと月／週／日の切り替え・期間移動を上部約20%にまとめて固定する |
 | `/replan` | `fetchDemoNow()` → `fetchClock()`。18:00 への繰り上げ（`setDemoNow`）と「デモのため、時刻を18:00に進めました」は `demo_mode` のときだけ。チップも `demo_mode` のときだけ |
-| `/settings` | `goalTitle` を「長期目標」にし、先頭に表示。睡眠時間と1日の作業上限を `PATCH /api/settings` で編集し、最低バッファ量は固定表示。場所・移動時間・有効な計画は変更しない。長期目標の欄の「新しい目標を相談する」（→ `/interview`）は目立たないテキストリンクにする。「デモ用」の欄（時刻の切り替え・リセット）とチップは `demo_mode` のときだけ |
+| `/settings` | `goalTitle` を「長期目標」にし、先頭に表示。睡眠時間と1日の作業上限を `PATCH /api/settings` で編集し、最低バッファ量は「予定のずれに備える時間（最低）」として固定表示。場所・移動時間・有効な計画は変更しない。長期目標の欄の「新しい目標を相談する」（→ `/interview`）は目立たないテキストリンクにする。「デモ用」の欄（時刻の切り替え・リセット）とチップは `demo_mode` のときだけ |
 | `/plans` | （**対応済み**）比較表の目標の行の見出しに `settings.goal?.task_name ?? SCREEN_LABELS.goal`（「長期目標」）を渡す |
 | `/interview` | 「スケジュール作成」が失敗したら、`ApiError.message`（422 なら計画が作れない理由）をボタンの上に出す |
 | `lib/labels.ts` | `REPLAN_QUICK_REPLIES` を「今日は疲れた」「20時から1時間予定が入った」「今日はもう勉強したくない」の3つにする（対応していない「今から30分だけ何かやりたい」は外す）。上の新しい文言を足す |
 
 `/today` は「今日の予定」とし、現在時刻を含む行（該当がなければ次の予定）へ初期スクロールする。日付・達成率の2行のヘッダーを上部に固定し（高さは中身と余白で決める）、タスク枠のチェックは `PATCH /api/plan-items/completion` で保存する。完了率は枠数で計算し、未チェック枠を時刻だけで完了扱いしない。
+
+#### 自由時間の表示（「余白」を使わない）
+
+- **画面上はすべて「自由時間」**。内部の buffer は自由時間として表示し、隣り合う自由時間は1つにまとめる（design-spec.md 4章）
+- **Engine・`/plans` の内部値では buffer と free を分けたまま**。`kind`、`PlanSummary` の `buffer_hours`／`free_hours`、DB、API、最低バッファの制約は変えない。まとめるのは表示の直前だけ
+- まとめは `lib/schedule.ts` の `mergeFreeTime(items)`（純粋関数）で行う
+  - `kind: "buffer"` を表示上 `kind: "free"`・タイトル「自由時間」にする
+  - 時刻順で、前の `end_at` ＝ 次の `start_at` かつ `location_id` が同じ free 同士を1つにする。`id`・`start_at` は最初、`end_at` は最後のもの
+  - 候補タスク（`suggested_task_id`）は `suggested_task_ids` に重複なく集め、`suggested_task_id` には最初の1件を残す。`reason` は重複を除いて改行でつなぐ
+- 使う場所
+  - `Timeline`（`/today`、`/calendar` の日表示、`/replan` の変更前後、`/plans` のプレビュー）：描画の前に `mergeFreeTime` を通す。見た目は free（緑・`Coffee`）。候補タスクがあれば「候補：メール返信」をブロックに出し、タップで詳細シートを開く。候補のない自由時間はタップできない（今の free と同じ）
+  - `ItemBlock`・`ItemDetailSheet`・`ChangeList`：buffer の表示名は「自由時間」
+  - `/calendar`：`WeekConditionCard` は「タスク・自由時間」の2本（自由時間＝buffer＋free の合計）。`WeekGrid` のブロックも `mergeFreeTime` を通し、凡例から「余白」を外す。列の読み上げは「自由時間45分」
+  - `/plans` の `PlanCompareTable`：「自由時間」1行（`buffer_hours + free_hours`）
+  - `/settings`：`min_buffer_minutes` の表示名は「予定のずれに備える時間（最低）」。中身はバッファだけなので「自由時間の最低量」にはしない
 
 #### `/today` の「今日の調子」（チェックイン）
 
