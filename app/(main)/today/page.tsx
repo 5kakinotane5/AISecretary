@@ -11,9 +11,17 @@ import { DemoNowChip } from "@/components/layout/DemoNowChip";
 import { MainShell } from "@/components/layout/MainShell";
 import { ItemDetailSheet } from "@/components/timeline/ItemDetailSheet";
 import { Timeline } from "@/components/timeline/Timeline";
+import { CheckinCard } from "@/components/today/CheckinCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiData } from "@/hooks/use-api-data";
-import { fetchCalendarDay, fetchClock, fetchSettings, fetchTasks, updatePlanItemCompletion } from "@/lib/api";
+import {
+  fetchCalendarDay,
+  fetchCheckin,
+  fetchClock,
+  fetchSettings,
+  fetchTasks,
+  updatePlanItemCompletion,
+} from "@/lib/api";
 import { formatDateLong, toDateStr } from "@/lib/datetime";
 import { SCREEN_LABELS, TODAY_LABELS } from "@/lib/labels";
 import type { ScheduleItem } from "@/lib/schemas";
@@ -31,12 +39,14 @@ export default function TodayPage() {
     async () => {
       const clock = await fetchClock();
       const now = clock.now;
-      const [day, tasks, settings] = await Promise.all([
-        fetchCalendarDay(toDateStr(now)),
+      const today = toDateStr(now);
+      const [day, tasks, settings, { checkin }] = await Promise.all([
+        fetchCalendarDay(today),
         fetchTasks(),
         fetchSettings(),
+        fetchCheckin(today),
       ]);
-      return { now, demoMode: clock.demo_mode, day, tasks, settings };
+      return { now, demoMode: clock.demo_mode, day, tasks, settings, checkin };
     },
     [],
     // 固定予定もない日は「データなし」。計画がなく固定予定だけの日は、その旨を添えて表示する
@@ -56,6 +66,10 @@ export default function TodayPage() {
   const taskItems = items.filter((item) => item.kind === "task");
   const completedTaskCount = taskItems.filter((item) => item.status === "completed").length;
   const completionPercent = taskItems.length === 0 ? 0 : Math.round((completedTaskCount / taskItems.length) * 100);
+  // 「AIに相談する」を出すのは、今日に計画があり、now 以降に未完了のタスク枠があるときだけ（frontend.md 14.2）
+  const canConsult =
+    !!data?.day.has_plan &&
+    taskItems.some((item) => item.status !== "completed" && Date.parse(item.start_at) >= Date.parse(data.now));
   const locationName = (id: string | null) =>
     id ? (data?.settings.locations.find((l) => l.id === id)?.name ?? null) : null;
 
@@ -108,7 +122,9 @@ export default function TodayPage() {
         ) : null}
       </header>
 
-      <div className="px-4 pt-3 pb-4">
+      <div className="flex flex-col gap-3 px-4 pt-3 pb-4">
+        {data ? <CheckinCard date={data.day.date} initial={data.checkin} canConsult={canConsult} /> : null}
+
         <SurfaceCard className="flex flex-col gap-3">
           <h2 className="text-lg font-bold">{SCREEN_LABELS.today}</h2>
 

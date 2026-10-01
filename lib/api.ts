@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import {
+  CheckinResponseSchema,
   ClockResponseSchema,
   DayViewSchema,
   GeneratePlansResponseSchema,
@@ -31,6 +32,7 @@ import {
   type PlanItemCompletionResponse,
   type Task,
   type WeekView,
+  type CheckinRequestSchema,
 } from "./schemas";
 
 // ---------- 画面から呼ぶ fetch 関数（mock-spec.md 1.4・4章・7章） ----------
@@ -206,4 +208,18 @@ export function requestReplan(date: string, text: string): Promise<ReplanRespons
 /** POST /api/plans/replan/accept（確定後のその日の DayView を返す） */
 export function acceptReplan(proposalId: string): Promise<DayView> {
   return post("/api/plans/replan/accept", DayViewSchema, { proposal_id: proposalId });
+}
+
+// チェックイン（backend.md 9.3）。リクエスト・レスポンスの型は lib/schemas.ts のスキーマから作る
+type CheckinRequest = z.infer<typeof CheckinRequestSchema>;
+type CheckinResponse = z.infer<typeof CheckinResponseSchema>;
+
+/** GET /api/checkin?date=（その日のチェックイン。なければ checkin: null） */
+export function fetchCheckin(date: string): Promise<CheckinResponse> {
+  return request(`/api/checkin?date=${encodeURIComponent(date)}`, CheckinResponseSchema);
+}
+
+/** POST /api/checkin（同じ日は部分更新。変えた項目だけ送る） */
+export function saveCheckin(body: CheckinRequest): Promise<CheckinResponse> {
+  return post("/api/checkin", CheckinResponseSchema, body);
 }

@@ -315,6 +315,30 @@ export const TODAY_LABELS = {
   updated: "計画を更新しました",
 } as const;
 
+/** /today の「今日の調子」（チェックイン。frontend.md 14.2） */
+export const CHECKIN_LABELS = {
+  title: "今日の調子",
+  inputTitle: "今日の調子は？",
+  submit: "決定",
+  saveError: "調子を保存できませんでした。もう一度お試しください。",
+  consultPrompt: "今日の予定を軽くしますか？",
+  consult: "AIに相談する",
+  fields: {
+    mood: { label: "気分", options: { low: "落ち込み気味", medium: "ふつう", high: "良い" } },
+    fatigue: { label: "疲労", options: { low: "元気", medium: "少し疲れた", high: "疲れている" } },
+    concentration: { label: "集中", options: { low: "できなさそう", medium: "ふつう", high: "できそう" } },
+  },
+  /** 「AIに相談する」で /replan に送る文（優先順。lib/llm/replan-keywords.ts で state_change になる文） */
+  consultText: {
+    fatigueHigh: "今日は疲れた",
+    fatigueMedium: "少し疲れた",
+    concentrationLow: "集中できない",
+    moodLow: "今日はちょっとやる気ないです",
+  },
+} as const satisfies {
+  fields: Record<"mood" | "fatigue" | "concentration", { label: string; options: Record<Level, string> }>;
+} & Record<string, unknown>;
+
 export const REPLAN_LABELS = {
   prompt: "予定の変更や、今の状態を教えてください",
   advancedClock: "デモのため、時刻を18:00に進めました",
