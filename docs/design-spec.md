@@ -21,7 +21,7 @@
 | 世界観 | 夜明け前の海を、羅針盤を頼りに進む航海。「航海の準備」など一部の航海用語は残し、`/today` は「予定」、`/calendar` は「予定表」、スケジュール3案は「〇〇コース」と表記する |
 | トーン | 静か・やさしい・前向き。急かさない。詰め込まない |
 
-**言葉づかいの原則**：予定変更を失敗として扱わない（要件定義書 6.12.5）。「遅れ」「未達成」ではなく「予定を調整」「余白」と表現する。
+**言葉づかいの原則**：予定変更を失敗として扱わない（要件定義書 6.12.5）。「遅れ」「未達成」ではなく「予定を調整」「自由時間」と表現する。
 
 ---
 
@@ -84,7 +84,7 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 | `fixed`（meal） | `#F7A38B` | `#FFF1EC` | イメージの「昼休み」 |
 | `fixed`（social / family） | `#F472B6` | `#FDF0F7` | 大切な人との時間。ハートのアイコン |
 | `travel` | `--purple-gray` | 透明＋破線の枠 | 船の航跡のような細い点線で前後をつなぐ |
-| `buffer` | `#A78BFA` | `#F6F2FF`＋破線の枠 | 「余白」と表示 |
+| `buffer` | （`free` と同じ） | （`free` と同じ） | 画面上はすべて「自由時間」。内部の buffer は自由時間として表示し、隣り合う自由時間は1つにまとめる（下の4章） |
 | `free` | `#5EC4A8` | `#EDF9F5` | イメージの「散歩」。「自由時間」 |
 | `sleep` | `#4B4577` | 1行に折りたたみ | |
 
@@ -97,7 +97,7 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 | `fixed`（meal） | `--kind-meal` | `--kind-meal-bg` |
 | `fixed`（social / family） | `--kind-social` | `--kind-social-bg` |
 | `travel` | `--kind-travel` | （透明のため変数なし） |
-| `buffer` | `--kind-buffer` | `--kind-buffer-bg` |
+| `buffer` | `--kind-free`（free と同じ） | `--kind-free-bg`（free と同じ） |
 | `free` | `--kind-free` | `--kind-free-bg` |
 | `sleep` | `--kind-sleep` | （1行折りたたみのため変数なし） |
 
@@ -143,7 +143,7 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 | スケジュール3案 | 予定プラン（集中コース／バランスコース／ゆとりコース）。`/plans` の見出しは「コースを選ぶ」 |
 | カレンダー（`/calendar`） | タブ名は「予定表」、見出しは「あなたの予定表」 |
 | 再計画（`/replan`） | 計画づくり（タブ名・見出しとも） |
-| バッファ | 余白 |
+| バッファ（`buffer`）・自由時間（`free`） | 画面上はすべて「自由時間」。内部の buffer は自由時間として表示し、隣り合う自由時間は1つにまとめる（`lib/schedule.ts` の `mergeFreeTime`）。Engine・`/plans` の内部値では buffer と free を分けたまま |
 | 現在時刻の線 | 現在地 |
 | 目標（Goal） | 見出しは「長期目標」、文やボタン・リンクは「目標」（下の決まりを参照） |
 | ヒアリング（`/interview`） | 航海の準備（目標を決める） |
@@ -188,7 +188,7 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 - 丸印は直径24px。2.3の色で塗り、中に白い14pxのアイコンを置く（アイコンは`mock-spec.md` 1.3を引き継ぐ。下の対応表のとおり）
 - 現在時刻の行は、時刻を `--brand-purple-pale` の角丸の枠で囲む（イメージの「9:00」）
 - 移動は丸印ではなく、前後の丸をつなぐ線を点線にして「移動 50分」と小さく表示
-- 余白（バッファ）は丸印を破線の輪にする。中のアイコンは紫（`--brand-purple`）にする（塗りがないため）
+- バッファ（buffer）は画面上「自由時間」として表示し、free と同じ丸印（`--kind-free` の塗りに白い `Coffee`）にする。隣り合う自由時間は1つにまとめ、候補タスクがあれば「候補：メール返信」と出してタップで詳細シートを開く
 - 締切バッジ「締切 10/9」：背景 `--brand-purple-pale`、文字色 `#5B45C9`、左に `Flag` アイコン（16px）。**赤は使わない**（9.3参照）
 - `mock-spec.md` の「高さを所要時間に比例」は採用せず、**1項目1行のリスト**にする（イメージに合わせる）。週表示の予定表だけ比例表示を使う
 
@@ -201,7 +201,7 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 | `fixed`（social / family） | `Heart` | 同上 |
 | `travel` | `TrainFront` / `Footprints` | 丸印は置かず、点線のみ（本文のとおり） |
 | `task` | `CircleCheck` | 2.3の色で塗り、白いアイコン |
-| `buffer` | `Hourglass` | 破線の輪、紫（`--brand-purple`）のアイコン |
+| `buffer` | `Coffee` | 自由時間として表示（free と同じ） |
 | `free` | `Coffee` | 2.3の色で塗り、白いアイコン |
 | `sleep` | `Moon` | 1行に折りたたみ（丸印は置かない） |
 
@@ -233,7 +233,7 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 | `/today` | 2枚目（ホーム） | 日付（右にデモ時刻のチップ）と今日のタスク達成率の2行のヘッダーを上部に固定（高さは固定せず、中身と上下12pxの余白で決める。約92px＋セーフエリア）。タスク枠に完了チェックを置く。`/replan` へはタブバーの「計画づくり」から移る（主ボタンは置かない） |
 | `/replan` | 4枚目（AIとの対話） | ヘッダー `--gradient-deep`「計画づくり」。変更点はイメージの「今日のおすすめ航路」風のカードで表示 |
 | `/calendar` | 3枚目（あなたの航海図） | ヘッダー「あなたの予定表」と月／週／日の切り替え・期間移動を上部約20%にまとめて固定。週・月・日の表示を続ける |
-| `/settings` | 2枚目のカードの形 | 「長期目標」を先頭に置き（「新しい目標を相談する」は目立たないテキストリンクで `/interview` へ）、生活リズム（睡眠時間・1日の作業上限）を編集可能にする。余白の最低量は固定表示。白いカードに項目を並べる |
+| `/settings` | 2枚目のカードの形 | 「長期目標」を先頭に置き（「新しい目標を相談する」は目立たないテキストリンクで `/interview` へ）、生活リズム（睡眠時間・1日の作業上限）を編集可能にする。「予定のずれに備える時間（最低）」（`min_buffer_minutes`）は固定表示。中身はバッファだけなので「自由時間の最低量」とはしない。白いカードに項目を並べる |
 
 ---
 
@@ -274,8 +274,8 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 
 5.4章に反映済み。
 
-- 丸印は直径24px、2.3の色で塗り、中に白い14pxのアイコンを置く。アイコンは `mock-spec.md` 1.3のもの（`School`／`Briefcase`／`Utensils`／`Heart`／`TrainFront`／`CircleCheck`／`Hourglass`／`Coffee`／`Moon`）を引き継ぐ
-- 余白（buffer）は破線の輪。中のアイコンは紫（`--brand-purple`）
+- 丸印は直径24px、2.3の色で塗り、中に白い14pxのアイコンを置く。アイコンは `mock-spec.md` 1.3のもの（`School`／`Briefcase`／`Utensils`／`Heart`／`TrainFront`／`CircleCheck`／`Coffee`／`Moon`）を引き継ぐ（buffer の `Hourglass` は使わず、自由時間の `Coffee` にする）
+- バッファ（buffer）は画面上「自由時間」として表示し、free と同じ見た目にする（4章）
 - 締切バッジ「締切 10/9」は赤を使わない：背景 `--brand-purple-pale`、文字色 `#5B45C9`、左に `Flag` アイコン。`mock-spec.md` 1.3の「赤いバッジ」の記述は削除し、本書を参照するように修正済み
 
 ### 9.4 デモ時刻の表示
@@ -298,7 +298,7 @@ PURCHARTにする範囲：
 
 - 色の値（`#7B61FF` など）は `app/globals.css` だけに書く。`lib/labels.ts` を含むコード側は変数名だけを持ち、`style={{ backgroundColor: "var(--kind-task)" }}` のように参照する
 - 変数名は次のとおり（値は `app/globals.css` に定義する。2.3参照）
-  - 丸印の色：`--kind-task`、`--kind-fixed`、`--kind-meal`、`--kind-social`、`--kind-travel`、`--kind-buffer`、`--kind-free`、`--kind-sleep`
+  - 丸印の色：`--kind-task`、`--kind-fixed`、`--kind-meal`、`--kind-social`、`--kind-travel`、`--kind-free`、`--kind-sleep`（`--kind-buffer` は画面では使わない。buffer は free の色で表示する）
   - ブロック背景：上の名前に `-bg` を付ける（例：`--kind-task-bg`）
   - 締切バッジ：`--deadline-bg`、`--deadline-fg`
 - 2.3章に反映済み
@@ -338,6 +338,6 @@ PURCHARTにする範囲：
 
 - 月表示：締切の印は締切バッジと同じ色（`--deadline-fg`）の `Flag` アイコンと件数で、赤は使わない（9.3と同じ）。計画がある日の背景は青ではなく紫系（`--kind-task-bg`。2.0）
 - 週表示：ブロックには文字を出さず、2.3の色で種類を表す。高さが24px以上のブロックだけ、中央に12pxのアイコン（5.4・9.3・9.7のアイコン。色は丸印の色）を出す
-- 週表示の下に凡例を置く：タスク・固定予定・食事・大切な人との時間・移動・余白・自由時間の色・アイコン・表示名
+- 週表示の下に凡例を置く：タスク・固定予定・食事・大切な人との時間・移動・自由時間の色・アイコン・表示名
 - ブロックの中身は日表示で見る。列見出しかブロックを押すと、その日の日表示に切り替える
 - `docs/mock-spec.md` 2.6章・10.22章にも反映済み

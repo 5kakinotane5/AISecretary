@@ -16,8 +16,8 @@ type PlanCompareTableProps = {
 function buildRows(goalName: string): { label: string; format: (s: PlanSummary) => string }[] {
   return [
     { label: "タスク", format: (s) => formatHours(s.task_hours) },
-    { label: SCREEN_LABELS.buffer, format: (s) => formatHours(s.buffer_hours) },
-    { label: "自由時間", format: (s) => formatHours(s.free_hours) },
+    // 内部の buffer と free は画面上どちらも「自由時間」なので、1行にまとめる（design-spec.md 4章）
+    { label: SCREEN_LABELS.freeTime, format: (s) => formatHours(s.buffer_hours + s.free_hours) },
     { label: "移動", format: (s) => formatHours(s.travel_hours) },
     { label: `${SCREEN_LABELS.goal}（${goalName}）`, format: (s) => formatHours(s.goal_hours) },
     { label: "締切タスク", format: (s) => `${s.deadline_task_count}件` },
@@ -26,7 +26,7 @@ function buildRows(goalName: string): { label: string; format: (s: PlanSummary) 
 
 /**
  * 予定プラン3案の比較表（mock-spec.md 2.3、design-spec.md 5.6・6章）。
- * 3案を横に並べ、行はタスク・余白・自由時間・移動・長期目標（目標の task_name）・締切タスク。
+ * 3案を横に並べ、行はタスク・自由時間（buffer＋free）・移動・長期目標（目標の task_name）・締切タスク。
  * 3案の違いを説明文だけにしないため、数値で並べて見せる。
  */
 export function PlanCompareTable({ candidates, selectedId, goalName, className }: PlanCompareTableProps) {

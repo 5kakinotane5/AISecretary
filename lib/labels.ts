@@ -11,7 +11,6 @@ import {
   Coffee,
   Footprints,
   Heart,
-  Hourglass,
   House,
   Map as MapIcon,
   MessageCircle,
@@ -54,15 +53,15 @@ export type ItemAppearance = {
   icon: LucideIcon;
   /** 丸印を描くかどうか。travel・sleep は丸印を置かない */
   hasCircle: boolean;
-  /** 丸印が塗りつぶしか、破線の輪か（buffer だけ輪） */
+  /** 丸印が塗りつぶしか、破線の輪か（いまは輪を使う種類はない） */
   circleStyle: "filled" | "ring";
   /** 丸印の色（CSS変数名。filled は塗り色、ring は線の色） */
   circleColor: string;
-  /** 丸印内アイコンの色（CSS変数名。filled は白、buffer の輪は紫） */
+  /** 丸印内アイコンの色（CSS変数名。filled は白） */
   iconColor: string;
   /** ブロックの背景色（CSS変数名） */
   blockBg: string;
-  /** ブロックの枠が破線か（travel・buffer） */
+  /** ブロックの枠が破線か（travel） */
   dashedBorder: boolean;
 };
 
@@ -130,6 +129,17 @@ const FIXED_APPEARANCE: Record<FixedCategory, ItemAppearance> = {
   },
 };
 
+const FREE_APPEARANCE: ItemAppearance = {
+  label: "自由時間",
+  icon: Coffee,
+  hasCircle: true,
+  circleStyle: "filled",
+  circleColor: "var(--kind-free)",
+  iconColor: "white",
+  blockBg: "var(--kind-free-bg)",
+  dashedBorder: false,
+};
+
 const NON_FIXED_APPEARANCE: Record<Exclude<ItemKind, "fixed">, ItemAppearance> = {
   sleep: {
     label: "睡眠",
@@ -161,28 +171,9 @@ const NON_FIXED_APPEARANCE: Record<Exclude<ItemKind, "fixed">, ItemAppearance> =
     blockBg: "var(--kind-task-bg)",
     dashedBorder: false,
   },
-  buffer: {
-    // design-spec.md 4章：内部の「バッファ」は画面上「余白」と表示する
-    label: "余白",
-    icon: Hourglass,
-    hasCircle: true,
-    circleStyle: "ring",
-    circleColor: "var(--kind-buffer)",
-    // design-spec.md 5.4・9.3：塗りがないため、アイコンは --brand-purple にする
-    iconColor: "var(--brand-purple)",
-    blockBg: "var(--kind-buffer-bg)",
-    dashedBorder: true,
-  },
-  free: {
-    label: "自由時間",
-    icon: Coffee,
-    hasCircle: true,
-    circleStyle: "filled",
-    circleColor: "var(--kind-free)",
-    iconColor: "white",
-    blockBg: "var(--kind-free-bg)",
-    dashedBorder: false,
-  },
+  // design-spec.md 4章：内部の buffer は画面上「自由時間」として表示する（見た目も free と同じ）
+  buffer: FREE_APPEARANCE,
+  free: FREE_APPEARANCE,
 };
 
 /** kind（fixed のときは fixedCategory も）から見た目を引く */
@@ -241,7 +232,7 @@ export const SCREEN_LABELS = {
   today: "今日の予定",
   calendar: "予定表",
   replan: "計画づくり",
-  buffer: "余白",
+  freeTime: "自由時間",
   currentTimeLine: "現在地",
   // 現在時刻を含む予定がないときに、次に始まる予定の行に付ける（design-spec.md 9.8）
   nextRoute: "次の予定",
@@ -305,8 +296,7 @@ export const ONBOARDING_LABELS = {
 // ---------- 通常利用（/today・/replan）の文言（design-spec.md 4章・6章・9.4、mock-spec.md 2.4・2.5） ----------
 export const TODAY_LABELS = {
   taskTotal: "タスク",
-  bufferTotal: SCREEN_LABELS.buffer,
-  freeTotal: "自由時間",
+  freeTotal: SCREEN_LABELS.freeTime,
   achievement: "今日の達成率",
   noTasks: "今日のタスクはありません",
   completionError: "完了状態を更新できませんでした。もう一度お試しください。",
@@ -414,8 +404,7 @@ export const WEEK_LEGEND_ITEMS: { label: string; appearance: ItemAppearance; ico
   { label: "食事", appearance: FIXED_APPEARANCE.meal, icons: [FIXED_APPEARANCE.meal.icon] },
   { label: "大切な人との時間", appearance: FIXED_APPEARANCE.social, icons: [FIXED_APPEARANCE.social.icon] },
   { label: "移動", appearance: NON_FIXED_APPEARANCE.travel, icons: [TrainFront, Footprints] },
-  { label: SCREEN_LABELS.buffer, appearance: NON_FIXED_APPEARANCE.buffer, icons: [NON_FIXED_APPEARANCE.buffer.icon] },
-  { label: "自由時間", appearance: NON_FIXED_APPEARANCE.free, icons: [NON_FIXED_APPEARANCE.free.icon] },
+  { label: SCREEN_LABELS.freeTime, appearance: NON_FIXED_APPEARANCE.free, icons: [NON_FIXED_APPEARANCE.free.icon] },
 ];
 
 /** 分の表示「45分」「1時間15分」「2時間」 */
@@ -427,19 +416,19 @@ export function formatMinutes(minutes: number): string {
 }
 
 /**
- * 週表示の列のボタンの読み上げ「10月7日（水）　タスク3件・余白45分・締切なし。予定を見る」。
+ * 週表示の列のボタンの読み上げ「10月7日（水）　タスク3件・自由時間45分・締切なし。予定を見る」。
  * ブロックに文字を出さないため、その日の概要を読み上げで伝える（mock-spec.md 10.22）
  */
 export function formatWeekColumnLabel(
   dateLong: string,
-  summary: { taskCount: number; bufferMinutes: number; deadlineCount: number },
+  summary: { taskCount: number; freeMinutes: number; deadlineCount: number },
 ): string {
-  const buffer =
-    summary.bufferMinutes > 0
-      ? `${SCREEN_LABELS.buffer}${formatMinutes(summary.bufferMinutes)}`
-      : `${SCREEN_LABELS.buffer}なし`;
+  const free =
+    summary.freeMinutes > 0
+      ? `${SCREEN_LABELS.freeTime}${formatMinutes(summary.freeMinutes)}`
+      : `${SCREEN_LABELS.freeTime}なし`;
   const deadline = summary.deadlineCount > 0 ? `締切${summary.deadlineCount}件` : "締切なし";
-  return `${dateLong}　タスク${summary.taskCount}件・${buffer}・${deadline}。予定を見る`;
+  return `${dateLong}　タスク${summary.taskCount}件・${free}・${deadline}。予定を見る`;
 }
 
 /** 月表示の小さな点の色（MonthView の kinds。design-spec.md 2.3 の丸印の色） */
@@ -463,7 +452,8 @@ export const SETTINGS_LABELS = {
   rhythmSaveError: "生活リズムを保存できませんでした。入力内容を確認してください。",
   sleepStart: "睡眠の開始",
   sleepEnd: "睡眠の終了",
-  minBuffer: `${SCREEN_LABELS.buffer}の最低量`,
+  // 中身はバッファ（min_buffer_minutes）だけなので「自由時間の最低量」にはしない（design-spec.md 4章）
+  minBuffer: "予定のずれに備える時間（最低）",
   locationsTitle: "よく行く場所",
   noLocations: "登録されている場所はありません",
   travelTitle: "移動時間",

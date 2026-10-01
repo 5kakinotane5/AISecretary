@@ -176,7 +176,7 @@ function WeekSection({
   );
 }
 
-/** 日表示（mock-spec.md 2.6：/today と同じタイムライン部品）。タスク・余白をタップすると詳細シート */
+/** 日表示（mock-spec.md 2.6：/today と同じタイムライン部品）。タスク・候補のある自由時間をタップすると詳細シート */
 function DaySection({
   date,
   now,
