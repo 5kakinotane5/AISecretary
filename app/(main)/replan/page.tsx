@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Columns2 } from "lucide-react";
 import { ChatBubble } from "@/components/chat/ChatBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
@@ -30,6 +30,7 @@ type SendState = { status: "idle" } | { status: "sending" } | { status: "error";
  * /replan：計画づくり（mock-spec.md 2.5・10.6・10.20、design-spec.md 6章・9.4）。
  * 開いたら GET /api/mock/clock で時刻を読み、18:00より前なら POST /api/mock/clock で18:00を明示して送る。
  * 「この計画にする」→ POST /api/plans/replan/accept → /today?updated=1。「やめておく」→ /today（何も変えない）。
+ * /today の「AIに相談する」から /replan?text= で来たら、時刻の読み込みのあとにその文を1回だけ送る（frontend.md 14.2）。
  */
 export default function ReplanPage() {
   const router = useRouter();
@@ -52,6 +53,8 @@ export default function ReplanPage() {
   const [accepting, setAccepting] = useState<"idle" | "loading" | "error">("idle");
   const nextId = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
+  // ?text= を送ったか。Strict Mode で effect が2回走っても1回だけ送る
+  const queryTextSentRef = useRef(false);
 
   const now = clock.status === "success" ? clock.data.now : null;
 
@@ -82,6 +85,14 @@ export default function ReplanPage() {
     } catch {
       setSend({ status: "error", lastText: text });
     }
+  }
+
+  function sendQueryText(text: string) {
+    if (queryTextSentRef.current) return;
+    queryTextSentRef.current = true;
+    // クエリを消して、再読み込みで再送しないようにする
+    router.replace("/replan");
+    void sendText(text);
   }
 
   async function handleAccept() {
@@ -133,6 +144,10 @@ export default function ReplanPage() {
 
         {now ? (
           <>
+            {/* useSearchParams を使う部分は Suspense で囲む（Next.js の use-search-params.md「Prerendering」） */}
+            <Suspense fallback={null}>
+              <QueryTextSender onText={sendQueryText} />
+            </Suspense>
             <ChatBubble role="assistant">{REPLAN_LABELS.prompt}</ChatBubble>
             {messages.map((m) => (
               <ChatBubble key={m.id} role={m.role}>
@@ -181,6 +196,20 @@ export default function ReplanPage() {
       </div>
     </MainShell>
   );
+}
+
+/**
+ * /replan?text= の文を onText に渡す。時刻の読み込みが成功してから描画される（送る前に18:00への繰り上げを済ませる）。
+ * 1回だけ送ることとクエリを消すことは onText の側で行う
+ */
+function QueryTextSender({ onText }: { onText: (text: string) => void }) {
+  const text = useSearchParams().get("text");
+
+  useEffect(() => {
+    if (text) onText(text);
+  }, [text, onText]);
+
+  return null;
 }
 
 /** 「変更前と変更後を並べて見る」の1本（幅が狭いので Timeline の簡略表示） */
