@@ -2,12 +2,32 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CircleAlert, MessageCircle } from "lucide-react";
+import {
+  BatteryFull,
+  BatteryLow,
+  BatteryMedium,
+  CircleAlert,
+  Frown,
+  Meh,
+  MessageCircle,
+  SignalHigh,
+  SignalLow,
+  SignalMedium,
+  Smile,
+  type LucideIcon,
+} from "lucide-react";
 import { SEGMENT_LIST_STANDALONE, SEGMENT_TRIGGER } from "@/components/common/segment";
 import { SurfaceCard } from "@/components/common/SurfaceCard";
 import { Button } from "@/components/ui/button";
 import { saveCheckin } from "@/lib/api";
-import { consultTextFor, isCheckinComplete, type CheckinLevels, type CompleteCheckinLevels } from "@/lib/checkin";
+import {
+  consultTextFor,
+  isCheckinComplete,
+  overallCondition,
+  type CheckinLevels,
+  type CompleteCheckinLevels,
+  type OverallCondition,
+} from "@/lib/checkin";
 import { CHECKIN_LABELS } from "@/lib/labels";
 import type { Level } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
@@ -16,6 +36,13 @@ type Field = keyof CheckinLevels;
 
 const FIELDS: Field[] = ["mood", "fatigue", "concentration"];
 const LEVELS: Level[] = ["low", "medium", "high"];
+
+/** 入力カードの項目と値ごとのアイコン（frontend.md 14.2）。疲労は low（元気）が満タンの電池 */
+const CHECKIN_ICONS: Record<Field, Record<Level, LucideIcon>> = {
+  mood: { low: Frown, medium: Meh, high: Smile },
+  fatigue: { low: BatteryFull, medium: BatteryMedium, high: BatteryLow },
+  concentration: { low: SignalLow, medium: SignalMedium, high: SignalHigh },
+};
 
 type CheckinCardProps = {
   /** 今日の日付（YYYY-MM-DD） */
@@ -62,16 +89,33 @@ export function CheckinCard({ date, initial, canConsult }: CheckinCardProps) {
   );
 }
 
-/** 確定後の1行表示。ボタンにしない（押しても何も起きない） */
+/** 確定後の総合の顔（frontend.md 14.2） */
+const OVERALL_ICONS: Record<OverallCondition, LucideIcon> = { good: Smile, normal: Meh, tired: Frown };
+
+/** 確定後の1行表示。見出しの右に総合の顔と一言だけを出す。ボタンにしない（押しても何も起きない） */
 function CheckinSummary({ levels }: { levels: CompleteCheckinLevels }) {
+  const condition = overallCondition(levels);
+  const Icon = OVERALL_ICONS[condition];
+  const word = CHECKIN_LABELS.overall[condition];
+  const details = FIELDS.map((field) => {
+    const { label, options } = CHECKIN_LABELS.fields[field];
+    return `${label} ${options[levels[field]]}`;
+  }).join("・");
+  // 3項目の中身は読み上げ（aria-label）とマウスオーバー（title）で伝える
+  const meaning = `${CHECKIN_LABELS.title}：${word}（${details}）`;
   return (
-    <SurfaceCard className="flex min-h-8 flex-wrap items-center gap-x-3 gap-y-0.5 px-4 py-1.5 text-xs">
-      <span className="font-bold">{CHECKIN_LABELS.title}</span>
-      <span>
-        {FIELDS.map((field) => {
-          const { label, options } = CHECKIN_LABELS.fields[field];
-          return `${label} ${options[levels[field]]}`;
-        }).join("・")}
+    <SurfaceCard className="flex h-8 flex-nowrap items-center gap-3 px-4 py-0 text-xs">
+      <span className="font-bold whitespace-nowrap">{CHECKIN_LABELS.title}</span>
+      {/* tired だけ注意の色（締切バッジと同じ --deadline-fg。赤は使わない） */}
+      <span
+        role="img"
+        aria-label={meaning}
+        title={meaning}
+        className="flex items-center gap-1.5 font-bold whitespace-nowrap"
+        style={{ color: condition === "tired" ? "var(--deadline-fg)" : "var(--foreground)" }}
+      >
+        <Icon size={20} aria-hidden />
+        <span aria-hidden>{word}</span>
       </span>
     </SurfaceCard>
   );
@@ -115,7 +159,7 @@ function CheckinForm({
     <SurfaceCard className="flex flex-col gap-2 py-3">
       <h2 className="text-base font-bold">{CHECKIN_LABELS.inputTitle}</h2>
 
-      {/* 行の見た目は40px。選択肢のタップ領域は上下の余白まで広げて44px（after: で上下6pxずつ。行の間4px＋内側の余白4px×2に収まる） */}
+      {/* 行の見た目は48px（内側の余白4pxを除いたボタンは40px）。選択肢のタップ領域は上下に広げて52px（after: で上下6pxずつ。行の間4px＋内側の余白4px×2に収まる） */}
       <div className="flex flex-col gap-1">
         {FIELDS.map((field) => {
           const { label, options } = CHECKIN_LABELS.fields[field];
@@ -125,9 +169,10 @@ function CheckinForm({
               <span id={labelId} className="w-8 shrink-0 text-sm font-bold text-muted-foreground">
                 {label}
               </span>
-              <div role="group" aria-labelledby={labelId} className={cn(SEGMENT_LIST_STANDALONE, "h-10 min-w-0 flex-1")}>
+              <div role="group" aria-labelledby={labelId} className={cn(SEGMENT_LIST_STANDALONE, "h-12 min-w-0 flex-1")}>
                 {LEVELS.map((level) => {
                   const active = levels[field] === level;
+                  const Icon = CHECKIN_ICONS[field][level];
                   return (
                     <button
                       key={level}
@@ -138,11 +183,12 @@ function CheckinForm({
                       onClick={() => setLevels((current) => ({ ...current, [field]: level }))}
                       className={cn(
                         SEGMENT_TRIGGER,
-                        "relative flex-1 px-1 text-xs whitespace-nowrap disabled:opacity-60",
+                        "relative flex flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[11px] leading-none whitespace-nowrap disabled:opacity-60",
                         "after:absolute after:inset-x-0 after:-inset-y-1.5",
                       )}
                     >
-                      {options[level]}
+                      <Icon size={18} aria-hidden />
+                      <span>{options[level]}</span>
                     </button>
                   );
                 })}
