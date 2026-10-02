@@ -39,6 +39,7 @@ describe("applyEngineEvent", () => {
     expect(afterUpdate.turn!.startSnapshot.checkin.fatigue).toBeNull();
     expect(afterUpdate.turn!.snapshot.checkin.fatigue).toBe("high");
     expect(afterUpdate.turn!.afterDistances).not.toBeNull();
+    expect(afterUpdate.turn!.afterFeatures!.task_fit).toBeLessThan(afterUpdate.turn!.beforeFeatures!.task_fit);
 
     const end = run(events.slice(2), afterUpdate);
     expect(end.turn).toMatchObject({ stage: 3, done: true, replyType: "checkin", proposals: null });

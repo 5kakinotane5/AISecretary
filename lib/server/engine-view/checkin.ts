@@ -42,11 +42,10 @@ export async function saveCheckinWithEngineView(
   // 保存の前：今の状態と、今の計画の F(S)・D_k との距離
   let base: EngineViewBase | null = null;
   let before: ReturnType<typeof buildParamSnapshot> | null = null;
-  let features: ReturnType<typeof computeFeatures> = null;
   try {
     base = await view.load();
     before = buildParamSnapshot(base.context, base.days);
-    features = computeFeatures(base.context, base.days);
+    const features = computeFeatures(base.context, base.days);
     view.emit({
       type: "turn_start",
       text: checkinText(values),
@@ -71,11 +70,13 @@ export async function saveCheckinWithEngineView(
         after.checkin.fatigue !== before.checkin.fatigue ||
         after.checkin.concentration !== before.checkin.concentration
       ) {
+        const afterFeatures = computeFeatures(context, base.days);
         view.emit({
           type: "state_update",
           before,
           after,
-          after_distances: directionDistances(features, after.directions),
+          after_features: afterFeatures,
+          after_distances: directionDistances(afterFeatures, after.directions),
         });
       }
       view.emit({ type: "turn_end", ms: view.elapsedMs(), reply_type: "checkin", proposals: 0, message: "" });

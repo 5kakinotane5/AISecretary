@@ -68,12 +68,9 @@ export function createReplanTurnView(input: {
   const { emit, beforeDays } = input;
   let replyType = "error";
   let ended = false;
-  // 今の計画の F(S)（state_update の距離に使う）
-  let beforeFeatures: ReturnType<typeof computeFeatures> = null;
-
   safe(() => {
     const snapshot = buildParamSnapshot(input.context, beforeDays);
-    beforeFeatures = computeFeatures(input.context, beforeDays);
+    const beforeFeatures = computeFeatures(input.context, beforeDays);
     emit({
       type: "turn_start",
       text: input.text,
@@ -113,11 +110,13 @@ export function createReplanTurnView(input: {
     stateUpdate(before: PlanningContext, after: PlanningContext) {
       safe(() => {
         const afterSnapshot = buildParamSnapshot(after, beforeDays);
+        const afterFeatures = computeFeatures(after, beforeDays);
         emit({
           type: "state_update",
           before: buildParamSnapshot(before, beforeDays),
           after: afterSnapshot,
-          after_distances: directionDistances(beforeFeatures, afterSnapshot.directions),
+          after_features: afterFeatures,
+          after_distances: directionDistances(afterFeatures, afterSnapshot.directions),
         });
       });
     },

@@ -56,7 +56,9 @@ type EventBody =
       type: "state_update";
       before: ParamSnapshot;
       after: ParamSnapshot;
-      after_distances: DirectionDistances | null; // 今の計画の F(S) と、更新後の D_k との距離
+      // 今の計画（作り直していない）の、更新後の状態での F(S)。疲れで Fit が下がると task_fit が下がる
+      after_features: ObjectiveVector | null;
+      after_distances: DirectionDistances | null; // after_features と、更新後の D_k との距離
     }
   | {
       type: "option_check";

@@ -47,32 +47,40 @@ export function useTween(target: number, ms: number = TWEEN_MS): number {
   return useTweenArray([target], ms)[0] ?? target;
 }
 
-// 値が変わったときの差分。hot は変わってから HIGHLIGHT_MS の間だけ true。
+export const isMoved = (a: number, b: number) => Math.abs(a - b) >= EPSILON;
+
+// 値が変わったときの差分（前に表示していた値との差）。stamp は変わるたびに1つ増える。
 // resetKey（ターンの id）が変わって値が同じなら、差分を消す
-export function useChange(value: number | null, resetKey: string): { delta: number | null; hot: boolean } {
+export function useChange(value: number | null, resetKey: string): { delta: number | null; stamp: number } {
   const [previous, setPrevious] = useState({ value, resetKey });
   const [delta, setDelta] = useState<number | null>(null);
-  const [hot, setHot] = useState(false);
   const [stamp, setStamp] = useState(0);
 
   if (previous.value !== value || previous.resetKey !== resetKey) {
     setPrevious({ value, resetKey });
-    const moved = value !== null && previous.value !== null && Math.abs(value - previous.value) >= EPSILON;
-    if (moved) {
-      setDelta(value - (previous.value as number));
-      setHot(true);
+    if (value !== null && previous.value !== null && isMoved(value, previous.value)) {
+      setDelta(value - previous.value);
       setStamp((n) => n + 1);
     } else if (previous.resetKey !== resetKey) {
       setDelta(null);
-      setHot(false);
     }
   }
+  return { delta, stamp };
+}
+
+// key が変わってから（出てから）HIGHLIGHT_MS の間だけ true。key が null なら false
+export function useHot(key: string | null): boolean {
+  const [state, setState] = useState({ key, hot: key !== null });
+  if (state.key !== key) setState({ key, hot: key !== null });
 
   useEffect(() => {
-    if (stamp === 0) return;
-    const timer = window.setTimeout(() => setHot(false), HIGHLIGHT_MS);
+    if (key === null) return;
+    const timer = window.setTimeout(
+      () => setState((current) => (current.key === key ? { ...current, hot: false } : current)),
+      HIGHLIGHT_MS,
+    );
     return () => window.clearTimeout(timer);
-  }, [stamp]);
+  }, [key]);
 
-  return { delta, hot };
+  return state.hot;
 }

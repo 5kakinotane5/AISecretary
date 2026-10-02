@@ -48,7 +48,8 @@ export type TurnView = {
   snapshot: ParamSnapshot; // 今の値
   beforeFeatures: ObjectiveVector | null; // 今の計画の F(S)
   beforeDistances: DirectionDistances | null;
-  afterDistances: DirectionDistances | null; // 状態の更新後の D_k との距離（今の計画）
+  afterFeatures: ObjectiveVector | null; // 状態の更新後の、今の計画の F(S)（作り直していない）
+  afterDistances: DirectionDistances | null; // afterFeatures と更新後の D_k との距離
   options: OptionView[];
   llmCalls: number;
   retries: number;
@@ -113,7 +114,13 @@ function nextTurn(turn: TurnView, event: EngineEvent): TurnView {
     case "llm_result":
       return { ...base, stage: 1, replyType: event.reply_type };
     case "state_update":
-      return { ...base, stage: 2, snapshot: event.after, afterDistances: event.after_distances };
+      return {
+        ...base,
+        stage: 2,
+        snapshot: event.after,
+        afterFeatures: event.after_features,
+        afterDistances: event.after_distances,
+      };
     case "option_check": {
       const option: OptionView = {
         call: event.call,
@@ -159,6 +166,7 @@ export function applyEngineEvent(state: ViewState, event: EngineEvent): ViewStat
       snapshot: event.snapshot,
       beforeFeatures: event.before_features,
       beforeDistances: event.before_distances,
+      afterFeatures: null,
       afterDistances: null,
       options: [],
       llmCalls: 0,

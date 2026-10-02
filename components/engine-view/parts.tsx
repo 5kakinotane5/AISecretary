@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { SurfaceCard } from "@/components/common/SurfaceCard";
 import { cn } from "@/lib/utils";
-import { useChange, useTween } from "./motion";
+import { isMoved, useChange, useHot, useTween } from "./motion";
 
 // 別画面の共通の部品（数値・差分・棒・パネル）
 
@@ -19,20 +19,28 @@ export function AnimatedNumber({ value, digits = 2, className }: { value: number
   return <span className={cn("tabular-nums", className)}>{formatValue(shown, digits)}</span>;
 }
 
-// 差分（↑ +0.15 / ↓ −0.10）。変わってから2秒は色の背景で目立たせ、その後は文字だけにする
+// 差分（↑ +0.15 / ↓ −0.10）。変わってから2秒は色の背景で目立たせ、その後は文字だけにする。
+// base を渡すと、前に表示していた値ではなく base（ターンの始まりの値など）との差を出す（新しく出た行でも差分が出る）。
 // compact：幅を取らない（表のセルの中で使う）
 export function Delta({
   value,
   resetKey,
+  base,
   digits = 2,
   compact = false,
 }: {
   value: number | null;
   resetKey: string;
+  base?: number;
   digits?: number;
   compact?: boolean;
 }) {
-  const { delta, hot } = useChange(value, resetKey);
+  const tracked = useChange(value, resetKey);
+  const fixed = base === undefined || value === null || !isMoved(value, base) ? null : value - base;
+  const delta = base === undefined ? tracked.delta : fixed;
+  const hot = useHot(
+    delta === null ? null : base === undefined ? `${resetKey}:${tracked.stamp}` : `${resetKey}:${delta.toFixed(3)}`,
+  );
   if (delta === null) return compact ? null : <span className="inline-block w-[5.5em]" aria-hidden />;
   const up = delta > 0;
   const color = up ? UP_COLOR : DOWN_COLOR;

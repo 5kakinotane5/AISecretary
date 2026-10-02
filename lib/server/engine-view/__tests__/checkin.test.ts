@@ -44,7 +44,20 @@ describe("saveCheckinWithEngineView", () => {
     expect(update.before.checkin.fatigue).toBeNull();
     expect(update.after.checkin.fatigue).toBe("high");
     expect(update.after.directions.balanced.recovery).toBeGreaterThan(update.before.directions.balanced.recovery);
-    expect(update.after_distances).not.toBeNull();
+    // 今の計画（作り直していない）の F(S) も更新後の状態で計算し直す：疲れで Fit が下がり、task_fit が下がる
+    expect(update.after_features).not.toBeNull();
+    expect(update.after_features!.task_fit).toBeLessThan(start.before_features!.task_fit);
+    expect(update.after_features!.achievement).toBe(start.before_features!.achievement);
+    // after_distances は after_features と更新後の D_k の距離
+    expect(update.after_distances!.relaxed).toBeCloseTo(
+      Math.sqrt(
+        (Object.keys(update.after_features!) as (keyof typeof update.after_features)[]).reduce(
+          (sum, key) => sum + (update.after_features![key] - update.after.directions.relaxed[key]) ** 2,
+          0,
+        ),
+      ),
+      10,
+    );
 
     expect(events[2]).toEqual({ type: "turn_end", ms: 5, reply_type: "checkin", proposals: 0, message: "" });
   });
@@ -65,6 +78,7 @@ describe("saveCheckinWithEngineView", () => {
     expect(start.before_distances).toBeNull();
     expect(start.snapshot.today_fits).toEqual([]);
     const update = events[1] as Extract<EngineEventPayload, { type: "state_update" }>;
+    expect(update.after_features).toBeNull();
     expect(update.after_distances).toBeNull();
     expect(events.map((e) => e.type)).toEqual(["turn_start", "state_update", "turn_end"]);
   });

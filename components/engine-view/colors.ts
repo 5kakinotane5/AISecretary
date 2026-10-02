@@ -9,8 +9,10 @@ export const STYLE_COLORS: Record<PlanStyle, { line: string; text: string }> = {
   relaxed: { line: "var(--kind-free)", text: "#0f7a5f" },
 };
 
-// 今の計画（Before）
+// 今の計画（Before）と、状態を更新した後の今の計画（After。計画は作り直さず、F(S) だけ計算し直したもの）
 export const BEFORE_COLOR = "var(--purple-gray)";
+// バランスの D_k（ブランドの紫の点線）と見分けるため、濃い紫
+export const AFTER_COLOR = "#2e2170";
 
 // 案1〜3の After（方向の色と分ける）
-export const OPTION_COLORS = ["#2e2170", "var(--kind-social)", "#0e7490"] as const;
+export const OPTION_COLORS = ["var(--kind-social)", "#0e7490", "var(--kind-sleep)"] as const;

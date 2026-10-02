@@ -123,6 +123,7 @@ describe("runReplanChatTurn の出来事（emit）", () => {
     const update = events[3] as Extract<EngineEventPayload, { type: "state_update" }>;
     expect(update.before.checkin.fatigue).toBeNull();
     expect(update.after.checkin.fatigue).toBe("high");
+    expect(update.after_features!.task_fit).toBeLessThan(start.before_features!.task_fit);
 
     const checks = events.filter((e): e is Extract<EngineEventPayload, { type: "option_check" }> => e.type === "option_check");
     expect(checks.map((c) => [c.call, c.index])).toEqual([[1, 1], [1, 2]]);
