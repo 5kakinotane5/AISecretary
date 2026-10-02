@@ -42,6 +42,10 @@ import {
   insertReplanProposal,
   type ReplanProposalInsert,
 } from "@/lib/server/repositories/replan-proposals";
+import { isEngineViewEnabled } from "@/lib/server/engine-view/bus";
+import type { EngineEmit } from "@/lib/server/engine-view/events";
+import { createTurnEmitter } from "@/lib/server/engine-view/load";
+import { createReplanTurnView, type ReplanTurnView } from "@/lib/server/engine-view/replan";
 import { checkOption } from "./check";
 
 // 会話の再計画：1ターンの流れ（replan-chat.md 12.11）。
@@ -107,6 +111,8 @@ export type ChatTurnDeps = {
   updateFatigue: (fatigue: "high" | "medium") => Promise<DailyCheckin>;
   newId: () => string;
   elapsedMs: () => number; // ターンの始まりからの経過
+  // 発表用の別画面（/engine-view）に出来事を流す。省略したら何もしない（計算もしない）
+  emit?: EngineEmit;
 };
 
 const reply = (message: string, extra: Partial<ReplanChatResponse> = {}): ReplanChatResponse =>
@@ -212,9 +218,32 @@ function labelNamesTargets(
 }
 
 export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps): Promise<ReplanChatResponse> {
+  if (!deps.emit) return runTurn(input, deps, null);
+  const view = createReplanTurnView({
+    emit: deps.emit,
+    text: input.request.text,
+    context: input.context,
+    beforeDays: input.beforeDays,
+    elapsedMs: deps.elapsedMs,
+  });
+  // turn_end は、どの return からでも1回だけ（例外のときは reply_type "error"）
+  try {
+    const response = await runTurn(input, deps, view);
+    view.end(response);
+    return response;
+  } catch (e) {
+    view.end(null);
+    throw e;
+  }
+}
+
+async function runTurn(input: ChatTurnInput, deps: ChatTurnDeps, view: ReplanTurnView | null): Promise<ReplanChatResponse> {
   const { request } = input;
   // 2. LLM_MODE=off → 12.2 の経路
-  if (!deps.llmEnabled()) return deps.fallback();
+  if (!deps.llmEnabled()) {
+    view?.fallback("llm_off");
+    return deps.fallback();
+  }
 
   let context = input.context;
   let feedback: ReplanChatFeedback[] = [];
@@ -232,6 +261,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
 
     // 3. 計画の呼び出し（12.13 ①）
     let llm: ReplanChatLlm;
+    const llmStartedAt = view?.llmStart(call + 1, feedback.length) ?? 0;
     try {
       llm = await callReplanChat(
         buildReplanChatInput({
@@ -246,16 +276,22 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
     } catch (e) {
       if (!(e instanceof LlmError)) throw e;
       // 1回目の失敗 → 12.2 の経路。2回目以降 → できる範囲を伝える文（8）
-      if (call === 0) return deps.fallback();
+      if (call === 0) {
+        view?.fallback("llm_error");
+        return deps.fallback();
+      }
       break;
     }
+    view?.llmResult(call + 1, llmStartedAt, llm);
 
     awaitingRetry = false;
     // 疲れは、今回の発言が疲れのキーワード（12.3.2）に当たるときだけ使う。当たらなければ LLM の fatigue は無視する
     const fatigue = mentionsFatigue(request.text) ? llm.fatigue : null;
     // 疲れ（high・medium）は reply_type に関係なく、今日のチェックインに入れる（12.2 の 6 と同じ。accept を待たない）
     if ((fatigue === "high" || fatigue === "medium") && context.checkin?.fatigue !== fatigue) {
+      const previous = context;
       context = { ...context, checkin: await deps.updateFatigue(fatigue) };
+      view?.stateUpdate(previous, context);
     }
 
     // 4. reply_type ごと
@@ -273,6 +309,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
         awaitingRetry = true;
         feedback = [{ label: "", errors: [SELECT_INVALID_FEEDBACK] }];
         userReasons = [];
+        view?.retry(call + 1, [SELECT_INVALID_FEEDBACK]);
         continue;
       }
       case "discard":
@@ -288,6 +325,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
     if (options.length === 0) {
       feedback = [{ label: "", errors: [NO_OPTIONS_ERROR] }];
       userReasons = [NO_OPTIONS_ERROR];
+      if (call + 1 < MAX_PLAN_CALLS) view?.retry(call + 1, [NO_OPTIONS_ERROR]);
       continue;
     }
     const failedUserReasons: string[] = [];
@@ -307,6 +345,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
         fatigue,
         newId: deps.newId,
       });
+      view?.optionCheck(call + 1, i + 1, label, context, check);
       if (check.ok) passed.push({ label, tired: isTiredPlan(option), ops: option.ops, check });
       else {
         // LLM にはすべての理由を返す。Engine・Validator の理由はログにだけ出し、利用者には見せない
@@ -386,6 +425,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
     // 6. 全部だめ → 理由を feedback に入れてやり直す
     feedback = failed;
     userReasons = failedUserReasons;
+    if (call + 1 < MAX_PLAN_CALLS) view?.retry(call + 1, failed.flatMap((entry) => entry.errors));
   }
 
   // 8. 最後まで通らない → できる範囲を伝える文。proposals は空。
@@ -456,6 +496,8 @@ export async function runReplanChat(
       updateFatigue: (fatigue) => upsertCheckin(supabase, userId, today, { fatigue }),
       newId: () => crypto.randomUUID(),
       elapsedMs: () => performance.now() - startedAt,
+      // ENGINE_VIEW=on のときだけ、発表用の別画面に出来事を流す
+      ...(isEngineViewEnabled() ? { emit: createTurnEmitter(userId, "replan").emit } : {}),
     },
   );
 }
