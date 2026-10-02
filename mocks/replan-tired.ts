@@ -87,7 +87,7 @@ const changes: ReplanChange[] = [
     before: originalMailBuffer,
     after: [],
     moved_to_date: null,
-    reason: "作業がなくなったため、自由時間にまとめました",
+    reason: "作業がなくなったため、空き時間にまとめました",
   },
   {
     change_type: "replaced",

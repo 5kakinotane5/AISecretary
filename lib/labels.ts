@@ -130,7 +130,7 @@ const FIXED_APPEARANCE: Record<FixedCategory, ItemAppearance> = {
 };
 
 const FREE_APPEARANCE: ItemAppearance = {
-  label: "自由時間",
+  label: "空き時間",
   icon: Coffee,
   hasCircle: true,
   circleStyle: "filled",
@@ -232,7 +232,7 @@ export const SCREEN_LABELS = {
   today: "今日の予定",
   calendar: "予定表",
   replan: "計画づくり",
-  freeTime: "自由時間",
+  freeTime: "空き時間",
   currentTimeLine: "現在地",
   // 現在時刻を含む予定がないときに、次に始まる予定の行に付ける（design-spec.md 9.8）
   nextRoute: "次の予定",

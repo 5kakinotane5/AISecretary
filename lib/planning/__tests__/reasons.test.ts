@@ -19,7 +19,7 @@ const reasonCases: Array<[ReasonCode, string]> = [
   ["TIRED_LIGHT", "疲れているため、集中力が必要なリスニングを、短時間でできる単語に切り替えました"],
   ["TIRED_MOVED", "集中力が必要なレポートは今日は避けました。締切（10/9）には間に合います"],
   ["GOAL_CARRYOVER", "週6時間の目標を保つため、水曜に振り替えました"],
-  ["BUFFER_MERGED", "作業がなくなったため、自由時間にまとめました"],
+  ["BUFFER_MERGED", "作業がなくなったため、空き時間にまとめました"],
   ["FREE_EXTENDED", "ゆっくり休めるようにしました"],
   ["FIXED_EVENT_ADDED", "20:00からの予定を入れました"],
   ["USER_POSTPONED", "レポートを水曜に回しました"],
@@ -44,7 +44,7 @@ describe("reasons", () => {
       item({ id: "company", kind: "task", task_id: "task_research", start_at: "2026-10-05T12:00:00+09:00", end_at: "2026-10-05T13:00:00+09:00" }),
     ] }];
     expect(buildExplanation(context, days, "intensive")).toBe("締切のあるESとレポートを早めに終わらせ、企業研究も進めるプランです。空き時間は少なめです。");
-    expect(buildExplanation(context, days, "balanced")).toBe("締切に余裕を持って間に合わせつつ、毎日自由時間を残すプランです。");
+    expect(buildExplanation(context, days, "balanced")).toBe("締切に余裕を持って間に合わせつつ、毎日空き時間を残すプランです。");
     expect(buildExplanation(context, days, "relaxed")).toBe("締切に間に合う範囲でゆっくり進め、休む時間とバッファを多めにとるプランです。");
     expect(buildExplanation(context, [{ date: days[0].date, items: [days[0].items[2]] }], "intensive")).toBe("目標の時間をしっかり確保し、企業研究も進める、空き時間は少なめのプランです。");
   });
@@ -88,7 +88,7 @@ describe("reasons", () => {
     expect(replanReason("REST", { context })).toBe("まずは休憩をとって、疲れを回復します");
     expect(replanReason("TIRED_LIGHT", { context, task: listening, replacement: vocab })).toBe("疲れているため、集中力が必要なTOEIC リスニング演習を、短時間でできるTOEIC 単語に切り替えました");
     expect(replanReason("GOAL_CARRYOVER", { context, task: listening, date: "2026-10-06" })).toBe("週6時間の目標を保つため、火曜に振り替えました");
-    expect(replanReason("BUFFER_MERGED", { context })).toBe("作業がなくなったため、自由時間にまとめました");
+    expect(replanReason("BUFFER_MERGED", { context })).toBe("作業がなくなったため、空き時間にまとめました");
     expect(replanReason("FREE_EXTENDED", { context })).toBe("ゆっくり休めるようにしました");
   });
 
