@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { buildReplanRows } from "@/lib/server/replan-rows";
 import type { PlannedItem, ReplanOpLlm } from "@/lib/schemas";
 import { applyOps } from "../apply-ops";
@@ -16,6 +16,11 @@ const listening = (fixture: ChatFixture) => findBefore(fixture, TODAY, (item) =>
 const stats = (fixture: ChatFixture) =>
   fixture.beforeDays[0].items.filter((item) => item.task_id === "task_stats_hw" && item.start_at >= fixture.context.now);
 const tasksAfterNow = (items: PlannedItem[]) => items.filter((item) => item.kind === "task" && item.start_at >= at(TODAY, "18:00"));
+
+// 3案の生成（chatFixture の初回）は重いので、各テストの時間に数えないよう先に1回だけ行う
+beforeAll(() => {
+  chatFixture();
+}, 60_000);
 
 describe("applyOps（replan-chat.md 12.10）", () => {
   it("add_event 20:00〜22:00：予定を入れ、重なるタスクは後ろか明日以降に回る", () => {

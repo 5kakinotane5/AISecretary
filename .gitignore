@@ -43,3 +43,6 @@ next-env.d.ts
 
 # Cowork の出力
 Claude outputs/
+
+.local.env
+*.env

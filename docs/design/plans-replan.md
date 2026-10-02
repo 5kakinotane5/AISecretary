@@ -64,6 +64,8 @@ generate の手順：
 
 ## 12. 再計画（F-12）優先度A（Demo Path に含む）
 
+> 会話の経路（`POST /api/plans/replan/chat`。12.8〜12.15）は [replan-chat.md](replan-chat.md)。この章の 12.1〜12.7 はその fallback として残す。
+
 ### 12.1 機能要件
 
 | ID | 要件 |

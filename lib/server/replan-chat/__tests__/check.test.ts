@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { diffMinutesExact } from "@/lib/datetime";
 import { replan } from "@/lib/planning/replan";
 import type { ReplanOpLlm } from "@/lib/schemas";
@@ -15,6 +15,11 @@ function check(ops: ReplanOpLlm[], fixture: ChatFixture = chatFixture(), fatigue
 
 const taskMinutes = (days: { items: { kind: string; task_id: string | null; start_at: string; end_at: string }[] }[], taskId: string) =>
   days.flatMap((day) => day.items).filter((item) => item.kind === "task" && item.task_id === taskId).reduce((sum, item) => sum + diffMinutesExact(item.start_at, item.end_at), 0);
+
+// 3案の生成（chatFixture の初回）は重いので、各テストの時間に数えないよう先に1回だけ行う
+beforeAll(() => {
+  chatFixture();
+}, 60_000);
 
 describe("checkOption（replan-chat.md 12.11）", () => {
   it("skip（目標タスク）：errors 0、warnings に外した分の不足", () => {

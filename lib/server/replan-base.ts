@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DayPlan, PlannedItem, PlanningContext, ScheduleItem } from "@/lib/schemas";
-import { addDays, ceilToMinutes, getWeekStart, toDateStr } from "@/lib/datetime";
+import { addDays, ceilToMinutes, diffMinutes, getWeekStart, toDateStr } from "@/lib/datetime";
 import { withDisplayState } from "@/lib/server/calendar";
 import { getNow } from "@/lib/server/clock";
 import { HttpError } from "@/lib/server/http";
@@ -57,6 +57,29 @@ export function withTodayLockedItems(
   };
 }
 
+// 再計画の Validator（GOAL_HOURS_MISMATCH）に合わせて、目標の実施済み（goal_done_minutes）に
+// 「Before の now までに終わった、未チェックの目標タスクの枠」の分を足す。DB・時計には触れない。
+// Validator は now より後に終わる枠だけを数え、想定を W − D とする。一方 D は利用者がチェックした枠だけ（補正 C-23）なので、
+// 過ぎたのにチェックしていない枠があると、その分だけ必ず食い違う（再計画は過去の枠を変えず、今後の目標の分も変えないため）。
+// 再計画では、過ぎた枠は「もう動かせない分」として D と同じに扱う（チェック済みの枠はすでに D に入っているので足さない）
+export function withPastGoalMinutes(
+  context: PlanningContext,
+  beforeDays: readonly DayPlan[],
+  now: string,
+): PlanningContext {
+  if (context.goals.length === 0) return context;
+  const goalOf = new Map(context.tasks.map((task) => [task.id, task.goal_id]));
+  const done = { ...context.goal_done_minutes };
+  for (const item of beforeDays.flatMap((day) => day.items)) {
+    if (item.kind !== "task" || item.task_id === null || item.status === "completed") continue;
+    if (Date.parse(item.end_at) > Date.parse(now)) continue;
+    const goalId = goalOf.get(item.task_id);
+    if (!goalId) continue;
+    done[goalId] = (done[goalId] ?? 0) + diffMinutes(item.start_at, item.end_at);
+  }
+  return { ...context, goal_done_minutes: done };
+}
+
 // Before の項目に、保存されている reason_code を付ける
 // （replan() は Before の項目をそのまま updated_days に写すため、ないと EngineReplanResultSchema に合わない）
 export function withStoredReasonCodes(
@@ -95,10 +118,11 @@ export async function loadReplanBase(
   );
   const beforeToday = beforeDays.find((d) => d.date === today)?.items ?? [];
 
-  // 6. PlanningContext：style ＝有効な計画の style、locked_items に今日の locked な項目
-  const context = withTodayLockedItems(
-    await buildPlanningContext(supabase, userId, active.style),
-    beforeToday,
+  // 6. PlanningContext：style ＝有効な計画の style、locked_items に今日の locked な項目。
+  // 目標の実施済みに、過ぎた未チェックの目標タスクの枠を足す（withPastGoalMinutes）
+  const context = withPastGoalMinutes(
+    withTodayLockedItems(await buildPlanningContext(supabase, userId, active.style), beforeToday, now),
+    beforeDays,
     now,
   );
 

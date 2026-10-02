@@ -96,6 +96,58 @@ export async function getReplanProposalDate(
   return data ? String(data.date) : null;
 }
 
+// 次の2つは、自分の（user_id）・その日の（date）・pending の提案だけに絞る（他人の id・UUID でない id は触れない）
+const uuidsOf = (ids: readonly string[]) => ids.filter((id) => z.uuid().safeParse(id).success);
+
+// 提案を discarded にする（replan-chat.md 12.14。会話の「やっぱりナシ」）。
+// 自分の・その日の・pending の提案だけを変える
+export async function discardReplanProposals(
+  supabase: SupabaseClient,
+  userId: string,
+  date: string,
+  ids: readonly string[],
+): Promise<void> {
+  const valid = uuidsOf(ids);
+  if (valid.length === 0) return;
+  const { error } = await supabase
+    .from("replan_proposals")
+    .update({ status: "discarded" })
+    .in("id", valid)
+    .eq("user_id", userId)
+    .eq("date", date)
+    .eq("status", "pending");
+  if (error) throw error;
+}
+
+// 提案の label（会話の経路で保存したもの。replan-chat.md 12.13 ① の open_options）。id → label。
+// 自分の・その日の・pending の提案だけ。label がない（12.2 の経路で作った）提案は intent.type を返す
+export async function getReplanProposalLabels(
+  supabase: SupabaseClient,
+  userId: string,
+  date: string,
+  ids: readonly string[],
+): Promise<Map<string, { label: string | null; intent_type: string | null }>> {
+  const result = new Map<string, { label: string | null; intent_type: string | null }>();
+  const valid = uuidsOf(ids);
+  if (valid.length === 0) return result;
+  const { data, error } = await supabase
+    .from("replan_proposals")
+    .select("id, proposal")
+    .in("id", valid)
+    .eq("user_id", userId)
+    .eq("date", date)
+    .eq("status", "pending");
+  if (error) throw error;
+  for (const row of data ?? []) {
+    const proposal = (row.proposal ?? {}) as { label?: unknown; intent?: { type?: unknown } };
+    result.set(String(row.id), {
+      label: typeof proposal.label === "string" ? proposal.label : null,
+      intent_type: typeof proposal.intent?.type === "string" ? proposal.intent.type : null,
+    });
+  }
+  return result;
+}
+
 // 提案を反映する（apply_replan を rpc。backend.md 4.4、plans-replan.md 12.6）
 export async function applyReplan(supabase: SupabaseClient, proposalId: string): Promise<void> {
   const { error } = await supabase.rpc("apply_replan", { p_proposal_id: proposalId });
