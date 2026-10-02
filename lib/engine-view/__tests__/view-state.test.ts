@@ -3,7 +3,14 @@ import type { DailyCheckin } from "@/lib/schemas";
 import { buildCurrentView, saveCheckinWithEngineView } from "@/lib/server/engine-view/checkin";
 import { chatFixture, TODAY } from "@/lib/server/replan-chat/__tests__/helpers";
 import type { EngineEvent, EngineEventPayload, EngineEventSource } from "../events";
-import { applyEngineEvent, engineViewReducer, INITIAL_VIEW_STATE, nearestStyle, type ViewState } from "../view-state";
+import {
+  applyEngineEvent,
+  engineViewReducer,
+  INITIAL_VIEW_STATE,
+  nearestStyle,
+  shouldLoadSnapshot,
+  type ViewState,
+} from "../view-state";
 
 // 別画面の表示の状態（docs/design/engine-view.md 13-2）。サーバーの関数で作った本物の出来事を流して確かめる
 
@@ -125,13 +132,22 @@ describe("待機中のターン（GET /api/debug/engine-snapshot）", () => {
     }
   });
 
-  it("待機中の値は今のターンを置き換え、前のターンを previous に残す", async () => {
-    const finished = run(await checkinEvents("turn-d"));
+  it("つなぎ直し：turn_start 以降のターンを出しているときは今の値を読まず、届いても捨てる。待機中なら新しい値に置き換える", async () => {
     const fixture = chatFixture();
     const current = buildCurrentView({ context: fixture.context, days: fixture.beforeDays });
-    const idle = engineViewReducer(finished, { kind: "idle", current, loadedAt: 2 });
-    expect(idle.turn!.source).toBe("idle");
-    expect(idle.previous!.turnId).toBe("turn-d");
-    expect(idle.log).toBe(finished.log);
+    expect(shouldLoadSnapshot(INITIAL_VIEW_STATE)).toBe(true);
+
+    // 待機中 → 読み直した値で置き換える
+    const idle = engineViewReducer(INITIAL_VIEW_STATE, { kind: "idle", current, loadedAt: 1 });
+    expect(shouldLoadSnapshot(idle)).toBe(true);
+    const reloaded = engineViewReducer(idle, { kind: "idle", current, loadedAt: 2 });
+    expect(reloaded.turn!.turnId).toBe("idle-2");
+
+    // turn_start 以降（処理の途中・終わったあと）→ 読まない。届いても表示は変えない
+    const events = await checkinEvents("turn-d");
+    for (const shown of [run(events.slice(0, 1), reloaded), run(events, reloaded)]) {
+      expect(shouldLoadSnapshot(shown)).toBe(false);
+      expect(engineViewReducer(shown, { kind: "idle", current, loadedAt: 3 })).toBe(shown);
+    }
   });
 });

@@ -3,7 +3,6 @@
 import { BEAM_WEIGHT_LABELS, OBJECTIVE_AXES, STYLE_LABELS, STYLE_ORDER, type TurnView } from "@/lib/engine-view/view-state";
 import type { PlanStyle } from "@/lib/schemas";
 import { STYLE_COLORS } from "./colors";
-import { isMoved } from "./motion";
 import { AnimatedNumber, Bar, Delta, Panel } from "./parts";
 
 // ② 3方向の目標（D_k）と今日のビームの重み（w_k）。疲れ high・集中 low で動く（P9.1）
@@ -47,38 +46,34 @@ function DirectionGrid({ turn }: { turn: TurnView }) {
   );
 }
 
-// w_k：このターンで変わった行だけ「今の値 ↑差分（ターンの始まりとの差）」で出し、残りは1行にまとめる
+// 状態で動く w_k の成分（P9.1：w2 適合・w3 締切の安全・w5 空き時間・w6 詰め込み）。待機中も含めて常に出す
+const STATE_WEIGHT_INDEXES = [1, 2, 4, 5] as const;
+
+// w_k：状態で動く4行。差分はこのターンの始まりの値との差（新しいターンでは消え、state_update で付く）
 function WeightRows({ turn }: { turn: TurnView }) {
-  const start = turn.startSnapshot.beam_weights;
-  const now = turn.snapshot.beam_weights;
   const pick = (weights: Record<PlanStyle, number[]>, i: number): Values => ({
     intensive: weights.intensive[i] ?? 0,
     balanced: weights.balanced[i] ?? 0,
     relaxed: weights.relaxed[i] ?? 0,
   });
-  const rows = BEAM_WEIGHT_LABELS.map((label, i) => ({ label, from: pick(start, i), to: pick(now, i) }));
-  const changed = rows.filter((row) => STYLE_ORDER.some((style) => isMoved(row.from[style], row.to[style])));
   return (
-    <div className="flex flex-col gap-1">
-      {changed.length > 0 ? (
-        <div className="grid grid-cols-[6.2em_1fr_1fr_1fr] items-baseline gap-x-2 gap-y-1">
-          <Header />
-          {changed.map((row) => (
-            <div key={row.label} className="contents">
-              <span className="truncate">{row.label}</span>
-              {STYLE_ORDER.map((style) => (
-                <span key={style} className="animate-in fade-in flex items-baseline justify-between gap-1 tabular-nums duration-500">
-                  <AnimatedNumber value={row.to[style]} className="font-bold" />
-                  <Delta value={row.to[style]} base={row.from[style]} resetKey={turn.turnId} compact />
-                </span>
-              ))}
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {changed.length < rows.length ? (
-        <span className="text-muted-foreground">{changed.length === 0 ? "重みは変化なし" : "ほかの重みは変化なし"}</span>
-      ) : null}
+    <div className="grid grid-cols-[6.2em_1fr_1fr_1fr] items-baseline gap-x-2 gap-y-1">
+      <Header />
+      {STATE_WEIGHT_INDEXES.map((i) => {
+        const from = pick(turn.startSnapshot.beam_weights, i);
+        const to = pick(turn.snapshot.beam_weights, i);
+        return (
+          <div key={i} className="contents">
+            <span className="truncate">{BEAM_WEIGHT_LABELS[i]}</span>
+            {STYLE_ORDER.map((style) => (
+              <span key={style} className="flex items-baseline justify-between gap-1 tabular-nums">
+                <AnimatedNumber value={to[style]} />
+                <Delta value={to[style]} base={from[style]} resetKey={turn.turnId} compact />
+              </span>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -87,7 +82,7 @@ export function DirectionPanel({ turn }: { turn: TurnView }) {
   return (
     <Panel title="② 3方向の目標（D_k）" className="gap-2">
       <DirectionGrid turn={turn} />
-      <h3 className="mt-1 text-lg font-bold">今日のビームの重み（w_k）</h3>
+      <h3 className="text-lg font-bold">今日のビームの重み（w_k）</h3>
       <WeightRows turn={turn} />
     </Panel>
   );
