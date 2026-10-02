@@ -1,14 +1,17 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { buildReplanRows } from "@/lib/server/replan-rows";
+import { addDays } from "@/lib/datetime";
+import { expandFixedEvents } from "@/lib/planning/skeleton";
+import { buildNewTaskRows, buildReplanRows } from "@/lib/server/replan-rows";
 import type { PlannedItem, ReplanOpLlm } from "@/lib/schemas";
-import { applyOps } from "../apply-ops";
-import { at, chatFixture, findBefore, idFactory, op, TODAY, todayItems, validateApplied, type ChatFixture } from "./helpers";
+import { applyOps, type ApplyOpsResult } from "../apply-ops";
+import { at, blockFreeTime, chatFixture, findBefore, idFactory, op, TODAY, todayItems, validateApplied, type ChatFixture } from "./helpers";
 
 const TUESDAY = "2026-10-06";
+const WEDNESDAY = "2026-10-07";
 const THURSDAY = "2026-10-08";
 
-function run(ops: ReplanOpLlm[], fixture: ChatFixture = chatFixture()) {
-  const applied = applyOps({ context: fixture.context, beforeDays: fixture.beforeDays, ops, newId: idFactory() });
+function run(ops: ReplanOpLlm[], fixture: ChatFixture = chatFixture(), newId: () => string = idFactory()) {
+  const applied = applyOps({ context: fixture.context, beforeDays: fixture.beforeDays, ops, newId });
   return { fixture, applied, ...validateApplied(fixture, applied) };
 }
 
@@ -203,5 +206,257 @@ describe("applyOps（replan-chat.md 12.10）", () => {
       const rows = buildReplanRows({ result: applied.result, storedRows: new Map(), userId: "user-1", weeklyPlanId: "plan-1", newId: idFactory("row") });
       expect(rows.updatedDays.length).toBe(applied.result.updated_days.length);
     }
+  });
+});
+
+const dayItems = (applied: ApplyOpsResult, date: string) => applied.result.updated_days.find((day) => day.date === date)!.items;
+const span = (item: PlannedItem) => [item.kind, item.start_at.slice(11, 16), item.end_at.slice(11, 16)];
+const allChanges = (applied: ApplyOpsResult) => [...applied.result.proposal.changes, ...applied.result.proposal.other_day_changes];
+const placedOf = (applied: ApplyOpsResult, taskId: string) =>
+  applied.result.updated_days.flatMap((day) => day.items).filter((item) => item.kind === "task" && item.task_id === taskId);
+
+describe("applyOps：予定・タスクを足す（replan-add.md 12.18・12.23）", () => {
+  it("add_event once 10/8 15:00〜16:00：自由時間が前後に分かれ、errors 0", () => {
+    const { applied, validation } = run([op({ op: "add_event", title: "面接", date: THURSDAY, start: "15:00", end: "16:00", category: "social" })]);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.newFixedEvents).toEqual([
+      expect.objectContaining({ title: "面接", category: "social", location_id: null, recurrence: null, start_at: at(THURSDAY, "15:00"), end_at: at(THURSDAY, "16:00") }),
+    ]);
+    const thursday = dayItems(applied, THURSDAY);
+    expect(thursday.filter((item) => item.start_at >= at(THURSDAY, "13:00") && item.end_at <= at(THURSDAY, "18:00")).map(span)).toEqual([
+      ["free", "13:00", "15:00"],
+      ["fixed", "15:00", "16:00"],
+      ["free", "16:00", "18:00"],
+    ]);
+    expect(thursday.find((item) => item.kind === "fixed" && item.title === "面接")).toMatchObject({
+      fixed_event_id: applied.newFixedEvents[0].id,
+      fixed_category: "social",
+      locked: true,
+      reason: "15:00からの予定を入れました",
+      reason_code: "FIXED_EVENT_ADDED",
+    });
+    expect(applied.result.proposal.other_day_changes).toEqual([
+      expect.objectContaining({ change_type: "added", before: null, reason: "15:00からの予定を入れました" }),
+    ]);
+    expect(applied.result.updated_days.map((day) => day.date)).toEqual([TODAY, THURSDAY]);
+  });
+
+  it("add_event once 10/8 17:30〜18:30：重なるタスク（リスニング）は外れて別の時間に移り、errors 0", () => {
+    const fixture = chatFixture();
+    const thursdayListening = findBefore(fixture, THURSDAY, (item) => item.task_id === "task_toeic_listening");
+    const { applied, validation } = run([op({ op: "add_event", title: "面接", date: THURSDAY, start: "17:30", end: "18:30" })], fixture);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.unplaced).toEqual([]);
+    const event = dayItems(applied, THURSDAY).find((item) => item.title === "面接")!;
+    expect(span(event)).toEqual(["fixed", "17:30", "18:30"]);
+    expect(dayItems(applied, THURSDAY).filter((item) => item.kind === "task" && item.start_at < event.end_at && event.start_at < item.end_at)).toEqual([]);
+    const moved = applied.result.proposal.other_day_changes.find((change) => change.before?.id === thursdayListening.id)!;
+    expect(moved.change_type).toBe("moved");
+    expect(moved.after[0]).toMatchObject({ kind: "task", task_id: "task_toeic_listening" });
+  });
+
+  it("add_event once 10/8 で授業と重なる → opErrors", () => {
+    const { applied } = run([op({ op: "add_event", title: "面接", date: THURSDAY, start: "10:00", end: "11:00" })]);
+    expect(applied.opErrors).toEqual(["1限 計量経済学（9:00〜10:30）と重なるため入れられません"]);
+    expect(applied.newFixedEvents).toEqual([]);
+  });
+
+  it("add_event once 10/12（来週）・今日以外で start が now → opErrors", () => {
+    const { applied } = run([
+      op({ op: "add_event", title: "面接", date: "2026-10-12", start: "15:00", end: "16:00" }),
+      op({ op: "add_event", title: "散歩", date: THURSDAY, start: "now", minutes: 30 }),
+    ]);
+    expect(applied.opErrors).toEqual([
+      "今週（10/11まで）の1回きりの予定だけ入れられます。毎週の予定なら入れられます",
+      "今日以外の予定（散歩）は開始の時刻（HH:MM）で教えてください",
+    ]);
+    expect(applied.newFixedEvents).toEqual([]);
+  });
+
+  it("add_event weekly 水 18:00〜19:00：start_at は 10/7、10/7 に項目が置かれ、errors 0。DB から読み直した形（expandFixedEvents）でも通る", () => {
+    const fixture = chatFixture();
+    const { applied, validation } = run([op({ op: "add_event", title: "ジム", repeat: "weekly", weekday: "水", start: "18:00", end: "19:00" })], fixture);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.newFixedEvents).toEqual([
+      expect.objectContaining({ title: "ジム", category: "other", recurrence: "weekly", start_at: at(WEDNESDAY, "18:00"), end_at: at(WEDNESDAY, "19:00") }),
+    ]);
+    expect(dayItems(applied, WEDNESDAY).find((item) => item.title === "ジム")).toMatchObject({
+      kind: "fixed",
+      fixed_event_id: applied.newFixedEvents[0].id,
+      start_at: at(WEDNESDAY, "18:00"),
+      end_at: at(WEDNESDAY, "19:00"),
+    });
+    // 次の会話で DB から読み直したとき（planning-context.ts と同じ展開）の fixed_events でも、固定予定の一致の検査が通る
+    const weekStart = fixture.context.week_start;
+    const reloaded = expandFixedEvents([...fixture.context.fixed_events, ...applied.newFixedEvents], weekStart, addDays(weekStart, 6), { purpose: "planning_context" });
+    expect(reloaded.filter((event) => event.id === applied.newFixedEvents[0].id)).toEqual([applied.newFixedEvents[0]]);
+    expect(validateApplied(fixture, applied, reloaded).validation.errors).toEqual([]);
+  });
+
+  it("add_event weekly 月 9:00〜10:00（今日だがもう過ぎた）：start_at は来週の 10/12 9:00。今週の項目は増えない", () => {
+    const fixture = chatFixture();
+    const { applied, validation } = run([op({ op: "add_event", title: "自習", repeat: "weekly", weekday: "月", start: "9:00", end: "10:00" })], fixture);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.newFixedEvents).toEqual([
+      expect.objectContaining({ recurrence: "weekly", start_at: at("2026-10-12", "09:00"), end_at: at("2026-10-12", "10:00") }),
+    ]);
+    const fixedOf = (items: PlannedItem[]) => items.filter((item) => item.kind === "fixed");
+    expect(fixedOf(todayItems(applied))).toEqual(fixedOf(fixture.beforeDays[0].items));
+    expect(applied.result.updated_days.map((day) => day.date)).toEqual([TODAY]);
+    expect(allChanges(applied).filter((change) => change.change_type === "added")).toEqual([]);
+  });
+
+  it("add_event weekly 月 20:00〜21:00（今日のこれから）：start_at は 10/5 20:00、今日に項目が置かれる", () => {
+    const { applied, validation } = run([op({ op: "add_event", title: "ジム", repeat: "weekly", weekday: "月", start: "20:00", end: "21:00" })]);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.newFixedEvents).toEqual([expect.objectContaining({ recurrence: "weekly", start_at: at(TODAY, "20:00") })]);
+    expect(todayItems(applied).find((item) => item.title === "ジム")).toMatchObject({ kind: "fixed", start_at: at(TODAY, "20:00"), end_at: at(TODAY, "21:00") });
+  });
+
+  it("add_event weekly：start が now・null なら opErrors", () => {
+    const { applied } = run([
+      op({ op: "add_event", title: "ジム", repeat: "weekly", weekday: "水", start: "now", minutes: 60 }),
+      op({ op: "add_event", title: "ジム", repeat: "weekly", weekday: "水", start: null, minutes: 60 }),
+    ]);
+    expect(applied.opErrors).toEqual(["毎週の予定（ジム）は開始の時刻（HH:MM）で教えてください", "毎週の予定（ジム）は開始の時刻（HH:MM）で教えてください"]);
+    expect(applied.newFixedEvents).toEqual([]);
+  });
+
+  it("1つの案に add_event once を3つ（別の日）：3日とも置かれ、errors 0", () => {
+    const { applied, validation } = run([
+      op({ op: "add_event", title: "スーパー", date: TUESDAY, start: "17:00", minutes: 30 }),
+      op({ op: "add_event", title: "スーパー", date: THURSDAY, start: "15:00", minutes: 30 }),
+      op({ op: "add_event", title: "スーパー", date: "2026-10-11", start: "16:00", minutes: 30 }),
+    ]);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.newFixedEvents.map((event) => event.start_at)).toEqual([at(TUESDAY, "17:00"), at(THURSDAY, "15:00"), at("2026-10-11", "16:00")]);
+    for (const date of [TUESDAY, THURSDAY, "2026-10-11"]) {
+      expect(dayItems(applied, date).filter((item) => item.title === "スーパー")).toHaveLength(1);
+    }
+  });
+
+  it("add_task 120分・締切 10/9：明日（10/6）から 60分×2 で置かれ、締切前に終わる。errors 0", () => {
+    const { applied, validation } = run([op({ op: "add_task", title: "統計レポート", minutes: 120, deadline_date: "2026-10-09" })]);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.newTasks).toEqual([
+      {
+        id: expect.any(String),
+        title: "統計レポート",
+        goal_id: null,
+        deadline_at: "2026-10-09T23:59:00+09:00",
+        estimated_minutes: 120,
+        remaining_minutes: 120,
+        importance: "medium",
+        concentration: "medium",
+        splittable: true,
+        interruptible: true,
+        buffer_fit: "low",
+        status: "not_started",
+      },
+    ]);
+    const placed = placedOf(applied, applied.newTasks[0].id);
+    expect(placed.map((item) => [item.start_at.slice(0, 10), (Date.parse(item.end_at) - Date.parse(item.start_at)) / 60_000])).toEqual([
+      [TUESDAY, 60],
+      [WEDNESDAY, 60],
+    ]);
+    expect(placed.every((item) => item.end_at <= "2026-10-09T23:59:00+09:00")).toBe(true);
+    expect(placed.map((item) => [item.reason, item.reason_code])).toEqual([
+      ["10/9の締切に間に合うように入れました", null],
+      ["10/9の締切に間に合うように入れました", null],
+    ]);
+    expect(applied.unplaced).toEqual([]);
+    expect(applied.result.proposal.other_day_changes.filter((change) => change.change_type === "added")).toHaveLength(2);
+  });
+
+  it("add_task 30分・締切 10/6：今日の cut 以降か 10/6 に置かれる", () => {
+    const { applied, validation } = run([op({ op: "add_task", title: "申込", minutes: 30, deadline_date: TUESDAY, deadline_time: "12:00", importance: "high" })]);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.newTasks[0]).toMatchObject({ deadline_at: at(TUESDAY, "12:00"), importance: "high", estimated_minutes: 30 });
+    const placed = placedOf(applied, applied.newTasks[0].id);
+    expect(placed).toHaveLength(1);
+    expect(placed[0].start_at >= at(TODAY, "18:00") && placed[0].end_at <= at(TUESDAY, "12:00")).toBe(true);
+  });
+
+  it("add_task：締切が過ぎている・所要時間や締切がない → opErrors", () => {
+    const { applied } = run([
+      op({ op: "add_task", title: "申込", minutes: 30, deadline_date: TODAY, deadline_time: "17:00" }),
+      op({ op: "add_task", title: "申込", minutes: null, deadline_date: TUESDAY }),
+      op({ op: "add_task", title: "申込", minutes: 30, deadline_date: null }),
+    ]);
+    expect(applied.opErrors).toEqual(["申込の締切が過ぎています", "申込の所要時間（minutes）がありません", "申込の締切の日付（deadline_date）がありません"]);
+    expect(applied.newTasks).toEqual([]);
+  });
+
+  it("add_task 198分：5分に切り上げて200分、90分以下の回に分ける（70・65・65）", () => {
+    const { applied, validation } = run([op({ op: "add_task", title: "卒論", minutes: 198, deadline_date: "2026-10-11" })]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.newTasks[0].estimated_minutes).toBe(200);
+    const lengths = placedOf(applied, applied.newTasks[0].id).map((item) => (Date.parse(item.end_at) - Date.parse(item.start_at)) / 60_000);
+    expect(lengths.sort((a, b) => b - a)).toEqual([70, 65, 65]);
+  });
+
+  it("今日：キューの目標の行動の後ろに締切タスクがあって全部は入らない → 締切タスクが今日に残り、目標の行動が溢れる", () => {
+    const fixture = chatFixture();
+    const [firstStats, secondStats] = stats(fixture);
+    const report = findBefore(fixture, TUESDAY, (item) => item.task_id === "task_report");
+    const { applied, validation } = run([
+      op({ op: "postpone", item_id: firstStats.id }),
+      op({ op: "postpone", item_id: secondStats.id }),
+      op({ op: "add_event", title: "飲み会", start: "21:30", end: "23:00" }),
+      op({ op: "pull_forward", item_id: report.id, position: "last" }),
+    ], fixture);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    const today = tasksAfterNow(todayItems(applied));
+    expect(today.map((item) => [item.task_id, item.start_at.slice(11, 16), item.end_at.slice(11, 16)])).toEqual([["task_report", "19:45", "21:15"]]);
+    const moved = applied.result.proposal.other_day_changes.find((change) => change.before?.id === listening(fixture).id)!;
+    expect(moved.change_type).toBe("moved");
+    expect(moved.moved_to_date! > TODAY).toBe(true);
+  });
+
+  it("空きのない週に今日締切のタスクを足す：今日の目標の行動を外して置き、外した目標の行動は unplaced（goal_id 付き）", () => {
+    const fixture = chatFixture();
+    for (let date = TUESDAY; date <= "2026-10-11"; date = addDays(date, 1)) blockFreeTime(fixture, date);
+    const { applied, validation } = run([op({ op: "add_task", title: "申込書", minutes: 60, deadline_date: TODAY })], fixture);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors.filter((issue) => issue.code !== "GOAL_HOURS_MISMATCH")).toEqual([]);
+    expect(todayItems(applied).some((item) => item.task_id === "task_toeic_listening")).toBe(false);
+    expect(placedOf(applied, applied.newTasks[0].id).map((item) => item.start_at.slice(0, 10))).toEqual([TODAY]);
+    expect(applied.unplaced).toEqual([{ task_id: "task_toeic_listening", title: "TOEIC リスニング演習", minutes: 60, deadline_at: null, goal_id: "goal_toeic" }]);
+  });
+
+  it("結果を buildReplanRows() に渡して例外が出ない。new_tasks の行は tasks の列の形、new_fixed_events の行に recurrence が入る", () => {
+    const fixture = chatFixture();
+    // run.ts と同じく newId は UUID（tasks.id・fixed_events.id は uuid の列）
+    const { applied } = run([
+      op({ op: "add_task", title: "統計レポート", minutes: 120, deadline_date: "2026-10-09" }),
+      op({ op: "add_event", title: "ジム", repeat: "weekly", weekday: "水", start: "18:00", end: "19:00" }),
+      op({ op: "add_event", title: "面接", date: THURSDAY, start: "15:00", end: "16:00" }),
+    ], fixture, () => crypto.randomUUID());
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    expect(applied.newTasks[0].id).toMatch(uuid);
+    expect(applied.newFixedEvents.every((event) => uuid.test(event.id))).toBe(true);
+    const rows = buildReplanRows({ result: applied.result, storedRows: new Map(), userId: "user-1", weeklyPlanId: "plan-1", newId: idFactory("row") });
+    expect(rows.updatedDays.length).toBe(applied.result.updated_days.length);
+
+    // supabase/migrations/0001_init.sql の tasks・fixed_events の列
+    const taskColumns = ["id", "user_id", "title", "goal_id", "deadline_at", "estimated_minutes", "remaining_minutes", "importance", "concentration", "splittable", "interruptible", "buffer_fit", "status", "created_at"];
+    const fixedEventColumns = ["id", "user_id", "title", "category", "location_id", "start_at", "end_at", "recurrence"];
+    const taskRows = buildNewTaskRows({ tasks: applied.newTasks, userId: "user-1", now: fixture.context.now });
+    expect(taskRows).toHaveLength(1);
+    expect(Object.keys(taskRows[0]).sort()).toEqual([...taskColumns].sort());
+    expect(taskRows[0]).toMatchObject({ id: applied.newTasks[0].id, user_id: "user-1", created_at: fixture.context.now, goal_id: null });
+    // run.ts の new_fixed_events の行と同じ形
+    const fixedRows = applied.newFixedEvents.map((event) => ({ ...event, user_id: "user-1" }));
+    for (const row of fixedRows) expect(Object.keys(row).sort()).toEqual([...fixedEventColumns].sort());
+    expect(fixedRows.map((row) => row.recurrence)).toEqual(["weekly", null]);
   });
 });

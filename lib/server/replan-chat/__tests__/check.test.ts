@@ -4,8 +4,8 @@ import { replan } from "@/lib/planning/replan";
 import type { ReplanOpLlm } from "@/lib/schemas";
 import { buildReplanRows } from "@/lib/server/replan-rows";
 import { PROVISIONAL_END_NOTE } from "@/lib/server/replan-intent";
-import { checkOption } from "../check";
-import { at, chatFixture, findBefore, idFactory, op, TODAY, type ChatFixture } from "./helpers";
+import { checkOption, MAX_OPS_PER_OPTION } from "../check";
+import { at, blockFreeTime, chatFixture, findBefore, idFactory, op, TODAY, type ChatFixture } from "./helpers";
 
 const TUESDAY = "2026-10-06";
 
@@ -42,12 +42,13 @@ describe("checkOption（replan-chat.md 12.11）", () => {
     expect(result.warnings).toEqual(["今週のTOEIC学習が30分足りなくなります"]);
   });
 
-  it("明日以降のタスクを全部 pull_forward：errors 0、溢れた分は元の日か別の日に戻る", () => {
+  it("明日以降のタスクを（1案の上限の7個まで）全部 pull_forward：errors 0、溢れた分は元の日か別の日に戻る", () => {
     const fixture = chatFixture();
     const later = fixture.beforeDays
       .filter((day) => day.date > TODAY)
       .flatMap((day) => day.items)
-      .filter((item) => item.kind === "task" && !item.locked && item.status !== "completed");
+      .filter((item) => item.kind === "task" && !item.locked && item.status !== "completed")
+      .slice(0, MAX_OPS_PER_OPTION);
     expect(later.length).toBeGreaterThan(1);
     const result = check(later.map((item) => op({ op: "pull_forward", item_id: item.id })), fixture);
     if (!result.ok) throw new Error(result.errors.join("\n"));
@@ -127,5 +128,63 @@ describe("checkOption（replan-chat.md 12.11）", () => {
 
   it("操作が1つもない案は errors", () => {
     expect(check([])).toEqual({ ok: false, errors: ["操作が1つもありません"], engineErrors: [] });
+  });
+});
+
+describe("checkOption：予定・タスクを足す（replan-add.md 12.19・12.23）", () => {
+  const LATER_DATES = ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10", "2026-10-11"];
+
+  it("操作が8個以上の案は errors", () => {
+    const ops = Array.from({ length: MAX_OPS_PER_OPTION + 1 }, () => op({ op: "delay", minutes: 5 }));
+    expect(check(ops)).toEqual({ ok: false, errors: ["操作は1つの案に7個までです"], engineErrors: [] });
+  });
+
+  it("add_task 120分・締切 10/9：errors 0、newTasks が1件（足したタスクを context に入れて検査する）", () => {
+    const result = check([op({ op: "add_task", title: "統計レポート", minutes: 120, deadline_date: "2026-10-09" })]);
+    if (!result.ok) throw new Error(result.errors.join("\n"));
+    expect(result.newTasks).toEqual([expect.objectContaining({ title: "統計レポート", deadline_at: "2026-10-09T23:59:00+09:00", estimated_minutes: 120 })]);
+    expect(result.warnings).toEqual([]);
+    expect(taskMinutes(result.result.updated_days, result.newTasks[0].id)).toBe(120);
+  });
+
+  it("add_task 締切 10/14（来週）・600分：今週に入る分だけ置き、warnings「…の残り{N}分は来週の計画で考えます」", () => {
+    const fixture = chatFixture();
+    for (const date of LATER_DATES.slice(2)) blockFreeTime(fixture, date);
+    const result = check([op({ op: "add_task", title: "卒論", minutes: 600, deadline_date: "2026-10-14" })], fixture);
+    if (!result.ok) throw new Error(result.errors.join("\n"));
+    const placed = taskMinutes(result.result.updated_days, result.newTasks[0].id);
+    expect(placed).toBeGreaterThan(0);
+    expect(placed).toBeLessThan(600);
+    expect(result.warnings).toEqual([`卒論の残り${600 - placed}分は来週の計画で考えます`]);
+  });
+
+  it("空きが足りない週に締切タスクを足す：目標の行動が外れ、warnings は「今週のTOEIC学習が60分足りなくなります」だけ。締切タスクは置かれる", () => {
+    const fixture = chatFixture();
+    for (const date of LATER_DATES) blockFreeTime(fixture, date);
+    const result = check([op({ op: "add_task", title: "申込書", minutes: 60, deadline_date: TODAY })], fixture);
+    if (!result.ok) throw new Error(result.errors.join("\n"));
+    expect(result.warnings).toEqual(["今週のTOEIC学習が60分足りなくなります"]);
+    expect(taskMinutes(result.result.updated_days, result.newTasks[0].id)).toBe(60);
+    expect(taskMinutes(result.result.updated_days, "task_toeic_listening")).toBe(0);
+  });
+
+  it("目標の行動を全部外しても入らない → errors「…締切に間に合いません」（回ごとに重ねない）", () => {
+    const result = check([op({ op: "add_task", title: "申込書", minutes: 180, deadline_date: TODAY })]);
+    expect(result).toEqual({ ok: false, errors: ["申込書が締切（10/5）に間に合いません"], engineErrors: [] });
+  });
+
+  it("予定を足して空き時間が60分を下回る日 → errors 0、warnings に1件。もともと下回っていた日は出さない", () => {
+    const fixture = chatFixture();
+    // 10/9 は変える前から空き時間が60分を下回る日にしておく
+    blockFreeTime(fixture, "2026-10-09");
+    const result = check([
+      op({ op: "add_event", title: "用事", date: "2026-10-08", start: "11:20", end: "12:00" }),
+      op({ op: "add_event", title: "用事", date: "2026-10-08", start: "13:00", end: "18:00" }),
+      op({ op: "add_event", title: "用事", date: "2026-10-08", start: "20:00", end: "24:00" }),
+      op({ op: "add_event", title: "用事", date: "2026-10-09", start: "08:00", end: "08:15" }),
+    ], fixture);
+    if (!result.ok) throw new Error(result.errors.join("\n"));
+    expect(result.result.updated_days.map((day) => day.date)).toEqual(expect.arrayContaining(["2026-10-08", "2026-10-09"]));
+    expect(result.warnings).toEqual(["10/8の空き時間が30分になります（めやすは60分）"]);
   });
 });
