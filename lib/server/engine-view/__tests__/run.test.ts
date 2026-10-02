@@ -3,7 +3,7 @@ import { callStructured, type CallStructuredOptions } from "@/lib/llm/client";
 import type { DailyCheckin, ReplanChatLlm, ReplanChatResponse } from "@/lib/schemas";
 import { runReplanChatTurn, toFallbackResponse, type ChatTurnDeps } from "@/lib/server/replan-chat/run";
 import { chatFixture, idFactory, op, TODAY, type ChatFixture } from "@/lib/server/replan-chat/__tests__/helpers";
-import type { EngineEventPayload } from "../events";
+import type { EngineEventPayload } from "@/lib/engine-view/events";
 import { buildParamSnapshot, computeFeatures } from "../snapshot";
 
 // 会話の再計画の1ターンの出来事（lib/server/replan-chat/__tests__/run.test.ts と同じ作り方。LLM はモック）

@@ -6,7 +6,7 @@ import { buildPlanningContext } from "@/lib/server/planning-context";
 import { loadReplanBase } from "@/lib/server/replan-base";
 import type { CheckinEngineView, EngineViewBase } from "./checkin";
 import { publish } from "./bus";
-import type { EngineEmit, EngineEventSource } from "./events";
+import type { EngineEmit, EngineEventSource } from "@/lib/engine-view/events";
 
 // 発表用の別画面のための読み込みと、1ターンの emit。ENGINE_VIEW=on のときだけ呼ぶ
 

@@ -1,7 +1,7 @@
 import { formatMonthDay } from "@/lib/datetime";
 import type { PlannedItem, PlanningContext, ReplanChatLlm, ReplanChatResponse } from "@/lib/schemas";
 import type { CheckOptionResult } from "@/lib/server/replan-chat/check";
-import type { EngineEmit } from "./events";
+import type { EngineEmit } from "@/lib/engine-view/events";
 import { buildParamSnapshot, computeFeatures, directionDistances } from "./snapshot";
 
 // 会話の再計画の1ターン（lib/server/replan-chat/run.ts）を、発表用の別画面に流す。

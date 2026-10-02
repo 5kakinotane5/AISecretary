@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { EngineEvent, EngineEventInput } from "./events";
+import type { EngineEvent, EngineEventInput } from "@/lib/engine-view/events";
 
 // 発表用の別画面（/engine-view）に出来事を流す、プロセス内の1本の流れ。
 // dev の HMR でモジュールが読み直されても二重にならないように、globalThis のキーで1つだけ持つ

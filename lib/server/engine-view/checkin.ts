@@ -1,7 +1,7 @@
 import { toDateStr } from "@/lib/datetime";
 import { CHECKIN_LABELS } from "@/lib/labels";
 import type { DailyCheckin, Level, PlannedItem, PlanningContext } from "@/lib/schemas";
-import type { EngineEmit } from "./events";
+import type { EngineEmit } from "@/lib/engine-view/events";
 import { buildParamSnapshot, computeFeatures, directionDistances } from "./snapshot";
 
 // POST /api/checkin の「決定」を、発表用の別画面に流す（turn_start → state_update → turn_end）。

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { publish, resetEngineViewBusForTest, subscribe } from "../bus";
-import type { EngineEvent, EngineEventInput } from "../events";
+import type { EngineEvent, EngineEventInput } from "@/lib/engine-view/events";
 
 const event = (userId: string, fallback: "llm_off" | "llm_error" = "llm_off"): EngineEventInput => ({
   type: "fallback",

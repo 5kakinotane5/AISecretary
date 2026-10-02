@@ -230,3 +230,9 @@ export function fetchCheckin(date: string): Promise<CheckinResponse> {
 export function saveCheckin(body: CheckinRequest): Promise<CheckinResponse> {
   return post("/api/checkin", CheckinResponseSchema, body);
 }
+
+// 発表用の別画面（docs/design/engine-view.md）。SSE なので EventSource で開く URL だけを返す
+/** GET /api/debug/engine-events（after を付けると、その seq より後のバッファ分から流れる） */
+export function engineEventsUrl(after: number | null): string {
+  return after === null ? "/api/debug/engine-events" : `/api/debug/engine-events?after=${after}`;
+}

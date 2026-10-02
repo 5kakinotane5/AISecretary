@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/server/auth";
 import { isEngineViewEnabled, subscribe } from "@/lib/server/engine-view/bus";
 
 // GET /api/debug/engine-events?after=<seq>（発表用。ENGINE_VIEW=on のときだけ）：
-// ログイン中の利用者の Planning Engine の出来事を SSE で流す。after があれば、それより後のバッファ分から
+// ログイン中の利用者の Planning Engine の出来事を SSE で流す。after があれば、それより後のバッファ分から（なければ新しい分だけ）
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -14,8 +14,11 @@ export async function GET(request: NextRequest) {
   return handle(request, async () => {
     if (!isEngineViewEnabled()) throw new HttpError(404, "NOT_FOUND", "見つかりません");
     const { user } = await requireUser();
-    const after = Number(request.nextUrl.searchParams.get("after") ?? "0");
-    const afterSeq = Number.isFinite(after) ? after : 0;
+    // after がなければバッファは流さず、新しい出来事だけ（画面を開いた瞬間に過去の分を流さない）。
+    // つなぎ直しのときは、画面が最後に受け取った seq を after に付ける
+    const raw = request.nextUrl.searchParams.get("after");
+    const after = raw === null ? Number.POSITIVE_INFINITY : Number(raw);
+    const afterSeq = Number.isNaN(after) ? Number.POSITIVE_INFINITY : after;
 
     const encoder = new TextEncoder();
     let cleanup = () => {};

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DailyCheckin, Level } from "@/lib/schemas";
 import { chatFixture, TODAY } from "@/lib/server/replan-chat/__tests__/helpers";
 import { checkinText, saveCheckinWithEngineView, type EngineViewBase } from "../checkin";
-import type { EngineEventPayload } from "../events";
+import type { EngineEventPayload } from "@/lib/engine-view/events";
 
 // POST /api/checkin の出来事（turn_start → state_update → turn_end）。DB の代わりに load・save を渡す
 

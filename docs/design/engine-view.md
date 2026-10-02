@@ -208,6 +208,17 @@ AGENTS.md と docs/design/README.md・common.md・backend.md（9.3）・planning
   - option_check の errors に Engine・Validator の内部の理由が入る。本人の画面だけ・ENGINE_VIEW=on のときだけなのでよい
   - 出来事はプロセスのメモリにあるので、ローカルの dev 1つで動かす前提
 
+### 設計書との違い
+
+| 項目 | 設計書・指示 | 実装 | 理由 |
+|---|---|---|---|
+| Fit の work_end | lib/planning/replan.ts の state_change と同じ形 | `workEnd()`（就寝の30分前）は replan.ts の外から呼べないため、**同じ式を `lib/server/engine-view/snapshot.ts` に写した** | lib/planning を変えないため。式が変わったら両方直す |
+| 例外のときの turn_end | どの return からでも1回だけ | runReplanChatTurn の中で例外が出たときも、**turn_end（reply_type `"error"`・proposals 0・message 空）を1回出してから投げ直す** | 別画面のターンが終わらないままにならないように |
+| fallback の state_update | 疲れを更新したときに出す | **fallback（LLM_MODE=off・LLM の失敗）の経路で疲れが保存されたときは出ない**（その経路は replanByIntent の中で保存していて、emit の場所にないため） | 受け入れる（発表は LLM_MODE=on） |
+| 出来事の型の置き場所 | `lib/server/engine-view/events.ts` | 13-2 で **`lib/engine-view/events.ts`** に移した | 画面（components/engine-view）からも型を使うため。lib/server は画面から import しない |
+| SSE の `after` | after があれば、それより後のバッファ分から | 13-2 で、**after がないときはバッファを流さず新しい出来事だけ**にした | 別画面を開いた瞬間に過去の出来事（最大300件）が流れないように。つなぎ直しは最後の seq を after に付ける |
+| ENGINE_VIEW が off のときの画面 | 「ENGINE_VIEW=on で起動してください」とだけ出る | その一文と、右上の接続の状態「ENGINE_VIEW が off」を出す。off の判定は page.tsx（サーバー）で行い、SSE には接続しない | 13-2 の「接続の状態を右上に出す」とあわせるため |
+
 ---
 
 ## 13-2：画面 `/engine-view`

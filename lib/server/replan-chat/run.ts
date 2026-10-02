@@ -43,7 +43,7 @@ import {
   type ReplanProposalInsert,
 } from "@/lib/server/repositories/replan-proposals";
 import { isEngineViewEnabled } from "@/lib/server/engine-view/bus";
-import type { EngineEmit } from "@/lib/server/engine-view/events";
+import type { EngineEmit } from "@/lib/engine-view/events";
 import { createTurnEmitter } from "@/lib/server/engine-view/load";
 import { createReplanTurnView, type ReplanTurnView } from "@/lib/server/engine-view/replan";
 import { checkOption } from "./check";

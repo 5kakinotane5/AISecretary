@@ -120,6 +120,7 @@
 | `DEMO_MODE` | `1` | 1.3 |
 | `DEMO_USER_EMAIL` | `demo@example.com` | 4.5 |
 | `DEMO_USER_PASSWORD` | | 4.5 |
+| `ENGINE_VIEW` | `off` | `on` のときだけ `/engine-view`（発表用の別画面）と `GET /api/debug/engine-events` が動く。デモの PC の `.env.local` だけ `on`。Vercel には入れない（[engine-view.md](engine-view.md)） |
 
 Vercel にも同じ値を入れる（`DEMO_MODE=1`・`LLM_MODE=on`）。Supabase の Authentication → URL Configuration の Site URL に Vercel の URL を入れる。
 

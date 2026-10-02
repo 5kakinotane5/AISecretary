@@ -1,7 +1,7 @@
 import type { Level, ObjectiveVector, PlanStyle } from "@/lib/schemas";
 import type { AdjustedDirections } from "@/lib/planning/select";
 
-// 発表用の別画面（/engine-view）に流す「出来事」の型。
+// 発表用の別画面（/engine-view）に流す「出来事」の型（サーバーの lib/server/engine-view と画面の components/engine-view の両方で使う）。
 // 本番の動き（計画の結果・API の返事・DB）には使わない。ENGINE_VIEW=on のときだけ作る
 
 export type EngineEventSource = "checkin" | "replan";

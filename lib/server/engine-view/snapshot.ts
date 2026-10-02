@@ -5,7 +5,7 @@ import { evaluateObjectives } from "@/lib/planning/objectives";
 import { adjustedBeamWeights, adjustedDirections, directionDistance, type AdjustedDirections } from "@/lib/planning/select";
 import { buildSkeleton } from "@/lib/planning/skeleton";
 import { buildFreeSlots } from "@/lib/planning/slots";
-import type { DirectionDistances, FitRow, ParamSnapshot } from "./events";
+import type { DirectionDistances, FitRow, ParamSnapshot } from "@/lib/engine-view/events";
 
 // 発表用の別画面に出す Planning Engine のパラメータを計算する。純粋関数（DB・時計・環境変数に触れない）。
 // 計算に失敗したら null・空配列にする（画面に「計算できませんでした」と出す）
