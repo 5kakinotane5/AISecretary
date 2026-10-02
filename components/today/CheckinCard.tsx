@@ -35,7 +35,12 @@ import { cn } from "@/lib/utils";
 type Field = keyof CheckinLevels;
 
 const FIELDS: Field[] = ["mood", "fatigue", "concentration"];
-const LEVELS: Level[] = ["low", "medium", "high"];
+/** 入力カードの選択肢の並び（左から）。どの項目も左がネガティブ、右がポジティブになるよう、疲労だけ high から並べる */
+const LEVEL_ORDER: Record<Field, Level[]> = {
+  mood: ["low", "medium", "high"],
+  fatigue: ["high", "medium", "low"],
+  concentration: ["low", "medium", "high"],
+};
 
 /** 入力カードの項目と値ごとのアイコン（frontend.md 14.2）。疲労は low（元気）が満タンの電池 */
 const CHECKIN_ICONS: Record<Field, Record<Level, LucideIcon>> = {
@@ -170,7 +175,7 @@ function CheckinForm({
                 {label}
               </span>
               <div role="group" aria-labelledby={labelId} className={cn(SEGMENT_LIST_STANDALONE, "h-12 min-w-0 flex-1")}>
-                {LEVELS.map((level) => {
+                {LEVEL_ORDER[field].map((level) => {
                   const active = levels[field] === level;
                   const Icon = CHECKIN_ICONS[field][level];
                   return (
