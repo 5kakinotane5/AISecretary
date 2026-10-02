@@ -3,6 +3,9 @@ import { CheckinRequestSchema, CheckinResponseSchema } from "@/lib/schemas";
 import { handle, parseBody, requireValidDate } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
 import { getCheckin, upsertCheckin, type CheckinWrite } from "@/lib/server/repositories/daily-checkins";
+import { isEngineViewEnabled } from "@/lib/server/engine-view/bus";
+import { saveCheckinWithEngineView } from "@/lib/server/engine-view/checkin";
+import { createCheckinEngineView } from "@/lib/server/engine-view/load";
 
 // GET /api/checkin?date=YYYY-MM-DD（backend.md 9.3）：{ checkin }。なければ checkin: null
 export async function GET(request: NextRequest) {
@@ -28,6 +31,12 @@ export async function POST(request: NextRequest) {
     if (body.concentration !== undefined) values.concentration = body.concentration;
     if (body.text !== undefined) values.note = body.text;
 
-    return CheckinResponseSchema.parse({ checkin: await upsertCheckin(supabase, user.id, date, values) });
+    // ENGINE_VIEW=on のときだけ、保存の前後の Planning Engine のパラメータを発表用の別画面に流す（保存・返事は変えない）
+    const checkin = await saveCheckinWithEngineView(
+      values,
+      () => upsertCheckin(supabase, user.id, date, values),
+      isEngineViewEnabled() ? createCheckinEngineView(supabase, user.id) : null,
+    );
+    return CheckinResponseSchema.parse({ checkin });
   });
 }
