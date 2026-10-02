@@ -93,3 +93,12 @@ export type EngineEventInput = Omit<EventCommon, "seq"> & EventBody;
 // 1ターンの中で使う emit（turn_id・user_id・source・t_ms は emit を作った側が入れる）
 export type EngineEventPayload = EventBody;
 export type EngineEmit = (event: EngineEventPayload) => void;
+
+// GET /api/debug/engine-snapshot の返事：今の値（別画面を開いたとき・つなぎ直したときの「待機中」の表示に使う）
+export type EngineSnapshotResponse = {
+  now: string;
+  checkin: ParamSnapshot["checkin"];
+  snapshot: ParamSnapshot;
+  features: ObjectiveVector | null; // 今の計画の F(S)（有効な計画がなければ null）
+  distances: DirectionDistances | null;
+};

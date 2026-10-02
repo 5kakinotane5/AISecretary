@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DailyCheckin } from "@/lib/schemas";
-import { saveCheckinWithEngineView } from "@/lib/server/engine-view/checkin";
+import { buildCurrentView, saveCheckinWithEngineView } from "@/lib/server/engine-view/checkin";
 import { chatFixture, TODAY } from "@/lib/server/replan-chat/__tests__/helpers";
 import type { EngineEvent, EngineEventPayload, EngineEventSource } from "../events";
-import { applyEngineEvent, INITIAL_VIEW_STATE, nearestStyle, type ViewState } from "../view-state";
+import { applyEngineEvent, engineViewReducer, INITIAL_VIEW_STATE, nearestStyle, type ViewState } from "../view-state";
 
 // 別画面の表示の状態（docs/design/engine-view.md 13-2）。サーバーの関数で作った本物の出来事を流して確かめる
 
@@ -87,5 +87,51 @@ describe("applyEngineEvent", () => {
   it("nearestStyle は距離が一番小さい方向", () => {
     expect(nearestStyle({ intensive: 0.5, balanced: 0.3, relaxed: 0.21 })).toBe("relaxed");
     expect(nearestStyle(null)).toBeNull();
+  });
+});
+
+describe("待機中のターン（GET /api/debug/engine-snapshot）", () => {
+  it("待機中 → turn_start → state_update：① は「不明 → high」、② は待機中の値から P9.1 の量だけ動く", async () => {
+    const fixture = chatFixture();
+    const current = buildCurrentView({ context: { ...fixture.context, checkin: null }, days: fixture.beforeDays });
+    const idle = engineViewReducer(INITIAL_VIEW_STATE, { kind: "idle", current, loadedAt: 1 });
+    expect(idle.turn).toMatchObject({ turnId: "idle-1", source: "idle", stage: -1, done: false });
+    // 待機中は ① の起点も今の値（差分は出ない）
+    expect(idle.turn!.startSnapshot).toBe(idle.turn!.snapshot);
+    expect(idle.turn!.snapshot.checkin.fatigue).toBeNull();
+    expect(idle.turn!.beforeFeatures).toEqual(current.features);
+    expect(idle.log).toEqual([]);
+
+    const events = await checkinEvents("turn-c");
+    const started = run(events.slice(0, 1), idle);
+    // 待機中のターンは previous に移る。待機中の値と turn_start の値は同じ（差分は state_update で初めて出る）
+    expect(started.previous!.source).toBe("idle");
+    expect(started.turn!.snapshot).toEqual(idle.turn!.snapshot);
+
+    const updated = run(events.slice(1, 2), started);
+    expect(updated.turn!.startSnapshot.checkin.fatigue).toBeNull();
+    expect(updated.turn!.snapshot.checkin.fatigue).toBe("high");
+    const clip = (value: number) => Math.min(1, Math.max(0, value));
+    for (const style of ["intensive", "balanced", "relaxed"] as const) {
+      const from = idle.turn!.snapshot.directions[style];
+      const to = updated.turn!.snapshot.directions[style];
+      expect(to.recovery).toBeCloseTo(clip(from.recovery + 0.15), 10);
+      expect(to.free_time).toBeCloseTo(clip(from.free_time + 0.1), 10);
+      expect(to.achievement).toBeCloseTo(clip(from.achievement - 0.1), 10);
+      const fromW = idle.turn!.snapshot.beam_weights[style];
+      const toW = updated.turn!.snapshot.beam_weights[style];
+      expect(toW[4]).toBeCloseTo(clip(fromW[4] + 0.1), 10);
+      expect(toW[5]).toBeCloseTo(clip(fromW[5] + 0.2), 10);
+    }
+  });
+
+  it("待機中の値は今のターンを置き換え、前のターンを previous に残す", async () => {
+    const finished = run(await checkinEvents("turn-d"));
+    const fixture = chatFixture();
+    const current = buildCurrentView({ context: fixture.context, days: fixture.beforeDays });
+    const idle = engineViewReducer(finished, { kind: "idle", current, loadedAt: 2 });
+    expect(idle.turn!.source).toBe("idle");
+    expect(idle.previous!.turnId).toBe("turn-d");
+    expect(idle.log).toBe(finished.log);
   });
 });

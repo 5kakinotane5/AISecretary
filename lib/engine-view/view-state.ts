@@ -1,5 +1,5 @@
 import type { Level, ObjectiveVector, PlanStyle } from "@/lib/schemas";
-import type { DirectionDistances, EngineEvent, EngineEventSource, ParamSnapshot } from "./events";
+import type { DirectionDistances, EngineEvent, EngineEventSource, EngineSnapshotResponse, ParamSnapshot } from "./events";
 
 // 発表用の別画面（/engine-view）の表示の状態。届いた出来事を1件ずつ applyEngineEvent で反映する（純粋関数）
 
@@ -37,12 +37,15 @@ export type OptionView = {
   distances: DirectionDistances | null;
 };
 
+// "idle"：まだ入力がなく、GET /api/debug/engine-snapshot の今の値を出している「待機中」のターン
+export type TurnSource = EngineEventSource | "idle";
+
 export type TurnView = {
   turnId: string;
-  source: EngineEventSource;
+  source: TurnSource;
   text: string;
   now: string;
-  stage: number; // STAGES[source] の今の段階
+  stage: number; // STAGES[source] の今の段階（待機中は -1）
   done: boolean;
   startSnapshot: ParamSnapshot; // turn_start の時点（①の「不明 → high」の起点）
   snapshot: ParamSnapshot; // 今の値
@@ -144,7 +147,7 @@ function nextTurn(turn: TurnView, event: EngineEvent): TurnView {
     case "turn_end":
       return {
         ...base,
-        stage: STAGES[turn.source].length - 1,
+        stage: turn.source === "idle" ? turn.stage : STAGES[turn.source].length - 1,
         done: true,
         replyType: event.reply_type,
         proposals: checkin ? null : event.proposals,
@@ -182,6 +185,42 @@ export function applyEngineEvent(state: ViewState, event: EngineEvent): ViewStat
   // 途中から開いたなど、今のターンでない出来事はログにだけ出す
   if (!state.turn || state.turn.turnId !== event.turn_id) return { ...state, log };
   return { ...state, turn: nextTurn(state.turn, event), log };
+}
+
+// 待機中のターン（今の値）。入力はまだないので、①の起点も今の値（差分は出ない）。
+// 次の turn_start で、ふつうのターンと同じく previous に移る
+export function idleTurn(current: EngineSnapshotResponse, loadedAt: number): TurnView {
+  return {
+    turnId: `idle-${loadedAt}`,
+    source: "idle",
+    text: "",
+    now: current.now,
+    stage: -1,
+    done: false,
+    startSnapshot: current.snapshot,
+    snapshot: current.snapshot,
+    beforeFeatures: current.features,
+    beforeDistances: current.distances,
+    afterFeatures: null,
+    afterDistances: null,
+    options: [],
+    llmCalls: 0,
+    retries: 0,
+    fallback: null,
+    replyType: null,
+    proposals: null,
+    elapsedMs: 0,
+  };
+}
+
+export type EngineViewAction =
+  | { kind: "event"; event: EngineEvent }
+  | { kind: "idle"; current: EngineSnapshotResponse; loadedAt: number };
+
+// 画面の reducer。待機中の値は、今のターンを置き換える（前のターンは previous に残す）
+export function engineViewReducer(state: ViewState, action: EngineViewAction): ViewState {
+  if (action.kind === "event") return applyEngineEvent(state, action.event);
+  return { ...state, turn: idleTurn(action.current, action.loadedAt), previous: state.turn ?? state.previous };
 }
 
 // 距離が一番小さい方向

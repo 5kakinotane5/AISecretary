@@ -11,6 +11,10 @@ import { cn } from "@/lib/utils";
 // 段階の並びはチェックインと会話で変える
 
 function Stages({ turn }: { turn: TurnView }) {
+  // 待機中（まだ入力がない）は段階を出さない
+  if (turn.source === "idle") {
+    return <span className="rounded-full border px-2.5 py-0.5 text-muted-foreground">待機中（今の値）</span>;
+  }
   return (
     <ol className="flex items-center gap-1.5">
       {STAGES[turn.source].map((label, i) => {
@@ -49,8 +53,8 @@ export function TopBar({ turn, badge, children }: { turn: TurnView | null; badge
       {turn ? (
         <div className="flex items-baseline gap-4">
           <span className="shrink-0 font-bold text-muted-foreground">入力</span>
-          <span className="min-w-0 flex-1 truncate text-lg font-bold">
-            {turn.source === "checkin" ? `今日の調子「${turn.text}」` : `「${turn.text}」`}
+          <span className={cn("min-w-0 flex-1 truncate text-lg font-bold", turn.source === "idle" && "font-normal text-muted-foreground")}>
+            {turn.source === "idle" ? "まだ入力がありません" : turn.source === "checkin" ? `今日の調子「${turn.text}」` : `「${turn.text}」`}
           </span>
           <span className="shrink-0 tabular-nums">
             {formatMonthDay(turn.now)} {formatTime(turn.now)}

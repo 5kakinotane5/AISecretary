@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { EngineSnapshotResponse } from "@/lib/engine-view/events";
 import {
   ApiErrorSchema,
   CheckinResponseSchema,
@@ -232,6 +233,13 @@ export function saveCheckin(body: CheckinRequest): Promise<CheckinResponse> {
 }
 
 // 発表用の別画面（docs/design/engine-view.md）。SSE なので EventSource で開く URL だけを返す
+/** GET /api/debug/engine-snapshot：今の値（待機中の表示）。開発者向けの debug 用なので zod のスキーマは作らず型だけ */
+export async function fetchEngineSnapshot(): Promise<EngineSnapshotResponse> {
+  const response = await fetch("/api/debug/engine-snapshot", { cache: "no-store" });
+  if (!response.ok) throw new ApiError(response.status, "今の値を読めませんでした");
+  return (await response.json()) as EngineSnapshotResponse;
+}
+
 /** GET /api/debug/engine-events（after を付けると、その seq より後のバッファ分から流れる） */
 export function engineEventsUrl(after: number | null): string {
   return after === null ? "/api/debug/engine-events" : `/api/debug/engine-events?after=${after}`;

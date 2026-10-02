@@ -34,6 +34,8 @@ export async function GET(request: NextRequest) {
           }
         };
         const unsubscribe = subscribe(user.id, afterSeq, (event) => send(`data: ${JSON.stringify(event)}\n\n`));
+        // すぐに1行送る（何も送らないと、最初の ping まで画面の EventSource の onopen が来ず、今の値を読み始められない）
+        send(": connected\n\n");
         const ping = setInterval(() => send(": ping\n\n"), PING_MS);
         cleanup = () => {
           if (closed) return;
