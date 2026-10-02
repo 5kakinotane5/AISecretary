@@ -1,316 +1,301 @@
-# 設計書：会話で再計画する（12章の拡張。12.8〜）
+# 設計書：3案の保存・選択、表示、再計画、理由（11〜13章）
 
-> 設計書（`docs/design/`）の一部。12.1〜12.7（意図3種類＋Engine）は**残したまま**、その上に「会話で提案する」経路を足す。
-> 決めた日：2026-10-02（柿澤）。テストの元は `docs/scenarios/`。
+> 設計書（`docs/design/`）の一部。目次・章とファイルの対応は [README.md](README.md)。章番号は設計書全体で共通。
 
-## 12.8 方針
+## 11. 3案の保存・選択、今日のタイムライン、カレンダー（F-08 後半・F-10・F-11）
 
-- AI は「自由に会話して提案を考える秘書」にする。`docs/scenarios/` の挙動を目指す
-- **役割を分ける**：
-  - LLM は「何をどう変えるか」を**操作**（12.9）で出し、利用者への文章を書く
-  - 時刻の計算・並べ直し・検査は**コード**が行う（LLM に時刻の計算をさせない）
-  - 文章に出す**数字はコードが計算した値だけ**を使う（12.12 の数字の検査）
-- 1回の発言で、案を**1〜3個**出せる。利用者が選び、「この計画にする」で確定（accept は今と同じ）
-- 会話の履歴は画面が持ち、毎回 API に送る（サーバーには保存しない。再読み込みで消えてよい）
-- **今の経路は残す**：`LLM_MODE=off`、または LLM が失敗したときは、12.2 の意図＋Engine の経路に戻す。Demo Path は壊さない
-- 変えられるのは今まで通り**今日の now 以降**と、溢れた分の**明日〜日曜**。来週・過去は変えない
+### 11.1 3案の保存と選択
 
-### 12.1〜12.7 からの変更
-
-| 項目 | 変更 |
+| ID | 要件 |
 |---|---|
-| FR-12-3（意図は3種類だけ） | 会話の経路では、12.9 の操作で表せるものはすべて受ける |
-| FR-12-5（目標の週合計は変えない） | 会話の経路では、利用者が減らすと言ったとき（skip・shorten）は減らしてよい。代わりに警告を出す（12.11） |
-| C-16（文章はテンプレートだけ） | 会話の経路では、言い回しは LLM。数字はコードの値だけ（12.12） |
-| C-12（今日だけ） | 変えない |
+| FR-08-11 | `POST /api/plans/generate`（`{ session_id }`）：下の手順で3案を作って保存し、`{ candidates }`（intensive・balanced・relaxed の順）を返す |
+| FR-08-12 | `GET /api/plans/candidates`：最新の生成（`created_at` が最も新しい `generation_id`）で、`week_start` が今週のものの3案。なければ空配列 |
+| FR-08-13 | `POST /api/plans/{id}/select`：`select_plan(id, getNow())` を呼び、`{ active_plan_id }` を返す。id が候補でなければ404。優先度B：あわせて P9.2 の学習で `user_settings.preference_weights` を更新する（選ばれた案と、同じ生成の他の2案の `features` を使う） |
+| FR-08-14 | 選んだ計画は、チェックインが変わっても自動では作り直さない |
 
-## 12.9 操作（`lib/schemas.ts` に足す）
-
-LLM が返す形。OpenAI の strict JSON Schema に合わせて、**判別共用体にせず、使わない項目は null・空配列**にする。
-
-```ts
-// ---------- 再計画（会話。plans-replan 12.8〜） ----------
-export const ReplanOpTypeSchema = z.enum([
-  "add_event",    // 新しい予定を入れる（飲み会・散歩・自習など、タスク一覧にないもの）
-  "add_rest",     // 休憩・仮眠を入れる
-  "delay",        // 今の予定が長引く・遅れる（now から minutes 分ふさぐ）
-  "reorder",      // 今日の残りのタスクの順番を変える
-  "shorten",      // タスクを短くする
-  "postpone",     // タスクを今日から外し、明日以降に回す
-  "skip",         // タスクを今週はやめる
-  "pull_forward", // 明日以降のタスクを今日やる
-  "move_to_day",  // タスクを指定の日に移す
-  "tired_plan",   // 疲れたときの標準の組み直し（12.4 A の Engine）。1案に単独で入れる
-]);
-
-export const ReplanOpLlmSchema = z.object({
-  op: ReplanOpTypeSchema,
-  item_id: z.string().nullable(),      // shorten・postpone・skip・pull_forward・move_to_day
-  item_ids: z.array(z.string()),       // reorder（先にやる順）
-  title: z.string().nullable(),        // add_event・add_rest
-  start: z.string().nullable(),        // "HH:MM" または "now"（add_event・add_rest）
-  end: z.string().nullable(),          // "HH:MM"（add_event）
-  minutes: z.number().int().nullable(),// add_event（end がないとき）・add_rest・delay・shorten（短くした後の長さ）
-  date: z.string().nullable(),         // "YYYY-MM-DD"（postpone の希望・move_to_day）
-  position: z.enum(["first", "last"]).nullable(), // pull_forward
-});
-
-export const ReplanChatLlmSchema = z.object({
-  reply_type: z.enum(["proposal", "question", "select", "discard", "chat"]),
-  options: z.array(z.object({ label: z.string(), ops: z.array(ReplanOpLlmSchema) })),
-  select_index: z.number().int().nullable(), // select のとき。1始まり
-  text: z.string().nullable(),               // question・chat のときの返事
-  fatigue: LevelSchema.nullable(),           // 発言から分かる疲れ（分からなければ null）
-});
-
-export const ReplanChatMessageLlmSchema = z.object({ message: z.string() });
-
-// API
-export const ReplanChatTurnSchema = z.object({ role: z.enum(["user", "assistant"]), text: z.string() });
-export const ReplanChatRequestSchema = z.object({
-  date: z.string(),
-  text: z.string().min(1).max(500),
-  history: z.array(ReplanChatTurnSchema).max(20),   // 今回の発言は含めない。古い順
-  open_proposal_ids: z.array(z.string()).max(3),    // 画面に出ている案（表示の順）
-});
-export const ReplanChatProposalSchema = ReplanProposalSchema.extend({
-  label: z.string(),             // 「仮眠してから続ける」など
-  warnings: z.array(z.string()), // 「今週のTOEIC学習が40分足りなくなります」など（12.11）
-});
-export const ReplanChatResponseSchema = z.object({
-  message: z.string(),
-  proposals: z.array(ReplanChatProposalSchema).max(3),
-  selected_proposal_id: z.string().nullable(), // select のとき
-  discarded: z.boolean(),                      // discard のとき（画面は出ている案を消す）
-  source: z.enum(["llm", "fallback"]),         // fallback ＝ 12.2 の経路で作った
-});
-```
-
-- 会話の経路の `ReplanProposal.intent` は、互換のために `{ type: "preference_change", fatigue: <fatigue>, task_changes: [], new_fixed_events: <足した予定>, preference_changes: [<label>] }` を入れる（画面では使わない）。`tired_plan` の案は Engine の intent をそのまま使う
-- 型（`z.infer`）：`ReplanOpLlm`・`ReplanChatLlm`・`ReplanChatRequest`・`ReplanChatProposal`・`ReplanChatResponse`
-
-## 12.10 操作の当てはめ（`lib/server/replan-chat/apply-ops.ts`。純粋関数）
-
-```ts
-applyOps(input: {
-  context: PlanningContext;   // 12.2 の 6 で作ったもの（locked_items 込み）
-  beforeDays: { date: string; items: PlannedItem[] }[]; // 7日分。表示用の計算（11.3）をかけ、reason_code を付けたもの（12.2 の engineBeforeDays と同じ）
-  ops: ReplanOpLlm[];
-  newId: () => string;
-}): {
-  result: Extract<EngineReplanResult, { ok: true }>; // buildReplanRows() にそのまま渡せる形
-  newFixedEvents: FixedEvent[];
-  opErrors: string[];           // 当てはめられなかった操作（日本語。LLM に返す）
-  unplaced: { task_id: string; title: string; minutes: number; deadline_at: string | null }[];
-  skippedGoalMinutes: number;   // skip・shorten で今週から外した目標タスクの分
-}
-```
-
-`cut` ＝ `ceilToMinutes(context.now, 5)`。時刻はすべて5分単位。`dayEnd` ＝今日の now 以降で最初の睡眠の開始（なければ翌日 0:00）。
-
-### 手順
-
-1. **今日の項目を分ける**
-   - **動かさない（アンカー）**：`locked`、kind が sleep・fixed・travel、`start_at < cut` の項目（進行中を含む）
-     - now をまたぐ自由時間・バッファ（locked: false）は、`end_at = cut` に縮めて残す（id は同じ）
-   - **並べ直す（キュー）**：locked でない `kind: task` で `start_at ≥ cut`。開始時刻の順
-   - **作り直す**：locked でない free・buffer で `start_at ≥ cut`（消して、5 で作り直す。バッファの候補タスクは消えてよい）
-2. **操作を順に当てはめる**。当てはめられない操作は `opErrors` に理由を足して飛ばす
-
-   | op | 処理 | opErrors になるとき |
-   |---|---|---|
-   | add_event | 開始＝`now` なら cut、そうでなければその時刻（5分に切り上げ）。終わり＝end → start＋minutes → start＋60分（仮置き。C-10 の一文を warnings に）。FixedEvent（category other・location null・recurrence null）を作り、アンカー（kind fixed・fixed_event_id・fixed_category other）を足す。reason「{HH:MM}からの予定を入れました」 | 開始 < cut、開始 ≥ 終わり、終わり > dayEnd、アンカー（sleep・fixed・travel・locked）と重なる →「{title}（{開始}〜{終了}）と重なるため入れられません」 |
-   | add_rest | add_event と同じ時刻の決め方。minutes は既定20・10〜90に収める。アンカー（kind free・title は「仮眠」「休憩」など LLM の値、既定「休憩」）。reason「少し休んで、回復してから続けます」 | add_event と同じ |
-   | delay | minutes を5〜180に収め、cut から minutes 分のアンカー（kind free・title「前の予定の延長」）を足す | なし |
-   | reorder | item_ids のうちキューにあるものを、その順でキューの先頭に移す | キューにある id が1つもない |
-   | shorten | キューの項目の長さを minutes（5分に切り下げ）にする | キューにない、minutes < 10、今の長さ以上 |
-   | postpone | キューから外し、溢れ（date の希望付き）に入れる | キューにない |
-   | skip | キューから外す。締切が日曜以前のタスクは postpone と同じにする（締切を守る）。それ以外は今週から外す（目標タスクなら `skippedGoalMinutes` に足す） | キューにない |
-   | pull_forward | 明日〜日曜の locked でない task 項目を外し（その場所は自由時間）、キューの先頭（first）か末尾（last。既定）に入れる | その id が明日以降にない |
-   | move_to_day | キューか明日以降の task 項目を外し、溢れ（その日に固定）に入れる | id がない、date が明日〜日曜でない、締切の日より後 |
-   | tired_plan | ここでは扱わない（12.11 で Engine を呼ぶ）。ほかの操作と同じ案にあれば `opErrors` | 常に（混ざったとき） |
-
-3. **今日の空き**：[cut, dayEnd) からアンカーを除いた区間
-4. **キューを並べる**（順番は変えない）
-   - 前から順に、直前に置いたタスクの終わり（＋`min_buffer_minutes` のバッファ）以降で、入る最初の空きに置く
-   - タスクの後ろには、空きに余裕があれば `min_buffer_minutes` のバッファ（kind buffer）を置く。次がアンカーならバッファが短くてもよい
-   - 今日のタスク合計（完了済みを含む）が `daily_work_limit_minutes` を超える、置くと今日のバッファ＋自由時間の合計が `min_daily_buffer_minutes` を下回る（Validator の BUFFER_SHORTAGE。「予定のずれに備える時間」を守るため）、または入らない → 溢れに入れる。明日以降に置くとき（6）も同じ2つを守る
-   - 分割はしない
-5. **今日の残りの空き**はすべて自由時間（kind free・title「自由時間」）。隣り合う自由時間は1つにまとめる
-6. **溢れを明日以降に置く**：締切の早い順 → 締切なし（目標・任意）の順
-   - 候補の日：date の指定があればその日だけ。なければ明日〜日曜のうち、終わりが `deadline_at` 以前になる日
-   - その日の自由時間で、「（直前がタスクならバッファ）＋タスク＋バッファ」が入る最初のもの。その日のタスク合計 ≤ `daily_work_limit_minutes`
-   - 自由時間を [自由時間][バッファ][タスク][バッファ][自由時間] に分ける（0分の項目は作らない）。reason「{曜日}に回しました」
-   - 置けない → `unplaced`
-7. **id**：中身も時刻も変わらない項目は元の id。変わった項目と新しい項目は `newId()`。`reason_code` は変わらない項目なら元の値、新しい項目は `FIXED_EVENT_ADDED`・`REST`・`USER_POSTPONED`・`USER_SHORTENED`・`BUFFER_MERGED`（自由時間）・null（バッファ）
-8. **変更点**：`ReplanDiffBuilder`（`lib/planning/diff.ts`）で記録する
-   - 予定・休憩を足した → added。今日の中で時刻が変わったタスク → moved（moved_to_date null）。短くした → shortened。他の日へ → moved（moved_to_date）。skip → removed。自由時間・バッファの変化は記録しない
-9. **結果**：`updated_days` は今日と、項目が変わった日。`proposal` の before・after は今日。`summary_message` は空文字（12.12 で入れる）
-
-## 12.11 検査と LLM とのやり取り（`lib/server/replan-chat/run.ts`）
-
-### 1つの案を検査する（`checkOption`）
-
-1. `tired_plan` の案：12.2 の 6・7 と同じく `replan(context, beforeDays, { type: "state_change", fatigue: <fatigue か "high"> })` を呼ぶ。`ok: false` なら、その reason を errors にする
-2. それ以外：`applyOps()` → `validatePlan(context ＋ 足した予定, after の7日分, "replan", { before: beforeDays })`
-3. 結果を分ける
-   - **errors**（案を捨てる・LLM に返す）：`opErrors`、Validator の errors（下の例外を除く）、締切が日曜以前の `unplaced`（「{title}が締切（{M/D}）に間に合いません」）
-   - **warnings**（案は出す・利用者に見せる）：
-     - Validator の `GOAL_HOURS_MISMATCH` → errors から外し、「今週の{目標名}が{不足分}分足りなくなります」（不足分＝想定 − 実際）
-     - 締切がない・来週以降の `unplaced` →「{title}は今週に入りませんでした」
-     - 終わりの時刻を仮置きした予定 → C-10 の一文
-
-### 1ターンの流れ
+generate の手順：
 
 ```text
-1. 12.2 の 1・2・5・6 と同じ準備（今日だけ・有効な計画・Before・PlanningContext）。lib/server/replan-base.ts に切り出して両方の route で使う
-2. LLM_MODE=off → 12.2 の経路（fallback）
-3. 計画の呼び出し（12.13 のプロンプト①）
-     LlmError（1回目）→ 12.2 の経路（fallback）
-4. reply_type ごと：
-     chat・question → message = text、proposals = []
-     select → open_proposal_ids[select_index − 1] があれば selected_proposal_id に。message は「案{n}にしますね。よければ『この計画にする』を押してください。」
-     discard → open_proposal_ids の pending を discarded にし、discarded = true。message「わかりました。今の予定のままにします。」
-     proposal → 5 へ
-5. 各案を checkOption。1つでも通れば 7 へ
-6. 全部だめ → 案ごとの errors を feedback に入れて、もう一度 3（最大2回。2回目以降の LlmError は 8 へ）
-7. 通った案だけを保存（12.2 の 8・9 と同じ。案ごとに replan_proposals の1行）→ 説明の呼び出し（12.12）→ 返す
-8. 最後まで通らない → 説明の呼び出しに「できなかった理由」を渡し、できる範囲を伝える文を作る。proposals = []
+1. session_id のセッションが自分のもので、state が READY_FOR_PLANNING か PLAN_PROPOSED → それ以外は 409
+2. PlanningContext を作る（8.3。style = null）
+3. generatePlans(context)
+     { ok: false } → 422 INFEASIBLE。message = reason ＋「（" + required_changes を「／」でつないだもの + "）」
+4. generation_id・3案の id・全項目の id を UUID で作る（10.2）。`locked_items` から写した項目は `carried = true`、それ以外は false
+5. save_generation(session_id, plans, items)（4.4）
+6. candidates（ScheduleCandidateSchema。id = weekly_plans.id）を返す
 ```
 
-- `fatigue` が high・medium なら、12.2 の 6 と同じく今日のチェックインの fatigue を更新する
-- 時間の上限：1ターン全体で15秒。超えそうなら、その時点で通っている案で返す（なければ 8 の文、それも間に合わなければ fallback の文）
-- LLM のログは name・所要時間・成否・エラーの種類だけ（発言は出さない）
+`label` は `lib/labels.ts` の表示名（集中プラン／バランスプラン／ゆとりプラン）。
 
-## 12.12 説明の文章と数字の検査（`lib/llm/replan-chat-message.ts`）
+### 11.2 今日のタイムライン（F-10）
 
-1. **facts を作る**（コード）：案ごとに
-   - `label`
-   - 操作の要約：コードで作る文（「19:00〜21:00 に飲み会を入れる」「TOEICリスニング演習を水曜に回す」）
-   - 影響：`computeReplanImpact(proposal, tasks)`（`lib/replan-impact.ts`）の今日のタスク増減・自由時間の増減・他の日の移動・締切
-   - warnings
-2. **説明の呼び出し**（12.13 のプロンプト②）→ `message`
-3. **数字の検査**：`message` の中の「N分」「N時間」「HH:MM」「M/D」「N時」を取り出し、facts と利用者の発言に出てくる数字に**ないもの**が1つでもあれば、テンプレートに替える
-   - テンプレート：「案を{n}つ用意しました。」＋「案1：{label1}、案2：{label2}」＋warnings を1文ずつ。案が1つなら「{label}の案を用意しました。」
-4. LLM が失敗したときもテンプレート
-5. 返す `summary_message`（案ごと）も、その案の操作の要約＋warnings で作る（画面の変更点の上に出す）
-
-## 12.13 プロンプト
-
-### ① 計画（`lib/llm/replan-chat.ts`。name `replan_chat`、temperature 0.3、timeout 8秒、retries 0）
-
-system：
-
-```text
-あなたは大学生の予定を一緒に調整する秘書です。利用者の発言と今日の予定を読み、予定の変え方を「操作」で提案します。
-時刻の計算・並べ直し・検査はプログラムが行います。あなたは「何をどう変えるか」だけを決めてください。
-
-# reply_type
-- "proposal"：予定を変える案を options に1〜3個入れる
-- "question"：何をしたいのか本当に決められないときだけ。text に短い質問を1つ（答えの例を2つ添える）
-- "select"：利用者が出ている案を選んだ（「案2で」「2つ目がいい」「それでお願い」）。select_index に1始まりの番号（open_options の index）
-- "discard"：利用者が出ている案をやめた（「やっぱりナシ」「元に戻して」「今のままでいい」）
-- "chat"：予定を変えない雑談・お礼・前向きな発言。text に短い返事
-迷ったら question より proposal（たたき台）を優先する。
-
-# 操作（op）。使わない項目は null か空配列
-- add_event：新しい予定を入れる（飲み会・散歩・自習など、今日のタスクにないこと）。title、start（"HH:MM" か "now"）、end（"HH:MM"）か minutes。終わりが分からなければ end も minutes も null
-- add_rest：休憩・仮眠を入れる。start（ふつうは "now"）、minutes（仮眠は20、休憩は30が目安）、title（「仮眠」「休憩」）
-- delay：今の予定が長引く・電車が遅れるなど。minutes
-- reorder：今日の残りのタスクの順番を変える。item_ids に先にやるものから
-- shorten：タスクを短くする。item_id、minutes（短くした後の長さ）
-- postpone：タスクを今日から外して別の日に回す。item_id、date（希望がなければ null）
-- skip：タスクを今週はやめる。item_id
-- pull_forward：明日以降のタスクを今日やる。item_id、position（"first" か "last"）
-- move_to_day：タスクを指定の日に移す。item_id、date
-- tired_plan：疲れ・眠い・だるい・やる気が出ないときの「今夜を軽くする」標準の組み直し。この操作は1つの案に単独で入れる
-
-# 案の作り方
-- 案が複数なら、考え方を変える（例：「仮眠してから続ける」と「今夜は軽めにする」）。label は12文字以内の日本語
-- 体調・気分（疲れた・眠い・だるい・やる気が出ない・頭が回らない）：tired_plan の案と、add_rest の案の2つを基本にする。fatigue に疲れの度合いを入れる（はっきり疲れている "high"、少し・気分が落ちている "medium"）
-- 予定が入った：add_event だけでよい。重なるタスクはプログラムが後ろに回す
-- 「今から〜したい」：今日・明日以降のタスクにあれば pull_forward（position "first"）か reorder。なければ add_event（start "now"）
-- 特定のタスクを明日に・後で（「ワンチャン明日でよくね」「ESは明日でいいや」）：postpone。タスク名が省略されていても today の title から選ぶ
-- 無理な要求（残り時間より多いタスクを全部・睡眠を削る・休憩をなくす）：そのままの案は作らない。締切が近い順・重要度の高い順に残し、残りを postpone した「できる範囲で最大」の案を出す
-- 睡眠・固定予定・移動・終わった予定・進行中の予定は変えられない（そのための操作もない）
-- now が 23:00 以降なら、今日に新しいタスクを入れず postpone を中心にする
-
-# 守ること
-- item_id は today・later_tasks にある id だけを使う。作らない
-- 時刻は利用者が言った時刻か "now" だけを書く。自分で計算した時刻を書かない
-- feedback があれば、前の案がプログラムの検査で通らなかった理由。理由を読んで直した案を出す
-- history で前に出した案や利用者の希望を踏まえる
-```
-
-user（JSON。キーは英語、値は日本語のまま）：
-
-```json
-{
-  "now": "18:00", "date": "2026-10-05", "weekday": "月",
-  "message": "<今回の発言>",
-  "history": [{ "role": "user", "text": "..." }, { "role": "assistant", "text": "..." }],
-  "open_options": [{ "index": 1, "label": "仮眠してから続ける" }],
-  "checkin": { "mood": "medium", "fatigue": "high", "concentration": "low" },
-  "today": [
-    { "id": "...", "kind": "task", "title": "TOEICリスニング演習", "start": "18:00", "end": "19:00",
-      "can_change": true, "deadline": null, "goal": true, "importance": "high", "concentration": "high" },
-    { "id": "...", "kind": "fixed", "title": "夕食", "start": "19:00", "end": "19:45", "can_change": false }
-  ],
-  "later_tasks": [{ "id": "...", "title": "ES作成（企業A）", "date": "2026-10-06", "start": "18:00", "end": "19:00", "deadline": "10/12" }],
-  "goals": [{ "name": "TOEIC学習", "week_target_minutes": 360 }],
-  "settings": { "sleep_start": "00:00", "min_buffer_minutes": 15, "daily_work_limit_minutes": 360 },
-  "feedback": [{ "label": "...", "errors": ["夕食（19:00〜19:45）と重なるため入れられません"] }]
-}
-```
-
-- `today` は今日の now 以降（進行中を含む）。free・buffer は送らない（空きはプログラムが作る）
-- `later_tasks` は明日〜日曜の locked でない task 項目だけ
-- `history` は直近10件まで
-
-### ② 説明（`lib/llm/replan-chat-message.ts`。name `replan_chat_message`、temperature 0.5、timeout 6秒、retries 0）
-
-system：
-
-```text
-あなたは予定を一緒に調整する秘書です。プログラムが作った案の内容（facts）を、利用者に短く伝えます。
-- 2〜3文。最初に気持ちへの一言（疲れていれば労う。予定が入ったなら軽く受け止める）、次に案の要点
-- 案が複数なら「案1は〜、案2は〜」と1文ずつ
-- 利用者の口調に合わせる（くだけた発言にはやわらかく。ただし敬語は崩しすぎない）
-- 数字（分・時間・時刻・日付）は facts にあるものだけを、そのまま書く。足し算・言い換え・丸めをしない
-- warnings があれば必ず1文で伝える
-- failed があるときは「できません」で終わらせず、できる範囲を伝える
-- 利用者の選択を否定しない。説教しない
-```
-
-user：`{ "message": "<今回の発言>", "options": [{ "label", "summary": ["..."], "today_task_minutes_delta", "today_free_minutes_delta", "other_days": ["水曜：TOEICリスニング演習 +40分"], "deadline": "ok" | "late" | "none", "warnings": [] }], "failed": ["..."] }`
-
-## 12.14 API
-
-| API | 変更 |
+| ID | 要件 |
 |---|---|
-| ★`POST /api/plans/replan/chat` | 新規。`ReplanChatRequestSchema` → `ReplanChatResponseSchema`。12.11 の流れ |
-| `POST /api/plans/replan` | 変えない（fallback と `LLM_MODE=off` で使う）。準備の部分だけ `lib/server/replan-base.ts` に切り出す |
-| `POST /api/plans/replan/accept` | 変えない。案が複数でも、`apply_replan` が同じ日の他の pending を discarded にする |
+| FR-10-1 | `/today` は `GET /api/clock` の日付で `GET /api/calendar/day` を呼ぶ（14.2） |
+| FR-10-2 | 項目は `start_at` の昇順で返す |
+| FR-10-3 | 詳細シートに `reason` を出す（モックのまま） |
+| FR-10-4 | 有効な計画がない日は `has_plan: false`（固定予定と締切だけ）。画面は「この日の計画はまだありません」と「目標を相談する」ボタン（→ `/interview`）を出す（14.2） |
+| FR-10-5 | **翌週の計画の作り方**：MVP では、翌週になったら `/today` の「目標を相談する」からヒアリングをやり直す（新しい目標として確定 → スケジュール作成）。ヒアリングなしで翌週分だけ作る入口は作らない（17.1 #10） |
+| FR-10-6 | `/today` はタスク枠ごとに完了状態を切り替えられる。完了率は完了した枠数／今日のタスク枠数で計算し、時刻経過では完了にしない |
+| FR-10-7 | 初期表示時、現在時刻を含む予定（なければ次の予定）までタイムラインをスクロールする。日付ヘッダーと今日の達成率は上部約20%に固定する |
 
-- エラー：`date` が今日でない → `{ message: "今日の予定だけ変更できます。", proposals: [], ... }`。有効な計画がない → 409（今と同じ）
-- `discard` のために `discardReplanProposals(supabase, ids)`（`lib/server/repositories/replan-proposals.ts`。pending だけを discarded に）を足す
+### 11.3 カレンダー（F-11。`lib/server/calendar.ts`）
 
-## 12.15 受け入れテスト
+**表示用に計算する値**（DB には保存しない）：有効な計画の項目のうち、`end_at ≤ now` のものは `locked: true`。タスクの `status` は DB に保存された完了状態をそのまま返し、時刻経過では完了にしない。`start_at < now < end_at` のもの（進行中）は、タスク・固定予定・移動・睡眠なら `locked: true`、**自由時間・バッファなら `locked: false`**（v1.5。まだ使い方を変えられる時間なので。12.2 で now で2つに切る）。
 
-単体（OpenAI は呼ばない。`callStructured` をモック）：
+| API | 組み立て |
+|---|---|
+| `calendar/day?date=` | date が有効な計画の週に入る → その日の `daily_plan_items`（`has_plan: true`）。それ以外 → その日に展開した固定予定だけ（毎週の予定＋その日の単発の予定。睡眠・移動は出さない。モックと同じ。`has_plan: false`） |
+| `calendar/week?start=` | start を含む週の月曜から7日分の `calendar/day` |
+| `calendar/month?month=` | その月の全日。各日の `has_plan`、`kinds`（task → task、固定予定の class → class、work → work、social・family → social。出た順に最大3つ）、`deadlines`、`task_hours` |
 
-- [ ] applyOps：バランスプラン・now 10/5 18:00 で、次のどれも Validator の errors が0件（`LOCKED_ITEM_CHANGED` なし）
-  - add_event 20:00〜22:00 →重なるタスクが後ろか明日以降に回る
-  - add_rest now 20分 → 今日のタスクが20分以上後ろにずれ、入らない分は明日以降
-  - delay 30 → 同上
-  - reorder・shorten・postpone（date 指定あり／なし）・pull_forward（明日のタスクを今日の先頭に）
-- [ ] add_event 19:00〜21:00 → 夕食と重なり opErrors
-- [ ] skip（目標タスク）→ errors 0、warnings に「今週のTOEIC学習が{N}分足りなくなります」（N は外した分）
-- [ ] 今日のタスクを全部 pull_forward → 入らない分は溢れ、締切のあるものが置けなければ errors
-- [ ] tired_plan が他の操作と同じ案にある → errors
-- [ ] run：1回目の LLM が存在しない item_id → feedback にその理由が入り、2回目の正しい案が返る
-- [ ] run：select・discard・chat・question の形
-- [ ] run：1回目の LlmError → source "fallback"（12.2 の経路の提案）
-- [ ] 数字の検査：facts にない「45分」を含む文 → テンプレートになる
+- `deadlines`：完了していないタスクで、締切の日付がその日のもの
+- 形式が不正な `date`・`start`・`month` は400
+- `/calendar` の月表示は、どの月でもデータを返す（モックの「2026年10月以外は空」はなくなる）
 
-手動（`LLM_MODE=on`、10/5 18:00、TOEIC バランスの計画）：`docs/scenarios/replan-chat.md` の 1〜6、`edge-cases.md` の 2〜4、`time-rules.md` の 2
+### 11.4 受け入れテスト
+
+- [ ] generate 後、`weekly_plans` に candidate が3件・同じ generation_id、セッションが PLAN_PROPOSED
+- [ ] もう一度 generate すると、前の3案は discarded、新しい3案が candidate
+- [ ] select 後、有効な計画は1件で、同じ生成の他の2案は discarded
+- [ ] 計画を選んだ後の `/today`（7:00）は、10/5 の計画を開始時刻順に表示する
+- [ ] 終了時刻を過ぎた未チェックのタスクは未完了のまま表示され、チェックした枠だけ完了として表示される
+- [ ] 計画のない週のカレンダーは固定予定だけ（移動・睡眠なし）
+
+## 12. 再計画（F-12）優先度A（Demo Path に含む）
+
+### 12.1 機能要件
+
+| ID | 要件 |
+|---|---|
+| FR-12-1 | `POST /api/plans/replan`（`{ date, text }`）：`text` から意図（`ReplanningIntent`）だけを取り出し、配置は Engine が行う |
+| FR-12-2 | 対象は**今日だけ**（**補正 C-12**）。`date` が `getNow()` の日付でなければ `{ supported: false, message: "今日の予定だけ変更できます。" }` |
+| FR-12-3 | 対応する意図：`state_change`（疲れた）、`new_fixed_event`（予定が入った）、`task_change`（postpone / skip / shorten）。`preference_change` と判別できない発言は `{ supported: false, message }`（12.3.3） |
+| FR-12-4 | `now` より前に終わった項目・`now` を含む項目・完了した項目は変えない。**例外**：`state_change`（fatigue: high・medium）のときだけ、`now` を含む**高集中タスク**（12.4 の A の a で外す対象）は `now` で切る。前半 [start_at, now) は同じ id・同じ start_at のまま `end_at = now`・`locked: true`・`status: "completed"` で残し（実施済みとして数える）、後半 [now, end_at) は外した分として f・g の行き先へ。高集中でない進行中のタスクと、`new_fixed_event`・`task_change` のときの進行中のタスクは変えない。Before は 11.3 の表示用の計算をかけたもの（進行中のタスクは `locked: true`）を渡し、切るのは Engine が行う |
+| FR-12-5 | 固定予定・睡眠・移動・締切・目標の週合計は変えない（ただし `new_fixed_event` は固定予定を1件足す） |
+| FR-12-6 | 結果は `ReplanProposal`（モックと同じ形）。成立しない場合は `{ supported: false, message }`（**422 にしない**。2.2） |
+| FR-12-7 | 提案は `replan_proposals` に保存し、`accept` まで計画を変えない |
+| FR-12-8 | `POST /api/plans/replan/accept`（`{ proposal_id }`）：`apply_replan` で反映し、その日の `DayView` を返す。古い提案は409 `PROPOSAL_EXPIRED` |
+| FR-12-9 | 利用者の意思による変更を否定的に書かない（要件定義 6.12.5。13章の文言） |
+
+### 12.2 処理の流れ（API：`app/api/plans/replan/route.ts`）
+
+```text
+1. date ≠ 今日 → { supported: false }（FR-12-2）
+2. 有効な計画がない、または week_start が今週でない → 409（「先にプランを選んでください」）
+3. 意図を取り出す（12.3）。unknown・preference_change → { supported: false }
+4. new_fixed_events を今日の固定予定に変換する（12.3.1）。今日の固定予定・睡眠と重なる予定があれば
+   { supported: false, message: "{重なる予定のタイトル}（{開始}〜{終了}）と重なるため、この予定は入れられません。時刻を変えて教えてください。" }（**補正 C-22**）
+5. Before を作る：有効な計画の7日分。今日の項目には 11.3 の表示用の計算（locked・completed）をかける
+6. PlanningContext を作る：style = 有効な計画の style、fixed_events に 4 の予定を足す、
+   locked_items = Before の今日の locked な項目
+   **now をまたぐ自由時間・バッファ（locked: false）は、Engine の作業用のコピーで now で2つに切り、前半 [start_at, now) を locked の項目（同じ kind）として locked_items に入れ、後半 [now, end_at) は空きとして扱う**（Before の項目そのものは切らない。id もそのまま）
+   state_change なら、その日の daily_checkins の fatigue を更新する（チェックインは計画ではないので accept を待たない）
+7. replan(context, beforeDays, intent)
+     { ok: false } → { supported: false, message: reason ＋ required_changes }
+8. updated_days の全項目に新しい UUID を振り、proposal の after と、changes・other_day_changes の after の項目も同じ対応で置き換える。
+   **before と changes[].before の項目は元の id のまま**（画面が before の id で「変更なし」を数えるため）。行の中身は Engine の項目のまま（locked な項目を変えていないことは Validator の LOCKED_ITEM_CHANGED で確かめる。FR-12-4 の例外で now で切ったタスクがあるため）。carried は保存されている行の値を引き継ぐ（Engine が新しく作った項目は false）
+9. replan_proposals に保存（base_version = 有効な計画の version、expires_at = 実際の現在時刻 + 30分）
+10. ReplanProposal（proposal_id = 保存した行の id）を返す
+```
+
+### 12.3 意図の取り出し
+
+#### 12.3.1 LLM（`lib/llm/replan-intent.ts`。`LLM_MODE=on`）
+
+- 入力：発言、今日の日付と `now`、今日の `now` 以降のタスク項目（task_id・タイトル・時刻）
+- 出力：`ReplanIntentLlmSchema`（3.3）
+- プロンプトの要点（type は上から順に調べ、最初に当てはまったものを選ぶ）：
+  1. 疲れ・しんどい・だるい・眠いなど体調や気分の変化 → `state_change`（はっきりした疲れは `fatigue: "high"`、「少し疲れた」は `"medium"`）。やる気が出ない・頑張れない（頑張れなそう）・集中できないなど気分が落ちている → `state_change`、`fatigue: "medium"`。「今日は頑張れそうです」のような前向きな発言は変えることがないので `unknown`。ただし、疲れていても今日のタスクをやめる・やりたくない・明日に回すと言っているときは 3・4
+  2. 時刻の決まった予定・用事・約束・バイト・会議が新しく入った → `new_fixed_event`
+  3. 「勉強したくない」「もう無理」のように、タスクの名前を挙げずに今日のタスクをやめると言ったときだけ → `task_change`（今日のタスクすべてを `postpone`）。やめると言っていなければ 1
+  4. 特定のタスクの名前（一部でもよい）を挙げて、明日に回したい・やりたくないと言った → `task_change`（そのタスクだけを `postpone`）
+  5. それ以外・判断できない → `unknown`
+  - 時刻：夜・晩・午後があり 1〜11時 → +12時間。朝・午前がなく、1〜11時のその時刻が `now` より前 → +12時間。開始に足したときは、11時以下の終わりにも足す
+- 変換・検証（サーバー）：
+  - `task_changes[].task_id` が入力の一覧にない → その要素を捨てる
+  - `new_fixed_events`：`start_time`・`end_time` を今日の日時にする。`end_time` が null → 開始＋60分（**補正 C-10**。要約で「終わりの時刻が分からないため、1時間で仮置きしました。」と伝える）。`title` が null →「予定」。`category: "other"`、`location_id: null`、`recurrence: null`、`id`：UUID。開始が `now` より前・開始 ≥ 終了・終了が24:00を超える → 捨てる
+  - 捨てた結果、その type の中身が空 → `unknown` として扱う
+- 失敗（`LlmError`：タイムアウト・HTTP エラー・通信エラー・応答拒否・形が違う。変換中の例外も含む）→ 12.3.2 のキーワードで取り出す。LLM が `unknown` を返したときはそのまま使う
+
+#### 12.3.2 キーワード（`lib/llm/replan-keywords.ts`。`LLM_MODE=off` と失敗時）
+
+発言は最初に NFKC で正規化し、小文字にする（全角の数字・コロン・英字も半角として読む）。上から順に調べ、最初に当てはまったものを使う。
+
+| 条件（正規表現） | 意図 |
+|---|---|
+| `/明日(に(回\|まわ)\|で(いい\|よく\|ええ))\|明日やる\|(やりたく\|したく)ない/` かつ、発言にタスクのキー（下）がある | `task_change`：キーが当たったタスク（複数当たれば全部）を `postpone` |
+| `/勉強(したく\|やりたく)ない\|もう(やりたくない\|無理\|ええ\|いいや)\|明日で(いい\|よく\|ええ)/` かつ、発言にタスクのキーが1つもない | `task_change`：今日の `now` 以降のタスク項目の task_id すべてを `postpone` |
+| `/疲\|つかれ\|しんど\|だる\|眠\|ねむ\|やる気(が)?(出\|で)ない\|やる気ない\|やる気が起きない\|やる気(ゼロ\|0\|なし\|皆無)\|頑張れな\|がんばれな\|集中(でき\|続か\|もた)(な\|ひん\|ん)\|頭(が)?回ら/`（「やる気」だけ・「頑張れそう」は当てない） | `state_change`、`fatigue: "high"` |
+| 開始の時刻（下）があり、`/予定\|用事\|約束\|バイト\|会議\|飲み\|ご飯\|ごはん\|面接\|授業\|ゼミ\|病院\|打ち合わせ\|ミーティング\|mtg\|説明会/` があり、「明日」がない | `new_fixed_event`（時刻の読み方は下） |
+| それ以外 | `unknown` |
+
+- タスクのキー：タイトルを NFKC・小文字にし、一般的な語（作成・演習・課題・勉強・練習）・括弧・空白・「の」で分け、さらに英数字 → 日本語の境目で分ける。2文字未満は捨てる。例：「ES作成（企業A）」→ `es`・`企業a`、「TOEICリスニング演習」→ `toeic`・`リスニング`、「統計学の課題」→ `統計学`
+- 時刻の読み方（`new_fixed_event`）：
+  - 開始：`HH:MM` または `N時(半|M分)?` の後に「から」か「〜・~」が続くもの
+  - 午後への読みかえ：夜・晩・午後があり N < 12 → +12。朝・午前がなく、N ≤ 11 で、その時刻が `now` より前 → +12。開始を +12 したときは、終了の N ≤ 11 も +12
+  - 終了（開始より後ろから探す）：`〜HH:MM`・`〜N時(半)?`、または `HH:MMまで`・`N時(半)?まで`
+  - 終了がなければ長さ：`(\d+)時間(半)?` と `(\d+)分`（「22時30分」の「30分」は長さにしない）の合計を開始に足す。どちらもなければ C-10
+- 否定形（「だるくない」）はキーワードでは扱わない（`state_change` になる。既知の限界）
+
+#### 12.3.3 対応していないときの返事
+
+`{ supported: false, message: "ごめんなさい、この内容はまだ計画に反映できません。『今日は疲れた』『20時から1時間予定が入った』『今日はもう勉強したくない』のように教えてください。" }`
+
+### 12.4 意図ごとの処理（`lib/planning/replan.ts`）
+
+共通：今日の `now` 以降だけを作り直し、明日以降は「自由時間の一部をタスクに置き換える」ことだけを行う（変更を最小にする）。再計画は探索（ビーム）を使わずルールで行う。適合度は P4の `Fit`、バッファは15分。
+
+疲労時の値（`config.ts`）：
+
+| 名前 | 値 | 意味 |
+|---|---|---|
+| `tired_rest_minutes` | 30 | 最初の休憩 |
+| `tired_light_max_minutes` | 20 | 目標の軽作業版の最大 |
+| `tired_light_min_minutes` | 10 | 目標の軽作業版の最小（**この場合だけ、付録P の `lengths` の最小30分・DurationFit の「分割可で L < 30 → 0」の例外**） |
+| `tired_light_buffer_min_minutes` | 10 | 軽作業版の後ろのバッファの最小（次が固定予定・移動なら 15 未満でよい。BUFFER_SHORTAGE はタスクとタスクの間だけの検査のため） |
+
+**A. state_change（fatigue: high または medium）**…Demo Path。**medium も high と同じ処理にする**（m_i は fatigue: high として計算する。チェックインには言われた値をそのまま保存する）。`fatigue` が low・null の state_change は 12.3.3 の返事にする
+
+```text
+今日（now 以降）：
+  a. 高集中タスク（fatigue: high として計算した Fit が 0 になるもの。P4.1）の項目を外す。外した項目の直後のバッファも外す
+     now をまたぐ高集中タスク（locked: true で届く）も対象にする：前半 [start_at, now) は同じ id・同じ start_at で
+     end_at = now・locked・completed にして残し、後半 [now, end_at) を外した分として扱う（FR-12-4 の例外）
+  （空き：now 以降で、固定予定・移動・睡眠・locked な項目・d で残す項目のない時間。locked: false の自由時間・バッファは空きとして作り直す）
+  b. now 以降の最初の空きの先頭に、休憩（free、30分、REST）を置く
+  c. 外した中に目標タスクがあれば、b の後ろに目標の軽作業版を置く
+       L = min(外した目標の分, 20, その空きの work_end − 現在位置 − 10) を5分単位に切り下げ
+       L ≥ 10 なら置き（TIRED_LIGHT）、後ろに残りの時間をバッファ（10分以上）として置く
+       L < 10 なら置かず、次の空きで同じことをする（今日の中で見つからなければ置かない）
+  d. 外さなかった項目（高集中でないタスクと、その前後のバッファ）はそのまま残す
+  e. それ以外の今日の空きは、すべて自由時間にする（隣り合う自由時間は1つにまとめる）
+明日以降（外した分の行き先）：
+  f. 締切タスク：明日〜min(締切の前日, 日曜) の日の自由時間に、日付の早い順で置く
+       置き方：自由時間の先頭に（直前がタスクならバッファを置いてから）タスク、後ろにバッファ。残りは自由時間
+       Fit > 0（明日以降は状態なしとして計算。分割できるタスクの30分未満の端数（c の後の目標の残りなど）は30分として Fit を計算し、そのままの長さで置く）、その日のタスク合計 ≤ T_comf（240。締切の最終日だけは daily_work_limit_minutes まで）
+       締切が来週以降で今週に置けない → 今週からは外す（要約で「来週に回します」と伝える）
+       締切が今週で置けない → 成立しない（T_comf の代わりに daily_work_limit_minutes まで使っても置けなければ infeasible）
+  g. 目標タスクの不足分（外した目標の分 − L）：明日〜日曜の日を「自由時間の合計が多い順」に見て、
+       その日に目標タスクの項目があり、その直後が「バッファ → 自由時間」なら、目標タスクを延長し、バッファを後ろにずらす（自由時間が減る）
+       そうでなければ、その日の自由時間に新しく置く（f と同じ置き方）
+       日曜まで見ても置けない → 成立しない
+```
+
+デモ（バランスプラン、10/5 18:00）で期待する結果：月曜の 18:00 以降にある TOEIC リスニング演習（目標の時間帯 evening のため、18:00〜19:00 か夕食後に置かれている。P14のテスト）と、18:00 以降のほかの高集中タスクが外れ、18:00〜18:30 休憩、18:30〜18:50 TOEIC 単語（20分）、18:50〜19:00 バッファ。夕食はそのまま、夕食後は自由時間。リスニングの不足40分（と、外したほかのタスク）は明日以降に移る（行き先の日は Engine の計算による）。18:00 より前に終わった項目は locked・completed で変わらない。
+
+**B. new_fixed_event**：予定（場所は null なので移動は増えない）を今日に足す → 予定と重なる項目（タスク・バッファ・自由時間）だけを外す。自由時間は予定の前後に分かれて残る → 外したタスクは、今日の now 以降の自由時間（60分以上）に置けなければ f・g の行き先へ → 今日の他の項目は動かさない。
+
+**C. task_change**
+
+| action | 処理 |
+|---|---|
+| postpone | 今日の該当タスクの項目を外し、f（締切タスク）・g（目標タスク）・任意タスクは g と同じ置き方で明日以降へ。外した場所は自由時間 |
+| skip | 締切タスク：postpone と同じ（締切を守るため）。目標タスク：g。任意タスク：今週から外す |
+| shorten | 今日の該当項目を半分（5分単位に切り下げ。30分未満になるなら外す）にし、残りは postpone と同じ |
+
+### 12.5 変更点（`lib/planning/diff.ts`）
+
+変更点は、Engine が 12.4 の操作をしながら記録する（Before と After を後から比べて推測しない）。
+
+| 操作 | changes（今日） | other_day_changes |
+|---|---|---|
+| 高集中タスクを外し、その時間に休憩・軽作業版を置いた | `replaced`（before＝外した項目、after＝その時間帯の After の項目、reason：`TIRED_LIGHT`）。**目標タスク（軽作業版のもと）と now をまたぐ項目（切ったタスク・自由時間・バッファ）が別のとき**は、休憩は now をまたぐ項目の after に、軽作業版とそのバッファは目標タスクの after にだけ入れる（同じ項目を2つの変更に重ねない） | 残りを別の日に置いたら `moved`（before＝外した項目、after＝別の日の項目、moved_to_date、reason：`GOAL_CARRYOVER` か `TIRED_MOVED`） |
+| タスクを外し、今日の中では置き換えなかった | `moved`（after＝[]、moved_to_date＝行き先の日、reason：`TIRED_MOVED`・`USER_POSTPONED` など） | `moved`（after＝行き先の日の項目） |
+| タスクを外し、今週には置かない | `removed`（reason：`NEXT_WEEK` か `USER_SKIPPED`） | なし |
+| タスクに付いていたバッファを外した | `removed`（reason：`BUFFER_MERGED`） | なし |
+| 自由時間が広がった・まとまった | `replaced`（before＝元の自由時間、after＝新しい自由時間、reason：`FREE_EXTENDED`） | なし |
+| now をまたぐ自由時間・バッファを切って作り直した | `replaced`（before＝元の項目、after＝前半＋その時間帯の新しい項目、reason：後半に休憩を置いたら `REST`、そうでなければ `FREE_EXTENDED`）。**タスクの場合**（state_change で now をまたぐ高集中タスクを切った。FR-12-4 の例外）も同じく `replaced`（before＝元のタスク全体、after＝前半（end_at = now・completed）＋その時間帯の新しい項目。reason の決め方は同じ） | タスクの場合、後半を別の日に置いたら `moved`（before＝元のタスク、after＝別の日の項目、moved_to_date、reason：`GOAL_CARRYOVER` か `TIRED_MOVED`） |
+| 予定を足した | `added`（after＝予定、reason：`FIXED_EVENT_ADDED`） | なし |
+| 短くした | `shortened`（after＝短くした項目、reason：`USER_SHORTENED`） | 残りを置いたら `moved` |
+| 既存のタスクを延長した（g） | なし | `moved`（before＝外した項目、after＝延長後の項目、moved_to_date） |
+
+- 変更のない項目は changes に入れない（画面は「変更なし ◯件」を Before の件数 − 変更件数で出す）
+- 並び順：changes は before（なければ after）の開始時刻順。other_day_changes は日付順
+- `summary_message`：13.4
+
+### 12.6 提案の確定（accept）
+
+- `apply_replan(proposal_id)`（4.4）。`PROPOSAL_EXPIRED` → 409（「時間がたったため、この提案は使えません。もう一度伝えてください。」）
+- 返すもの：確定後の今日の `DayView`（11.3 の計算をかけたもの）
+- 「やめておく」は API を呼ばない（提案は30分で無効になる）
+
+### 12.7 受け入れテスト
+
+Engine（`lib/planning/__tests__/replan.test.ts`。バランスプランを生成し、now = 10/5 18:00、`state_change` fatigue high）：
+
+- [ ] Validator（mode = replan）の errors が0件（`LOCKED_ITEM_CHANGED` なし）
+- [ ] 今日の 18:00 以降に高集中タスク（リスニング・ES）がない
+- [ ] 18:00〜18:30 休憩、18:30〜18:50 単語、18:50〜19:00 バッファ
+- [ ] 今週の目標タスクの合計が360分のまま
+- [ ] ES の項目がすべて締切（10/12）より前の日
+- [ ] 夕食の項目が変わっていない
+- [ ] changes に replaced（リスニング → 単語・バッファ。reason：`TIRED_LIGHT`）がある。休憩は ES の replaced にだけ入る（下の「now をまたぐ高集中タスク」）。changes の after に同じ項目が2回出ない。other_day_changes に、リスニングの残り40分の moved がある
+- [ ] fatigue: medium でも同じ結果になる
+- [ ] **now をまたぐ自由時間**：TOEIC を夕食後（19:45〜20:45）に置き、17:00〜19:00 を自由時間にした Before でも、18:00〜18:30 休憩、18:30〜18:50 単語、18:50〜19:00 バッファになる。17:00〜18:00 の自由時間は残り、`LOCKED_ITEM_CHANGED` が出ない
+- [ ] **now をまたぐ高集中タスク**：Before は終了時刻を過ぎた項目を locked にし、保存済みの完了状態は変えない。進行中のタスク・固定予定・移動・睡眠も locked として届く。バランスプランの ES（企業A）17:35〜18:35 が locked: true で届いたとき、疲労による再計画では ES は 17:35〜18:00（同じ id・中断した分を completed）に切られ、18:00〜18:30 休憩、18:30〜18:50 単語、18:50〜19:00 バッファになる。`LOCKED_ITEM_CHANGED` が出ない。changes に replaced（before＝ES 全体、after＝前半＋休憩。reason：`REST`）、other_day_changes に ES の後半35分の moved（`TIRED_MOVED`）がある
+- [ ] **疲れた後の「今日はもう勉強したくない」**：上の結果（今日の now 以降のタスクは 18:30〜18:50 の単語20分だけ）に、単語の postpone を渡すと成立し、単語20分が明日以降に移る。今週の目標タスクの合計は360分のまま
+
+API（手動）：
+
+- [ ] accept 前の `/today` は変更前のまま。accept 後の `/today` とカレンダーに反映される
+- [ ] 同じ提案をもう一度 accept すると409
+- [ ] 「20時から1時間予定が入った」で 20:00〜21:00 に予定が足され、19:45〜24:00 の自由時間が前後に分かれる
+- [ ] 「19時から1時間予定が入った」は、夕食（19:00〜19:45）と重なるため入れられないという返事になる
+- [ ] `LLM_MODE=off` でも「今日は疲れた」で同じ結果になる
+
+## 13. 判断理由の説明（F-13）優先度S
+
+### 13.1 機能要件
+
+| ID | 要件 |
+|---|---|
+| FR-13-1 | Engine は、置いたタスク・バッファ・休憩に理由コードを付ける。説明の根拠はこのコードだけ |
+| FR-13-2 | 画面に出す `reason`・`explanation`・変更の `reason`・`summary_message` は、すべてテンプレートで作る（LLM は使わない。**補正 C-16**） |
+
+### 13.2 理由コードとテンプレート（`lib/planning/reasons.ts`）
+
+`{M/D}` は「10/9」、`{曜日}` は「水曜」、`{時間帯}` は開始時刻から 朝（〜9:59）／午前（10:00〜11:59）／午後（12:00〜16:59）／夕方（17:00〜18:59）／夜（19:00〜）。
+
+| reason_code | 付ける場所 | テンプレート |
+|---|---|---|
+| `DEADLINE_EARLY` | 締切タスク（集中プラン） | 締切（{M/D}）より早めに終わらせるため、{時間帯}に進めます |
+| `DEADLINE_NEAR` | 締切タスク（その日が完了目標日） | 締切（{M/D}）が近いため、ここで仕上げます |
+| `DEADLINE_STEADY` | 締切タスク（それ以外） | 締切（{M/D}）に向けて、少しずつ進めます |
+| `GOAL_ROUTINE` | 目標タスク | 週{N}時間の{目標名}のため、{時間帯}に入れました |
+| `OPTIONAL_EXTRA` | 任意タスク | 時間に余裕があるため、{タスク名}を進めます |
+| `LIGHT_TASK` | 軽作業（集中プラン） | 短い時間で終わる{タスク名}を片付けます |
+| `LIGHT_IN_BUFFER` | 候補付きのバッファ | 短い時間でできる{タスク名}を候補にしました |
+| `REST` | 再計画の休憩 | まずは休憩をとって、疲れを回復します |
+| `TIRED_LIGHT` | 再計画：置き換え | 疲れているため、集中力が必要な{元のタスク}を、短時間でできる{新しいタスク}に切り替えました |
+| `TIRED_MOVED` | 再計画：締切タスクを他の日へ | 集中力が必要な{タスク名}は今日は避けました。締切（{M/D}）には間に合います |
+| `GOAL_CARRYOVER` | 再計画：目標を他の日へ | 週{N}時間の目標を保つため、{曜日}に振り替えました |
+| `BUFFER_MERGED` | 再計画：バッファを外した | 作業がなくなったため、自由時間にまとめました |
+| `FREE_EXTENDED` | 再計画：自由時間を広げた | ゆっくり休めるようにしました |
+| `FIXED_EVENT_ADDED` | 再計画：予定の追加 | {時刻}からの予定を入れました |
+| `USER_POSTPONED` | 再計画：後回し | {タスク名}を{曜日}に回しました |
+| `USER_SKIPPED` | 再計画：今週はやめる | {タスク名}は今週はお休みにしました |
+| `USER_SHORTENED` | 再計画：短縮 | {タスク名}を{N}分に短くしました |
+| `NEXT_WEEK` | 再計画：今週に入らない締切タスク | {タスク名}は締切（{M/D}）に間に合うよう、来週に回します |
+
+バッファ（候補なし）の `reason` は null。
+
+### 13.3 説明文（`explanation`）
+
+| 案 | テンプレート |
+|---|---|
+| intensive | 締切のある{締切タスク名を「と」でつなぐ}を早めに終わらせ{任意タスクがあれば「、{任意タスク名}も進める」}プランです。空き時間は少なめです。 |
+| balanced | 締切に余裕を持って間に合わせつつ、毎日自由時間を残すプランです。 |
+| relaxed | 締切に間に合う範囲でゆっくり進め、休む時間とバッファを多めにとるプランです。 |
+
+締切タスクがない週の intensive：「目標の時間をしっかり確保し{…}、空き時間は少なめのプランです。」
+
+### 13.4 要約（`summary_message`）
+
+| 意図 | テンプレート |
+|---|---|
+| state_change | お疲れさまです。今夜は軽めにして、{移したもの（「ESは水曜」「TOEICの残り40分は木曜」を「、」でつなぐ）}に回しました。{変えなかった固定予定の代表（今日の now 以降の最初の固定予定）}はそのままで、週{N}時間の目標{締切タスクがあれば「と{タスク名}の締切」}も守れます。 |
+| new_fixed_event | {時刻}からの予定を入れ、{移したもの}に移しました。{C-10 の一文} |
+| task_change | {移した・短くしたものの説明}。{締切タスクがあれば「締切（{M/D}）には間に合います。」} |
+
+移したものがない場合は「{…}に回しました」の部分を省く。

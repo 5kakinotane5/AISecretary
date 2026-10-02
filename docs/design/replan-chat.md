@@ -280,7 +280,7 @@ user（JSON。キーは英語、値は日本語のまま）：
   ],
   "later_tasks": [{ "id": "...", "title": "ES作成（企業A）", "date": "2026-10-06", "start": "18:00", "end": "19:00", "deadline": "10/12" }],
   "goals": [{ "name": "TOEIC学習", "week_target_minutes": 360 }],
-  "settings": { "sleep_start": "00:00", "min_buffer_minutes": 15, "daily_work_limit_minutes": 480 },
+  "settings": { "sleep_start": "00:00", "min_buffer_minutes": 15, "daily_work_limit_minutes": 360 },
   "feedback": [{ "label": "...", "errors": ["夕食（19:00〜19:45）と重なるため入れられません"] }]
 }
 ```
