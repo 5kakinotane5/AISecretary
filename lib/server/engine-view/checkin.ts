@@ -1,7 +1,7 @@
 import { toDateStr } from "@/lib/datetime";
 import { CHECKIN_LABELS } from "@/lib/labels";
 import type { DailyCheckin, Level, PlannedItem, PlanningContext } from "@/lib/schemas";
-import type { EngineEmit } from "@/lib/engine-view/events";
+import type { EngineEmit, EngineSnapshotResponse } from "@/lib/engine-view/events";
 import { buildParamSnapshot, computeFeatures, directionDistances } from "./snapshot";
 
 // POST /api/checkin の「決定」を、発表用の別画面に流す（turn_start → state_update → turn_end）。
@@ -31,6 +31,19 @@ export function checkinText(values: CheckinValues): string {
   return parts.join("・");
 }
 
+// 今の値（状態・D_k・w_k・今日の Fit・今の計画の F(S) と距離）。turn_start と GET /api/debug/engine-snapshot で使う
+export function buildCurrentView(base: EngineViewBase): EngineSnapshotResponse {
+  const snapshot = buildParamSnapshot(base.context, base.days);
+  const features = computeFeatures(base.context, base.days);
+  return {
+    now: base.context.now,
+    checkin: snapshot.checkin,
+    snapshot,
+    features,
+    distances: directionDistances(features, snapshot.directions),
+  };
+}
+
 // view が null（ENGINE_VIEW が on でない）なら save を呼ぶだけ（context も作らない）
 export async function saveCheckinWithEngineView(
   values: CheckinValues,
@@ -44,15 +57,15 @@ export async function saveCheckinWithEngineView(
   let before: ReturnType<typeof buildParamSnapshot> | null = null;
   try {
     base = await view.load();
-    before = buildParamSnapshot(base.context, base.days);
-    const features = computeFeatures(base.context, base.days);
+    const current = buildCurrentView(base);
+    before = current.snapshot;
     view.emit({
       type: "turn_start",
       text: checkinText(values),
-      now: base.context.now,
-      snapshot: before,
-      before_features: features,
-      before_distances: directionDistances(features, before.directions),
+      now: current.now,
+      snapshot: current.snapshot,
+      before_features: current.features,
+      before_distances: current.distances,
     });
   } catch {
     base = null;

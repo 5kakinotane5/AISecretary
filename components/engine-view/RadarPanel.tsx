@@ -199,11 +199,11 @@ export function RadarPanel({ turn }: { turn: TurnView }) {
       <Legend turn={turn} options={options} />
       <h3 className="text-lg font-bold">方向との距離（d(S, D_k)）</h3>
       <CurrentPlanDistances turn={turn} />
-      {turn.source === "replan" ? (
-        <OptionChecks turn={turn} />
-      ) : (
+      {turn.source === "replan" ? <OptionChecks turn={turn} /> : null}
+      {turn.source === "checkin" ? (
         <p className="text-muted-foreground">計画は作り直していません。疲れで今の計画の適合が下がり、方向の目標 D_k が動きました</p>
-      )}
+      ) : null}
+      {turn.source === "idle" ? <p className="text-muted-foreground">今の計画と、今の状態での方向の目標 D_k です</p> : null}
     </Panel>
   );
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { DailyCheckin, Level, PlanningContext } from "@/lib/schemas";
 import { chatFixture, TODAY } from "@/lib/server/replan-chat/__tests__/helpers";
+import { CONFIG } from "@/lib/planning/config";
+import { buildCurrentView } from "../checkin";
 import { buildParamSnapshot, computeFeatures, directionDistances } from "../snapshot";
 
 // 発表用の別画面のパラメータ（P2.1・P4・P6・P8・P9.1）。fixtures：10/5 18:00、TOEIC バランス
@@ -100,5 +102,27 @@ describe("computeFeatures・directionDistances", () => {
     const { context } = chatFixture();
     expect(computeFeatures(context, null)).toBeNull();
     expect(directionDistances(null, buildParamSnapshot(context, null).directions)).toBeNull();
+  });
+});
+
+describe("buildCurrentView（GET /api/debug/engine-snapshot・turn_start の今の値）", () => {
+  it("チェックインなし：directions は config の方向ベクトルそのまま、今日のタスクの gate はすべて 1", () => {
+    const { context, beforeDays } = chatFixture();
+    const current = buildCurrentView({ context: withCheckin(context, null), days: beforeDays });
+    expect(current.now).toBe(context.now);
+    expect(current.checkin).toEqual({ fatigue: null, concentration: null, mood: null });
+    expect(current.snapshot.directions).toEqual(CONFIG.directions);
+    expect(current.snapshot.today_fits.length).toBeGreaterThan(0);
+    for (const row of current.snapshot.today_fits) expect(row.gate).toBe(1);
+    expect(current.features).not.toBeNull();
+    expect(current.distances).toEqual(directionDistances(current.features, current.snapshot.directions));
+  });
+
+  it("有効な計画がない：today_fits は空、features・distances は null", () => {
+    const { context } = chatFixture();
+    const current = buildCurrentView({ context, days: null });
+    expect(current.snapshot.today_fits).toEqual([]);
+    expect(current.features).toBeNull();
+    expect(current.distances).toBeNull();
   });
 });
