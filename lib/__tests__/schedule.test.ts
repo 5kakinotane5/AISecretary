@@ -29,11 +29,17 @@ function item(
 }
 
 describe("mergeFreeTime（画面表示用に自由時間をまとめる）", () => {
-  it("buffer は free・「自由時間」として表示する", () => {
+  it("buffer は free・「空き時間」として表示する", () => {
     const [merged] = mergeFreeTime([item("b1", "buffer", "13:50", "14:05")]);
     expect(merged.kind).toBe("free");
-    expect(merged.title).toBe("自由時間");
+    expect(merged.title).toBe("空き時間");
     expect(merged.id).toBe("b1");
+  });
+
+  it("free（DB の title は「自由時間」）も「空き時間」として表示する", () => {
+    const [merged] = mergeFreeTime([item("f1", "free", "13:50", "14:05")]);
+    expect(merged.kind).toBe("free");
+    expect(merged.title).toBe("空き時間");
   });
 
   it("隣り合う buffer と free を1つにまとめる（id・start_at は最初、end_at は最後）", () => {

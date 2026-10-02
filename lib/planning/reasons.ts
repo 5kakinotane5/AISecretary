@@ -42,7 +42,7 @@ export function formatReason(code: ReasonCode, params: ReasonParams = {}): strin
     case "TIRED_LIGHT": return `疲れているため、集中力が必要な${params.originalTaskName ?? params.taskName ?? "タスク"}を、短時間でできる${params.replacementTaskName ?? "軽作業"}に切り替えました`;
     case "TIRED_MOVED": return `集中力が必要な${params.taskName ?? "タスク"}は今日は避けました。締切（${deadline}）には間に合います`;
     case "GOAL_CARRYOVER": return `週${params.goalHours ?? 0}時間の目標を保つため、${weekday}に振り替えました`;
-    case "BUFFER_MERGED": return "作業がなくなったため、自由時間にまとめました";
+    case "BUFFER_MERGED": return "作業がなくなったため、空き時間にまとめました";
     case "FREE_EXTENDED": return "ゆっくり休めるようにしました";
     case "FIXED_EVENT_ADDED": return `${params.time ?? "時刻未定"}からの予定を入れました`;
     case "USER_POSTPONED": return `${params.taskName ?? "タスク"}を${weekday}に回しました`;
@@ -84,7 +84,7 @@ export function applyGenerationReasons(
 }
 
 export function buildExplanation(context: PlanningContext, days: readonly DayPlan[], style: PlanStyle): string {
-  if (style === "balanced") return "締切に余裕を持って間に合わせつつ、毎日自由時間を残すプランです。";
+  if (style === "balanced") return "締切に余裕を持って間に合わせつつ、毎日空き時間を残すプランです。";
   if (style === "relaxed") return "締切に間に合う範囲でゆっくり進め、休む時間とバッファを多めにとるプランです。";
   const ids = new Set(days.flatMap((day) => day.items).filter((item) => item.kind === "task" && item.task_id).map((item) => item.task_id!));
   const deadlines = context.tasks.filter((task) => ids.has(task.id) && task.deadline_at).sort((a, b) => a.id.localeCompare(b.id)).map((task) => task.title);

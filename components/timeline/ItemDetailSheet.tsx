@@ -21,15 +21,15 @@ type ItemDetailSheetProps = {
 };
 
 /**
- * タスク・候補のある自由時間をタップしたときの詳細（mock-spec.md 2.4・10.9：shadcn の Sheet の side="bottom"）。
+ * タスク・空き時間（日表示・/today）と、週表示のすべてのブロックをタップしたときの詳細（mock-spec.md 2.4・10.9：shadcn の Sheet の side="bottom"）。
  * タイトル、時間、場所、締切、自由時間の候補タスク、この時間に入れた理由を出す。値がない項目の行は出さない。
  */
 export function ItemDetailSheet({ item, open, onOpenChange, tasks = [], locationName = null }: ItemDetailSheetProps) {
   const task = item?.task_id ? tasks.find((t) => t.id === item.task_id) : undefined;
   // Timeline でまとめた自由時間は候補を複数持つことがある（lib/schedule.ts の mergeFreeTime）
   const suggestedTitles = item ? suggestedTaskIdsOf(item).flatMap((id) => tasks.find((t) => t.id === id)?.title ?? []) : [];
-  // 内部の「バッファ」は画面上「自由時間」と表示する（design-spec.md 4章）
-  const title = item ? (item.kind === "buffer" ? getItemAppearance(item.kind).label : item.title) : "";
+  // 内部の buffer・free は画面上「空き時間」と表示する（design-spec.md 4章）
+  const title = !item ? "" : item.kind === "buffer" || item.kind === "free" ? getItemAppearance(item.kind).label : item.title;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

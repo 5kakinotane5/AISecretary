@@ -88,9 +88,9 @@ function ChangeCard({ change, showDate = false }: { change: ReplanChange; showDa
   );
 }
 
-/** 「18:00–19:00 TOEIC リスニング演習」。内部の「バッファ」は「自由時間」と表示する（design-spec.md 4章） */
+/** 「18:00–19:00 TOEIC リスニング演習」。内部の buffer・free は「空き時間」と表示する（design-spec.md 4章） */
 function itemText(item: ScheduleItem): string {
-  const title = item.kind === "buffer" ? getItemAppearance(item.kind).label : item.title;
+  const title = item.kind === "buffer" || item.kind === "free" ? getItemAppearance(item.kind).label : item.title;
   return `${formatTimeRange(item.start_at, item.end_at)} ${title}`;
 }
 

@@ -3,7 +3,7 @@ import { LOCATION_IDS } from "@/mocks/persona";
 import { summarizePlan } from "@/lib/mock/summarize";
 import { WEEKDAY_TRAVEL, bufferItem, buildDay, freeItem, monMorningTravel, taskItem, travelItem } from "./shared";
 
-const EXPLANATION = "締切に余裕を持って間に合わせつつ、毎日自由時間を残すプランです。";
+const EXPLANATION = "締切に余裕を持って間に合わせつつ、毎日空き時間を残すプランです。";
 
 // ---------- 月曜 10/5（デモで選ぶ案。再計画の Before になる） ----------
 const MON: ScheduleItem[] = [

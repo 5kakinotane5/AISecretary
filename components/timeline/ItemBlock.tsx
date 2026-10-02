@@ -36,8 +36,8 @@ export function ItemBlock({
 }: ItemBlockProps) {
   const appearance = getItemAppearance(item.kind, item.fixed_category);
   const completed = item.status === "completed";
-  // 内部の「バッファ」は画面上「自由時間」と表示する（design-spec.md 4章）
-  const title = item.kind === "buffer" ? appearance.label : item.title;
+  // 内部の buffer・free は画面上「空き時間」と表示する（design-spec.md 4章）
+  const title = item.kind === "buffer" || item.kind === "free" ? appearance.label : item.title;
 
   const body = (
     <>
