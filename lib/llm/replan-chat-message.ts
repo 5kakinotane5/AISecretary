@@ -31,6 +31,8 @@ const SYSTEM_PROMPT = `あなたは予定を一緒に調整する秘書です。
 - 利用者の口調に合わせる（くだけた発言にはやわらかく。ただし敬語は崩しすぎない）
 - 数字（分・時間・時刻・日付）は facts にあるものだけを、そのまま書く。足し算・言い換え・丸めをしない
 - warnings があれば必ず1文で伝える
+- dropped があれば、入れなかった日と理由を1文で伝える
+- 「お疲れさまです」「大変でしたね」などのねぎらいは、利用者の発言が疲れ・体調のことのときだけ使う
 - failed があるときは「できません」で終わらせず、できる範囲を伝える
 - today_free_minutes_delta など、タスクのない時間は『空き時間』と書く（『自由時間』『余白』『バッファ』とは書かない）
 - 利用者の選択を否定しない。説教しない`;
@@ -47,6 +49,8 @@ export type OptionFacts = {
   // 足した予定：「10/8（木）15:00〜16:00 面接」「毎週水曜 18:00〜19:00 ジム（今週は10/7から）」
   added_events: string[];
   added_tasks: AddedTaskFacts[];
+  // やり直しの中で外した日と理由：「10/6（火）は夕食（22:15〜22:45）と重なるため入れていません」
+  dropped: string[];
 };
 
 // 足したタスク：{ title: "統計レポート", total_minutes: 120, deadline: "10/9", placed: ["10/6（火）60分", "10/7（水）60分"] }
@@ -144,6 +148,7 @@ export function buildOptionFacts(input: {
   tasks: Task[];
   newFixedEvents?: readonly FixedEvent[];
   newTasks?: readonly Task[];
+  dropped?: readonly string[];
 }): OptionFacts {
   const impact = computeReplanImpact({ ...input.proposal, proposal_id: "" }, input.tasks);
   // 目標の行動が入らなかった文（「…は今週に入りませんでした」）は、warnings に「今週の…が N 分足りなくなります」が
@@ -176,6 +181,7 @@ export function buildOptionFacts(input: {
     warnings: [...input.warnings],
     added_events: (input.newFixedEvents ?? []).map((event) => describeAddedEvent(event, input.proposal.date)),
     added_tasks: (input.newTasks ?? []).map((task) => describeAddedTask(task, input.proposal)),
+    dropped: [...(input.dropped ?? [])],
   };
 }
 
@@ -249,6 +255,7 @@ function additionsOf(option: OptionFacts): string[] {
       const name = `${task.title}（${task.total_minutes}分・${task.deadline}まで）`;
       return task.placed.length > 0 ? `${name}を${task.placed.join("、")}に入れます` : `${name}を足します`;
     }),
+    ...(option.dropped.length > 0 ? [option.dropped.join("、")] : []),
   ];
 }
 

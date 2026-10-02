@@ -27,6 +27,7 @@ const FACTS: OptionFacts = {
   warnings: [],
   added_events: [],
   added_tasks: [],
+  dropped: [],
 };
 
 const TEMPLATE = templateMessage([FACTS], []);

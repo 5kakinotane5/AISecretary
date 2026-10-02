@@ -13,6 +13,7 @@ import {
   type ReplanResponse,
   type Task,
 } from "@/lib/schemas";
+import { formatDateShort, toDateStr } from "@/lib/datetime";
 import { isLlmEnabled, LlmError } from "@/lib/llm/client";
 import { mentionsFatigue, taskKeys } from "@/lib/llm/replan-keywords";
 import { buildReplanChatInput, callReplanChat, REPLAN_CHAT_TIMEOUT_MS, type ReplanChatFeedback } from "@/lib/llm/replan-chat";
@@ -153,6 +154,47 @@ const asksForRest = (text: string) => mentionsFatigue(text) || REST_WORDS.test(t
 const hasRestOp = (option: ReplanChatLlm["options"][number]) =>
   option.ops.some((entry) => entry.op === "tired_plan" || entry.op === "add_rest");
 
+type ChatOps = ReplanChatLlm["options"][number]["ops"];
+type ChatOp = ChatOps[number];
+// 前の試みで通らなかった案（ops と、利用者に見せてよい理由）
+type FailedAttempt = { ops: ChatOps; errors: string[] };
+
+// add_event の「同じ種類」（title と repeat）と、その日（once は date、weekly は曜日）
+const eventKind = (entry: ChatOp) => `${entry.title?.trim() ?? ""}|${entry.repeat ?? "once"}`;
+const eventDay = (entry: ChatOp, today: string) =>
+  entry.repeat === "weekly" ? `w:${entry.weekday ?? ""}` : `d:${entry.date ?? today}`;
+const dayLabel = (entry: ChatOp, today: string) =>
+  entry.repeat === "weekly" ? `毎週${entry.weekday ?? ""}曜` : formatDateShort(entry.date ?? today);
+
+// やり直しの後に通った案で外した日と理由（facts の dropped。replan-chat.md 12.12 の補い）。
+// 前の試みにあって通った案にない「同じ種類の add_event の日」を、その op だけの案で検査し直して理由を得る。
+// 見つからず、通った案の ops が前の試みより少ないときは、前の試みの理由をそのまま使う
+function droppedReasons(
+  ops: ChatOps,
+  attempts: readonly FailedAttempt[],
+  check: (entry: ChatOp) => string | null,
+  today: string,
+): string[] {
+  const events = ops.filter((entry) => entry.op === "add_event");
+  const kinds = new Set(events.map(eventKind));
+  const days = new Set(events.map((entry) => `${eventKind(entry)}|${eventDay(entry, today)}`));
+  const dropped = new Map<string, ChatOp>();
+  for (const attempt of attempts) {
+    for (const entry of attempt.ops) {
+      if (entry.op !== "add_event" || !kinds.has(eventKind(entry))) continue;
+      const key = `${eventKind(entry)}|${eventDay(entry, today)}`;
+      if (!days.has(key) && !dropped.has(key)) dropped.set(key, entry);
+    }
+  }
+  const reasons = [...dropped.values()].flatMap((entry) => {
+    const error = check(entry);
+    return error ? [`${dayLabel(entry, today)}は${error.replace(/入れられません$/, "入れていません")}`] : [];
+  });
+  if (reasons.length > 0) return reasons;
+  const larger = [...attempts].reverse().find((attempt) => attempt.ops.length > ops.length);
+  return larger ? [...new Set(larger.errors)] : [];
+}
+
 // label が、その案で postpone・skip・shorten するタスクのどれかの名前（taskKeys の言葉）を含むか。対象がなければ true
 function labelNamesTargets(
   label: string,
@@ -181,6 +223,8 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
   // 出ている案がないのに select が返ってきて、やり直したか。awaitingRetry は、そのやり直しの返事をまだ受け取っていない間
   let selectRetried = false;
   let awaitingRetry = false;
+  // これまでの試みで通らなかった案（やり直しの後に通った案で、外した日を説明に出すため）
+  const attempts: FailedAttempt[] = [];
 
   for (let call = 0; call < MAX_PLAN_CALLS; call += 1) {
     // やり直しの前に、1ターンの上限を超えそうなら打ち切る（計画の呼び出し＋説明の最小の時間）
@@ -268,9 +312,17 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
         // LLM にはすべての理由を返す。Engine・Validator の理由はログにだけ出し、利用者には見せない
         failed.push({ label, errors: check.errors });
         if (check.engineErrors.length > 0) logEngineFailure("replan-chat", check.engineErrors);
-        failedUserReasons.push(...check.errors.filter((error) => !check.engineErrors.includes(error)));
+        const userErrors = check.errors.filter((error) => !check.engineErrors.includes(error));
+        failedUserReasons.push(...userErrors);
+        attempts.push({ ops: option.ops, errors: userErrors });
       }
     });
+
+    // 外した op だけの案を検査し直し、利用者に見せてよい最初の理由を返す（droppedReasons）
+    const recheck = (entry: ChatOp): string | null => {
+      const result = checkOption({ context, beforeDays: input.beforeDays, option: { label: "", ops: [entry] }, fatigue, newId: deps.newId });
+      return result.ok ? null : (result.errors.find((error) => !result.engineErrors.includes(error)) ?? null);
+    };
 
     // 7. 通った案だけを保存して、説明を作る
     if (passed.length > 0) {
@@ -291,6 +343,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
           tasks: context.tasks,
           newFixedEvents: check.newFixedEvents,
           newTasks: check.newTasks,
+          dropped: call > 0 ? droppedReasons(ops, attempts, recheck, toDateStr(context.now)) : [],
         });
         // label が動かすタスクの名前を含まない（中身と違う）ときは、コードで作った要約の最初の文にする
         const label = labelNamesTargets(llmLabel, ops, input.beforeDays) ? llmLabel : (optionFacts.summary[0] ?? llmLabel);

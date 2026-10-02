@@ -524,3 +524,33 @@ describe("頼んでいない案・ラベル・要約（手動確認 2）", () =>
     expect(proposal.summary_message).not.toContain("今週に入りませんでした");
   }, 30_000);
 });
+
+describe("やり直しで外した日を説明に出す（facts の dropped）", () => {
+  it("1回目が毎週の火・土で火曜が夕食と重なる → 2回目の土だけの案が通り、dropped とテンプレートに火曜の理由が入る", async () => {
+    const gym = (weekday: "火" | "土", start: string) =>
+      op({ op: "add_event", title: "ジム", repeat: "weekly", weekday, start, minutes: 60, category: "other" });
+    const { planInputs } = setupLlm(
+      [
+        llmReply({ reply_type: "proposal", options: [{ label: "毎週ジム", ops: [gym("火", "22:12"), gym("土", "15:12")] }] }),
+        llmReply({ reply_type: "proposal", options: [{ label: "毎週ジム", ops: [gym("土", "15:12")] }] }),
+      ],
+      new LlmError("timeout"),
+    );
+    const response = await run(chatFixture(), deps().value, { text: "これから毎週、バイトの日は帰りにジム1時間" });
+    expect(planInputs[1].feedback).toEqual([{ label: "毎週ジム", errors: ["夕食（22:15〜22:45）と重なるため入れられません"] }]);
+    expect(response.proposals).toHaveLength(1);
+    const dropped = "毎週火曜は夕食（22:15〜22:45）と重なるため入れていません";
+    // 説明の呼び出しに渡した facts
+    const messageCall = mockedCall.mock.calls.find(([options]) => options.name === "replan_chat_message")!;
+    expect(JSON.parse(messageCall[0].user).options[0].dropped).toEqual([dropped]);
+    // 説明が失敗したときのテンプレートにも出る
+    expect(response.message).toContain(`${dropped}。`);
+  }, 30_000);
+
+  it("1回目で通った案には dropped を付けない", async () => {
+    setupLlm([llmReply({ reply_type: "proposal", options: [{ label: "毎週ジム", ops: [op({ op: "add_event", title: "ジム", repeat: "weekly", weekday: "土", start: "15:12", minutes: 60 })] }] })]);
+    await run(chatFixture(), deps().value, { text: "毎週土曜はバイトの帰りにジム" });
+    const messageCall = mockedCall.mock.calls.find(([options]) => options.name === "replan_chat_message")!;
+    expect(JSON.parse(messageCall[0].user).options[0].dropped).toEqual([]);
+  }, 30_000);
+});
