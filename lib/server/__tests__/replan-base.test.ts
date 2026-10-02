@@ -177,4 +177,33 @@ describe("replanByIntent", () => {
     expect(supabase.inserted[0].proposal).toEqual(response);
     expect(base.context).toEqual(snapshot);
   }, 30_000);
+
+  it("Engine・Validator が失敗 → 決まった文を返し、理由はログにだけ出す。保存しない", async () => {
+    // 火曜 18:00、過ぎた未チェックの目標の枠を D に足さない（直す前の）context：replan() の検証が失敗する
+    const now = "2026-10-06T18:00:00+09:00";
+    const { today, beforeDays, beforeToday, engineBeforeDays, storedRows, built } = prepare(now);
+    const base: Extract<ReplanBase, { ok: true }> = {
+      ok: true,
+      now,
+      today,
+      active: { id: "plan-1", style: "balanced", week_start: "2026-10-05", status: "active" },
+      beforeDays,
+      beforeToday,
+      engineBeforeDays,
+      storedRows,
+      context: withTodayLockedItems(built, beforeToday, now),
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const supabase = fakeSupabase();
+
+    const response = await replanByIntent(supabase.client, "user-1", base, "今日は疲れた");
+    expect(response).toEqual({ supported: false, message: "うまく組み直せませんでした。時間や内容を変えて教えてください。" });
+    expect(supabase.inserted).toEqual([]);
+    const logged = warn.mock.calls.map((args) => args.join(" "));
+    expect(logged).toContain(
+      "[replan] engine failed: 再計画後の検証に失敗しました：TOEIC学習の週合計が300分で、想定の360分と異なります / 予定を調整する",
+    );
+    expect(logged.some((line) => line.includes("今日は疲れた"))).toBe(false);
+    warn.mockRestore();
+  }, 30_000);
 });

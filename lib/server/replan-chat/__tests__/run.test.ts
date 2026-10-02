@@ -206,6 +206,31 @@ describe("runReplanChatTurn（replan-chat.md 12.11）", () => {
     expect(d.saved).toEqual([]);
   });
 
+  it("Engine・Validator の失敗だけで通らない → 決まった文を返し、理由はログにだけ出す", async () => {
+    const fixture = chatFixture();
+    // 目標の実施済みを実際と合わない値にして、tired_plan（replan()）の検証を失敗させる
+    fixture.context.goal_done_minutes = { goal_toeic: 60 };
+    const tired = () => llmReply({ reply_type: "proposal", fatigue: "high", options: [{ label: "今夜は軽めにする", ops: [op({ op: "tired_plan" })] }] });
+    const { planInputs } = setupLlm([tired(), tired(), tired()]);
+    const warn = vi.mocked(console.warn);
+
+    const response = await run(fixture, deps().value, { text: "今日は疲れた" });
+    expect(response).toEqual({
+      message: "うまく組み直せませんでした。時間や内容を変えて教えてください。",
+      proposals: [],
+      selected_proposal_id: null,
+      discarded: false,
+      source: "llm",
+    });
+    // LLM には理由を返す（やり直しのため）。説明の呼び出しはしない
+    expect(planInputs[1].feedback).toEqual([{ label: "今夜は軽めにする", errors: [expect.stringContaining("再計画後の検証に失敗しました")] }]);
+    expect(mockedCall.mock.calls.map(([options]) => options.name)).toEqual(["replan_chat", "replan_chat", "replan_chat"]);
+    // サーバーのログには理由だけ。発言は出さない
+    const logged = warn.mock.calls.map((args) => args.join(" "));
+    expect(logged).toContainEqual(expect.stringMatching(/^\[replan-chat\] engine failed: 再計画後の検証に失敗しました/));
+    expect(logged.some((line) => line.includes("今日は疲れた"))).toBe(false);
+  }, 30_000);
+
   it("やり直す前に15秒を超えそうなら打ち切る", async () => {
     const { planInputs } = setupLlm([
       llmReply({ reply_type: "proposal", options: [{ label: "x", ops: [op({ op: "postpone", item_id: "no-such-item" })] }] }),

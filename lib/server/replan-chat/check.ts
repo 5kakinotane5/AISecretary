@@ -27,11 +27,13 @@ export type CheckOptionInput = {
 
 export type CheckOptionResult =
   | { ok: true; result: EngineReplanOk; newFixedEvents: FixedEvent[]; warnings: string[] }
-  | { ok: false; errors: string[] };
+  // errors はすべての理由（LLM の feedback に使う）。engineErrors はそのうち Engine・Validator が出したもの
+  // （利用者には見せず、サーバーのログにだけ出す）
+  | { ok: false; errors: string[]; engineErrors: string[] };
 
 export function checkOption(input: CheckOptionInput): CheckOptionResult {
   const { context, beforeDays, option, fatigue } = input;
-  if (option.ops.length === 0) return { ok: false, errors: ["操作が1つもありません"] };
+  if (option.ops.length === 0) return { ok: false, errors: ["操作が1つもありません"], engineErrors: [] };
 
   // 1. tired_plan だけの案：Engine（12.4 A）。medium も high と同じ処理になる
   if (option.ops.length === 1 && option.ops[0].op === "tired_plan") {
@@ -42,7 +44,7 @@ export function checkOption(input: CheckOptionInput): CheckOptionResult {
       new_fixed_events: [],
       preference_changes: [],
     });
-    if (!result.ok) return { ok: false, errors: [result.infeasible.reason] };
+    if (!result.ok) return { ok: false, errors: [result.infeasible.reason], engineErrors: [result.infeasible.reason] };
     return { ok: true, result, newFixedEvents: [], warnings: [] };
   }
 
@@ -61,9 +63,13 @@ export function checkOption(input: CheckOptionInput): CheckOptionResult {
 
   // 3. errors と warnings に分ける
   const errors = [...applied.opErrors];
+  const engineErrors: string[] = [];
   const warnings: string[] = [];
   for (const issue of validation.errors) {
-    if (issue.code !== "GOAL_HOURS_MISMATCH") errors.push(issue.message);
+    if (issue.code !== "GOAL_HOURS_MISMATCH") {
+      errors.push(issue.message);
+      engineErrors.push(issue.message);
+    }
   }
   // 目標の週合計の不足（Validator の GOAL_HOURS_MISMATCH と同じ式。想定 − 実際）。足りないときは warnings、多いときは errors
   if (validation.errors.some((issue) => issue.code === "GOAL_HOURS_MISMATCH")) {
@@ -84,7 +90,11 @@ export function checkOption(input: CheckOptionInput): CheckOptionResult {
         (context.goal_week_target_minutes[goal.id] ?? 0) - (context.goal_done_minutes[goal.id] ?? 0),
       );
       if (actual < expected) warnings.push(`今週の${goal.task_name}が${expected - actual}分足りなくなります`);
-      else if (actual > expected) errors.push(`${goal.task_name}の週合計が${actual}分で、想定の${expected}分より多くなります`);
+      else if (actual > expected) {
+        const message = `${goal.task_name}の週合計が${actual}分で、想定の${expected}分より多くなります`;
+        errors.push(message);
+        engineErrors.push(message);
+      }
     }
   }
   const sunday = addDays(context.week_start, 6);
@@ -97,7 +107,7 @@ export function checkOption(input: CheckOptionInput): CheckOptionResult {
   }
   if (applied.provisionalEnd) warnings.push(PROVISIONAL_END_NOTE);
 
-  if (errors.length > 0) return { ok: false, errors };
+  if (errors.length > 0) return { ok: false, errors, engineErrors };
 
   // 会話の経路の intent（12.9）：互換のための値。画面では使わない
   const result: EngineReplanOk = {
