@@ -4,6 +4,7 @@ import {
   type PlannedItem,
   type ReplanChange,
   type ScheduleItem,
+  type Task,
 } from "@/lib/schemas";
 import type { PlanItemRow } from "@/lib/server/repositories/plans";
 
@@ -71,4 +72,28 @@ export function buildReplanRows(input: {
   };
 
   return { updatedDays, proposal };
+}
+
+// tasks の1行（apply_replan が jsonb_populate_recordset でそのまま insert する。列名と同じキーをすべて持つ）
+export type NewTaskRow = Task & { user_id: string; created_at: string };
+
+// 会話で足したタスク（replan-add.md 12.19 の new_tasks）の行。select * で insert するため、
+// default のある user_id・created_at も入れる（入れないと null が入る。confirm_goal の tasks と同じ）
+export function buildNewTaskRows(input: { tasks: readonly Task[]; userId: string; now: string }): NewTaskRow[] {
+  return input.tasks.map((task) => ({
+    id: task.id,
+    user_id: input.userId,
+    title: task.title,
+    goal_id: task.goal_id,
+    deadline_at: task.deadline_at,
+    estimated_minutes: task.estimated_minutes,
+    remaining_minutes: task.remaining_minutes,
+    importance: task.importance,
+    concentration: task.concentration,
+    splittable: task.splittable,
+    interruptible: task.interruptible,
+    buffer_fit: task.buffer_fit,
+    status: task.status,
+    created_at: input.now,
+  }));
 }

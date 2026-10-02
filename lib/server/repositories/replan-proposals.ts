@@ -9,6 +9,7 @@ import {
 import { toJstIso } from "@/lib/datetime";
 import { HttpError } from "../http";
 import type { PlanItemRow } from "./plans";
+import type { NewTaskRow } from "@/lib/server/replan-rows";
 
 // 再計画の提案（replan_proposals）と、提案を作るときに読む計画の値（plans-replan.md 12.2・12.6）
 
@@ -68,6 +69,9 @@ export type ReplanProposalInsert = {
   proposal: ReplanProposal;
   updated_days: { date: string; items: PlanItemRow[] }[];
   new_fixed_events: FixedEventRow[];
+  // accept で tasks に入れる行（replan-add.md 12.19）。ないときは送らない（列の default '[]'。
+  // 0004 のマイグレーションの前でも、タスクを足さない提案は保存できるように）
+  new_tasks?: NewTaskRow[];
   base_version: number;
   expires_at: string;
 };

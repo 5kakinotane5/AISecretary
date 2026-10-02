@@ -6,16 +6,24 @@ import type {
   PlannedItem,
   PlanningContext,
   ReplanOpLlm,
+  ScheduleItem,
+  Task,
 } from "@/lib/schemas";
 import { replan } from "@/lib/planning/replan";
 import { validatePlan } from "@/lib/planning/validate";
 import { PROVISIONAL_END_NOTE } from "@/lib/server/replan-intent";
 import { applyOps } from "./apply-ops";
 
-// 会話の再計画：1つの案を検査する（replan-chat.md 12.11「1つの案を検査する」）。
+// 会話の再計画：1つの案を検査する（replan-chat.md 12.11「1つの案を検査する」、replan-add.md 12.19）。
 // 純粋関数（DB・LLM・時計・環境変数に触れない）。errors・warnings は日本語の文（errors は LLM に返す）
 
 type EngineReplanOk = Extract<EngineReplanResult, { ok: true }>;
+
+// 終わりの時刻を仮置きした予定（補正 C-10）。会話の経路では、終わりの時刻を聞く一文を足す
+export const PROVISIONAL_END_WARNING = `${PROVISIONAL_END_NOTE}終わりの時刻が分かれば教えてください。`;
+
+// 1つの案の操作の上限（replan-add.md 12.17）
+export const MAX_OPS_PER_OPTION = 7;
 
 export type CheckOptionInput = {
   context: PlanningContext; // 12.2 の 6 で作ったもの（locked_items 込み。足す予定は入れない）
@@ -26,7 +34,7 @@ export type CheckOptionInput = {
 };
 
 export type CheckOptionResult =
-  | { ok: true; result: EngineReplanOk; newFixedEvents: FixedEvent[]; warnings: string[] }
+  | { ok: true; result: EngineReplanOk; newFixedEvents: FixedEvent[]; newTasks: Task[]; warnings: string[] }
   // errors はすべての理由（LLM の feedback に使う）。engineErrors はそのうち Engine・Validator が出したもの
   // （利用者には見せず、サーバーのログにだけ出す）
   | { ok: false; errors: string[]; engineErrors: string[] };
@@ -34,6 +42,9 @@ export type CheckOptionResult =
 export function checkOption(input: CheckOptionInput): CheckOptionResult {
   const { context, beforeDays, option, fatigue } = input;
   if (option.ops.length === 0) return { ok: false, errors: ["操作が1つもありません"], engineErrors: [] };
+  if (option.ops.length > MAX_OPS_PER_OPTION) {
+    return { ok: false, errors: [`操作は1つの案に${MAX_OPS_PER_OPTION}個までです`], engineErrors: [] };
+  }
 
   // 1. tired_plan だけの案：Engine（12.4 A）。medium も high と同じ処理になる
   if (option.ops.length === 1 && option.ops[0].op === "tired_plan") {
@@ -45,13 +56,15 @@ export function checkOption(input: CheckOptionInput): CheckOptionResult {
       preference_changes: [],
     });
     if (!result.ok) return { ok: false, errors: [result.infeasible.reason], engineErrors: [result.infeasible.reason] };
-    return { ok: true, result, newFixedEvents: [], warnings: [] };
+    return { ok: true, result, newFixedEvents: [], newTasks: [], warnings: [] };
   }
 
   // 2. それ以外：applyOps → validatePlan
   const applied = applyOps({ context, beforeDays, ops: option.ops, newId: input.newId });
+  // 足した予定・タスクも入れる（INVALID_REFERENCE・DEADLINE_VIOLATION・固定予定の時刻の一致を正しく見るため）
   const validationContext: PlanningContext = {
     ...context,
+    tasks: [...context.tasks, ...applied.newTasks],
     fixed_events: [...context.fixed_events, ...applied.newFixedEvents],
   };
   const updated = new Map(applied.result.updated_days.map((day) => [day.date, day]));
@@ -98,14 +111,34 @@ export function checkOption(input: CheckOptionInput): CheckOptionResult {
     }
   }
   const sunday = addDays(context.week_start, 6);
+  const newTaskIds = new Set(applied.newTasks.map((task) => task.id));
+  const nextWeek = new Map<string, { title: string; minutes: number }>();
   for (const task of applied.unplaced) {
     if (task.deadline_at !== null && toDateStr(task.deadline_at) <= sunday) {
-      errors.push(`${task.title}が締切（${formatMonthDay(task.deadline_at)}）に間に合いません`);
-    } else {
-      warnings.push(`${task.title}は今週に入りませんでした`);
+      const message = `${task.title}が締切（${formatMonthDay(task.deadline_at)}）に間に合いません`;
+      if (!errors.includes(message)) errors.push(message);
+    } else if (newTaskIds.has(task.task_id)) {
+      // 足したタスクで締切が来週以降：入らない分（回の合計）は来週の計画で考える（replan-add.md 12.18）
+      const entry = nextWeek.get(task.task_id) ?? { title: task.title, minutes: 0 };
+      nextWeek.set(task.task_id, { ...entry, minutes: entry.minutes + task.minutes });
+    } else if (task.goal_id === null) {
+      // 目標の行動は GOAL_HOURS_MISMATCH の「今週の…が N 分足りなくなります」だけにする（二重に出さない）
+      const message = `${task.title}は今週に入りませんでした`;
+      if (!warnings.includes(message)) warnings.push(message);
     }
   }
-  if (applied.provisionalEnd) warnings.push(PROVISIONAL_END_NOTE);
+  for (const { title, minutes } of nextWeek.values()) warnings.push(`${title}の残り${minutes}分は来週の計画で考えます`);
+  // 1日のバッファ＋自由時間の合計が最低を下回った日（Validator の warnings）：この案で変わった日で、変える前は下回っていなかった日だけ
+  const minRest = context.preferences.min_daily_buffer_minutes;
+  const beforeByDate = new Map(beforeDays.map((day) => [day.date, day.items]));
+  for (const day of applied.result.updated_days) {
+    const short = validation.warnings.some(
+      (issue) => issue.code === "BUFFER_SHORTAGE" && issue.item_id === null && issue.date === day.date,
+    );
+    if (!short || restMinutes(beforeByDate.get(day.date) ?? []) < minRest) continue;
+    warnings.push(`${formatMonthDay(day.date)}の空き時間が${restMinutes(day.items)}分になります（めやすは${minRest}分）`);
+  }
+  if (applied.provisionalEnd) warnings.push(PROVISIONAL_END_WARNING);
 
   if (errors.length > 0) return { ok: false, errors, engineErrors };
 
@@ -117,5 +150,12 @@ export function checkOption(input: CheckOptionInput): CheckOptionResult {
       intent: { ...applied.result.proposal.intent, fatigue, preference_changes: [option.label] },
     },
   };
-  return { ok: true, result, newFixedEvents: applied.newFixedEvents, warnings };
+  return { ok: true, result, newFixedEvents: applied.newFixedEvents, newTasks: applied.newTasks, warnings };
+}
+
+// 1日のバッファ＋自由時間の合計（Validator の BUFFER_SHORTAGE と同じ数え方）
+function restMinutes(items: readonly ScheduleItem[]): number {
+  return items
+    .filter((item) => item.kind === "buffer" || item.kind === "free")
+    .reduce((sum, item) => sum + diffMinutesExact(item.start_at, item.end_at), 0);
 }

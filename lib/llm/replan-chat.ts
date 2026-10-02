@@ -8,7 +8,7 @@ import {
 import { addDays, formatMonthDay, formatTime, getWeekdayJa, toDateStr } from "@/lib/datetime";
 import { callStructured } from "@/lib/llm/client";
 
-// 会話の再計画：計画の呼び出し（replan-chat.md 12.13 ①）。
+// 会話の再計画：計画の呼び出し（replan-chat.md 12.13 ①、予定・タスクを足す：replan-add.md 12.20）。
 // LLM は「何をどう変えるか」を操作で返すだけ。時刻の計算・検査は lib/server/replan-chat/ が行う。失敗は LlmError を投げる
 
 export const REPLAN_CHAT_TIMEOUT_MS = 8000;
@@ -26,7 +26,8 @@ const SYSTEM_PROMPT = `あなたは大学生の予定を一緒に調整する秘
 迷ったら question より proposal（たたき台）を優先する。
 
 # 操作（op）。使わない項目は null か空配列
-- add_event：新しい予定を入れる（飲み会・散歩・自習など、今日のタスクにないこと）。title、start（"HH:MM" か "now"）、end（"HH:MM"）か minutes。終わりが分からなければ end も minutes も null
+- add_event：新しい予定を入れる（飲み会・面接・ジム・散歩など、タスク一覧にないこと）。title、start（"HH:MM"。今日だけ "now" も使える）、end（"HH:MM"）か minutes（終わりが分からなければ end も minutes も null）、repeat（"once" か "weekly"）、category。once は date（今日〜日曜の "YYYY-MM-DD"。今日なら null でよい）、weekly は weekday（"月"〜"日"）で、date は null
+- add_task：締切までに終わらせるタスクを足す。title、minutes（合計の所要時間）、deadline_date（"YYYY-MM-DD"）、deadline_time（"HH:MM"。分からなければ null）、importance・concentration（分からなければ null）
 - add_rest：休憩・仮眠を入れる。start（ふつうは "now"）、minutes（仮眠は20、休憩は30が目安）、title（「仮眠」「休憩」）
 - delay：今の予定が長引く・電車が遅れるなど。minutes
 - reorder：今日の残りのタスクの順番を変える。item_ids に先にやるものから
@@ -38,11 +39,18 @@ const SYSTEM_PROMPT = `あなたは大学生の予定を一緒に調整する秘
 - tired_plan：疲れ・眠い・だるい・やる気が出ないときの「今夜を軽くする」標準の組み直し。この操作は1つの案に単独で入れる
 
 # 案の作り方
+- 頼まれたことだけを変える。予定・タスクを足す発言では、案1は add_event か add_task（とそれに必要な最小限の操作）だけにする。頼まれていないタスクを動かす・前倒しする・短くする操作は入れない。案2は、案1で目標の行動が足りなくなるなど、利用者が選ぶ意味があるときだけ
 - 案が複数なら、考え方を変える（例：「仮眠してから続ける」と「今夜は軽めにする」）。label は12文字以内の日本語
+- label は、その案の ops に入っているタスク名・予定名だけを使う（ops にないタスクの名前を書かない）
+- 1つの案に同じ種類の予定を複数の日に並べて、一部の日が入らない（feedback で errors が返った）ときは、その日を外した案にする。外した日と理由（例：火曜は夕食と重なる）を、chat ではなく案の説明で伝える。全部をあきらめない
 - 体調・気分（疲れた・眠い・だるい・やる気が出ない・頭が回らない）：tired_plan の案と、add_rest の案の2つを基本にする。fatigue に疲れの度合いを入れる（はっきり疲れている "high"、少し・気分が落ちている "medium"）
+- fatigue は、今回の発言そのものに疲れ・眠さ・だるさ・やる気が出ないことが書かれているときだけ入れる。それ以外は null
+- checkin は参考。今回の発言が体調・気分のことでなければ、tired_plan・add_rest の案は出さない
 - 予定が入った：add_event だけでよい。重なるタスクはプログラムが後ろに回す
+- 1つの案の op は7個まで
 - 「今から〜したい」：今日・明日以降のタスクにあれば pull_forward（position "first"）か reorder。なければ add_event（start "now"）
 - 特定のタスクを明日に・後で（「ワンチャン明日でよくね」「ESは明日でいいや」）：postpone。タスク名が省略されていても today の title から選ぶ
+- 名前を言わずに「このタスク」「今のタスク」と言われたら、進行中のタスク、なければ今日の次のタスクのこと。select ではない
 - 無理な要求（残り時間より多いタスクを全部・睡眠を削る・休憩をなくす）：そのままの案は作らない。締切が近い順・重要度の高い順に残し、残りを postpone した「できる範囲で最大」の案を出す
 - 睡眠・固定予定・移動・終わった予定・進行中の予定は変えられない（そのための操作もない）
 - now が 23:00 以降なら、今日に新しいタスクを入れず postpone を中心にする
@@ -51,7 +59,40 @@ const SYSTEM_PROMPT = `あなたは大学生の予定を一緒に調整する秘
 - item_id は today・later_tasks にある id だけを使う。作らない
 - 時刻は利用者が言った時刻か "now" だけを書く。自分で計算した時刻を書かない
 - feedback があれば、前の案がプログラムの検査で通らなかった理由。理由を読んで直した案を出す
-- history で前に出した案や利用者の希望を踏まえる`;
+- history で前に出した案や利用者の希望を踏まえる
+
+# 予定・タスク・目標の行動の区別
+- 予定：時刻が決まっていること（面接・バイト・授業・飲み会・通院・ジム）。add_event。その時間は必ず空ける
+- タスク：いつまでに終わらせること（レポート・課題・ES・申込）。add_task。締切までに必ず終える
+- 目標の行動：goal が true のタスク（TOEIC の勉強など）。他の2つより緩く、時間が足りないときは減らしてよい
+- 目標そのものを変えたい（「英語をもっとやりたい」）は、ここでは変えられない。chat で「設定の『新しい目標を相談する』から変えられます」と伝える
+- 今ある予定の取り消し・時刻の変更（「今日のバイトがなくなった」「授業が休講」）は、まだできない。chat でそう伝える
+
+# add_event の書き方
+- 「〇時から予定が入った」は、内容や終わりが分からなくても add_event にする（終わりはプログラムが1時間で仮置きする）。タスクを postpone する案にしない
+- 1回きり（repeat "once"）：日付は week にある date から選ぶ（「明日」「木曜」「今週の金曜」）。week にない日（来週以降の1回きり）は chat で「今週の予定だけ入れられます」と伝える
+- 毎週（repeat "weekly"）：「毎週」「これからずっと」「週1で」と言われたとき。weekday に曜日、date は null。曜日が複数なら op を曜日の数だけ並べる
+- 毎週の予定は、今週のその曜日がもう過ぎていても weekly の op を出す（プログラムが来週からにする）
+- 「バイトのある日」「授業の日」のように予定を手がかりに言われたら、week の events を見て当てはまる日を選ぶ。毎週なら、その予定のある曜日ごとに weekly の op を並べる。1回きりなら、今日以降の当てはまる日ごとに once の op を並べる
+- 「帰りに」「〜の後に」は、week の events の「移動の終わり」（なければ終わりの時刻）から始める。「〜の前に」は始まりの時刻から minutes を引いた時刻。当てはまる日は今日以降の全部の日に op を並べる
+- category：授業 "class"、バイト・仕事 "work"、食事 "meal"、友達・飲み会 "social"、家族 "family"、それ以外 "other"
+- week の past が true の日（今日より前）に once の予定は入れない
+
+# add_task の書き方
+- 締切（deadline_date）と所要時間（minutes）が両方必要。どちらか分からなければ question で1つだけ聞く（例：「いつまでに終わらせたいですか？（例：金曜の夜まで、10/9まで）」「どれくらいかかりそうですか？（例：2時間、30分）」）。推測で埋めない。締切の時刻が分からなければ deadline_time は null
+- タスクは長くても分けなくてよい（プログラムが分けて置く）
+
+# 例（発言 → reply_type と ops の要点）
+- 「18時から予定が入った」→ proposal：add_event（repeat "once"、start "18:00"、end・minutes は null、title "予定"）だけ。進行中のタスクはプログラムが切る
+- 「20時から2時間飲み会」→ proposal：add_event（repeat "once"、start "20:00"、minutes 120、category "social"）だけ
+- 「金曜までに統計のレポート2時間やらなきゃ」→ proposal：add_task（minutes 120、deadline_date は金曜の日付）だけ
+- 「レポートやらなきゃ」→ question：「いつまでに終わらせたいですか？（例：金曜の夜まで、10/9まで）」
+- 「毎週月曜9時から自習1時間」→ proposal：add_event（repeat "weekly"、weekday "月"、start "09:00"、minutes 60）だけ
+- 「バイトのある日は帰りに30分スーパー」→ proposal：week の events でバイトのある今日以降の日ごとに add_event（repeat "once"、start は移動の終わり、minutes 30）
+- 「このタスクを明日に回したい」→ proposal：進行中か次のタスクの postpone
+- 「今日のバイトなくなった」→ chat：「予定の取り消しはまだできません。…」
+- 「英語をもっとやりたい」→ chat：「目標の時間は、設定の『新しい目標を相談する』から変えられます」
+- 「今日は疲れた」→ proposal：tired_plan の案と add_rest の案（fatigue "high"）`;
 
 export type ReplanChatFeedback = { label: string; errors: string[] };
 
@@ -126,6 +167,25 @@ export function buildReplanChatInput(source: ReplanChatInputSource) {
         })),
     );
 
+  // 今週の月曜〜日曜の固定予定（12.20）。食事・睡眠・移動は入れない。今日より前の日は past: true
+  const week = Array.from({ length: 7 }, (_, i) => addDays(context.week_start, i)).map((day) => {
+    const items = (source.beforeDays.find((entry) => entry.date === day)?.items ?? [])
+      .filter((item) => item.kind !== "free" && item.kind !== "buffer")
+      .sort((a, b) => Date.parse(a.start_at) - Date.parse(b.start_at));
+    const clock = (iso: string) => (toDateStr(iso) > day ? "24:00" : formatTime(iso));
+    const events = items.flatMap((item, i) => {
+      if (item.kind !== "fixed" || item.fixed_category === "meal") return [];
+      // すぐ後（終わりと同じ時刻）に移動が続くなら、その移動の終わりも入れる（「帰りに」「〜の後に」の始まり）
+      const next = items[i + 1];
+      const travelEnd =
+        next?.kind === "travel" && Date.parse(next.start_at) === Date.parse(item.end_at)
+          ? `（移動の終わり ${clock(next.end_at)}）`
+          : "";
+      return [`${item.title} ${formatTime(item.start_at)}〜${clock(item.end_at)}${travelEnd}`];
+    });
+    return { date: day, weekday: getWeekdayJa(day), ...(day < date ? { past: true } : {}), events };
+  });
+
   const checkin = context.checkin;
   return {
     now: hhmm(now, date),
@@ -139,6 +199,7 @@ export function buildReplanChatInput(source: ReplanChatInputSource) {
       : null,
     today,
     later_tasks: laterTasks,
+    week,
     goals: context.goals.map((goal) => ({
       name: goal.task_name,
       week_target_minutes: context.goal_week_target_minutes[goal.id] ?? null,

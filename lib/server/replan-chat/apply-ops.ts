@@ -22,13 +22,19 @@ import {
 import { ReplanDiffBuilder, type ReplanChangeScope } from "@/lib/planning/diff";
 import { formatReason } from "@/lib/planning/reasons";
 
-// 会話の再計画：LLM の操作（12.9）を計画に当てはめる（replan-chat.md 12.10）。
+// 会話の再計画：LLM の操作（12.9）を計画に当てはめる（replan-chat.md 12.10、予定・タスクを足す：replan-add.md 12.18）。
 // 純粋関数（DB・LLM・時計・環境変数に触れない）。時刻の計算・並べ直しはここで行い、検査は check.ts（validatePlan）が行う
 
 type EngineReplanOk = Extract<EngineReplanResult, { ok: true }>;
 type Day = { date: string; items: PlannedItem[] };
 
-export type UnplacedTask = { task_id: string; title: string; minutes: number; deadline_at: string | null };
+export type UnplacedTask = {
+  task_id: string;
+  title: string;
+  minutes: number;
+  deadline_at: string | null;
+  goal_id: string | null; // 目標の行動なら目標の id（check.ts が警告を二重に出さないため）
+};
 
 export type ApplyOpsInput = {
   context: PlanningContext; // 12.2 の 6 で作ったもの（locked_items 込み）
@@ -39,7 +45,8 @@ export type ApplyOpsInput = {
 
 export type ApplyOpsResult = {
   result: EngineReplanOk; // buildReplanRows() にそのまま渡せる形
-  newFixedEvents: FixedEvent[];
+  newFixedEvents: FixedEvent[]; // 1回きり・毎週（recurrence "weekly"）の予定
+  newTasks: Task[]; // add_task で作ったタスク
   opErrors: string[]; // 当てはめられなかった操作（日本語。LLM に返す）
   unplaced: UnplacedTask[];
   skippedGoalMinutes: number; // skip・shorten で今週から外した目標タスクの分
@@ -54,10 +61,11 @@ type Entry = {
   task: Task | null;
   minutes: number;
   earliest: string | null; // 元の開始時刻。null なら cut から（12.10 の決まり 2）
-  origin: "today" | "later" | "split"; // later ＝明日以降から外した、split ＝ now で切った後半
+  origin: "today" | "later" | "split" | "new"; // later ＝明日以降から外した、split ＝ now で切った後半、new ＝ add_task の1回分
   shortened: boolean;
 };
 type Overflow = Entry & { date: string | null };
+type FixedCategory = FixedEvent["category"];
 
 // 変更点は、id が決まった後で ReplanDiffBuilder に記録する
 type PendingChange = {
@@ -71,11 +79,17 @@ type PendingChange = {
 
 const TMP = "tmp:";
 const PROVISIONAL_MINUTES = 60;
+const NEAR_NOW_MINUTES = 5; // 開始が now との差この分以内なら "now" と同じに扱う
 const WORK_END_BEFORE_SLEEP_MINUTES = 30;
 const REST_DEFAULT_MINUTES = 20;
 const DELAY_DEFAULT_MINUTES = 30;
 const REST_REASON = "少し休んで、回復してから続けます";
 const DELAY_REASON = "前の予定が延びた分をあけました";
+const TASK_CHUNK_MINUTES = 90; // add_task を分ける1回の長さの上限
+const TASK_MAX_MINUTES = 600;
+const TASK_MAX_PER_DAY = 2; // 1日に同じタスクは2回まで
+const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"] as const; // 月曜始まり
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const ms = (iso: string) => Date.parse(iso);
 const minutesOf = (item: Pick<ScheduleItem, "start_at" | "end_at">) => diffMinutesExact(item.start_at, item.end_at);
@@ -101,6 +115,13 @@ function parseClock(value: string | null, date: string): string | null {
   const minute = Number(match[2]);
   if (hour > 24 || minute > 59 || (hour === 24 && minute > 0)) return null;
   return ceilToMinutes(atJstTime(date, `${String(hour).padStart(2, "0")}:${match[2]}`), 5);
+}
+
+// "HH:MM" → "HH:MM"（丸めない。24:00 は読まない）。読めなければ null
+function parseExactClock(value: string): string | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) return null;
+  return `${match[1].padStart(2, "0")}:${match[2]}`;
 }
 
 // その日の終わり：from 以降で最初の睡眠の開始（その日の 0:00 に始まる朝の睡眠は除く）。なければ翌日 0:00
@@ -178,6 +199,15 @@ function sameContent(a: ScheduleItem, b: ScheduleItem): boolean {
   );
 }
 
+// 合計 minutes を90分以下の回に分ける。なるべく均等（5分単位、長い回が先）
+function splitTaskMinutes(minutes: number): number[] {
+  const count = Math.ceil(minutes / TASK_CHUNK_MINUTES);
+  const units = minutes / 5;
+  const base = Math.floor(units / count);
+  const extra = units - base * count;
+  return Array.from({ length: count }, (_, i) => (base + (i < extra ? 1 : 0)) * 5);
+}
+
 const sameItem = (a: PlannedItem, b: PlannedItem) =>
   a.id === b.id && sameContent(a, b) && a.reason === b.reason && a.reason_code === b.reason_code;
 
@@ -194,7 +224,12 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
   const findTask = (id: string | null) => (id ? (tasks.get(id) ?? null) : null);
   const deadlineDate = (task: Task | null) => (task?.deadline_at ? toDateStr(task.deadline_at) : null);
   const isLaterDate = (date: string | null): date is string =>
-    date !== null && /^\d{4}-\d{2}-\d{2}$/.test(date) && date > today && date <= sunday;
+    date !== null && DATE_PATTERN.test(date) && date > today && date <= sunday;
+  // 締切が日曜以前（入らなければ errors になる）。目標の行動を譲るのはこのタスクのためだけ（replan-add.md 12.18）
+  const hasWeekDeadline = (task: Task | null) => {
+    const deadline = deadlineDate(task);
+    return deadline !== null && deadline <= sunday;
+  };
 
   const beforeDays: Day[] = structuredClone(input.beforeDays).map((day) => ({
     date: day.date,
@@ -223,6 +258,7 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
   const opErrors: string[] = [];
   const pending: PendingChange[] = [];
   const newFixedEvents: FixedEvent[] = [];
+  const newTasks: Task[] = [];
   const unplaced: UnplacedTask[] = [];
   const splitTaskIds: string[] = [];
   let skippedGoalMinutes = 0;
@@ -272,8 +308,8 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
     }
     return null;
   };
-  // 明日以降の項目を外し、その場所を自由時間にする（隣り合う自由時間はまとめる）
-  const removeFromLater = (day: Day, item: PlannedItem) => {
+  // 項目を外し、その場所を自由時間にする（隣り合う自由時間はまとめる）
+  const withoutItem = (items: readonly PlannedItem[], item: PlannedItem): PlannedItem[] => {
     const free = blank({
       kind: "free",
       title: "自由時間",
@@ -281,7 +317,10 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
       end_at: item.end_at,
       location_id: item.location_id,
     });
-    day.items = mergeFree(day.items.map((entry) => (entry.id === item.id ? free : entry)), blank);
+    return mergeFree(items.map((entry) => (entry.id === item.id ? free : entry)), blank);
+  };
+  const removeFromLater = (day: Day, item: PlannedItem) => {
+    day.items = withoutItem(day.items, item);
   };
   const entryOfLater = (day: Day, item: PlannedItem): Entry => ({
     source: item,
@@ -332,6 +371,8 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
         return null;
       }
       start = parsed;
+      // now の前後5分以内の時刻（「18時から」を 18:00 に言われた）は "now" と同じ：進行中のタスクは now で切る
+      if (Math.abs(diffMinutesExact(now, parsed)) <= NEAR_NOW_MINUTES) ({ start, split } = resolveNow(true));
     }
     const end = endOf(start);
     if (ms(start) < ms(cut)) {
@@ -354,24 +395,226 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
       opErrors.push(`${hit.title}（${timeLabel(hit.start_at, today)}〜${timeLabel(hit.end_at, today)}）と重なるため入れられません`);
       return null;
     }
-    // 切る：前半は同じ id で now まで（completed）、後半はキューの先頭へ
-    if (split && prefix) {
-      anchors = anchors.map((item) => (item.id === split.id ? prefix : item));
-      splitTaskIds.push(split.id);
-      const rest = diffMinutesExact(cut, split.end_at);
-      if (rest > 0) {
-        queue.unshift({
-          source: split,
-          sourceDate: today,
-          task: findTask(split.task_id),
-          minutes: rest,
-          earliest: null,
-          origin: "split",
-          shortened: false,
-        });
-      }
+    // 切る：前半は同じ id で now まで（completed）、後半（終わり − cut）はキューの先頭へ
+    if (split) {
+      const rest = splitAtNow(split, diffMinutesExact(cut, split.end_at));
+      if (rest) queue.unshift(rest);
     }
     return { start, end, split };
+  };
+
+  // 進行中のタスクを now で切る（12.10 の決まり 1。replan() の state_change と同じ形）：
+  // 前半は同じ id・同じ start_at で end_at = now・locked・completed。後半（minutes 分）の Entry を返す
+  const splitAtNow = (task: PlannedItem, minutes: number): Entry | null => {
+    anchors = anchors.map((item) => (item.id === task.id ? { ...task, end_at: now, locked: true, status: "completed" as const } : item));
+    splitTaskIds.push(task.id);
+    if (minutes <= 0) return null;
+    return { source: task, sourceDate: today, task: findTask(task.task_id), minutes, earliest: null, origin: "split", shortened: false };
+  };
+  const inProgressTask = (id: string | null) =>
+    anchors.find(
+      (item) =>
+        item.id === id &&
+        item.kind === "task" &&
+        item.status !== "completed" &&
+        ms(item.start_at) < ms(now) &&
+        ms(now) < ms(item.end_at),
+    ) ?? null;
+
+  // 予定の終わり：end → start＋minutes → start＋60分（仮置き）
+  const endOfEvent = (op: ReplanOpLlm, date: string, start: string): { end: string; provisional: boolean } => {
+    const end = parseClock(op.end, date);
+    if (end !== null) return { end, provisional: false };
+    if (op.minutes !== null && op.minutes > 0) return { end: addMinutes(start, round5(op.minutes)), provisional: false };
+    return { end: addMinutes(start, PROVISIONAL_MINUTES), provisional: true };
+  };
+
+  // FixedEvent（location は null）と、その予定の項目（アンカー）
+  const makeEvent = (
+    title: string,
+    category: FixedCategory,
+    recurrence: FixedEvent["recurrence"],
+    start: string,
+    end: string,
+  ): FixedEvent => {
+    const event: FixedEvent = {
+      id: input.newId(),
+      title,
+      category,
+      location_id: null,
+      start_at: start,
+      end_at: end,
+      recurrence,
+    };
+    newFixedEvents.push(event);
+    return event;
+  };
+  const eventItem = (event: FixedEvent): PlannedItem =>
+    blank({
+      kind: "fixed",
+      title: event.title,
+      start_at: event.start_at,
+      end_at: event.end_at,
+      fixed_event_id: event.id,
+      fixed_category: event.category,
+      locked: true,
+      reason: formatReason("FIXED_EVENT_ADDED", { time: formatTime(event.start_at) }),
+      reason_code: "FIXED_EVENT_ADDED",
+    });
+
+  // 今日に予定を入れる（12.10 の add_event）
+  const addEventToday = (op: ReplanOpLlm, title: string, category: FixedCategory, recurrence: FixedEvent["recurrence"]) => {
+    let provisional = false;
+    const placed = placeBlock(op, title, (start) => {
+      const result = endOfEvent(op, today, start);
+      provisional = result.provisional;
+      return result.end;
+    });
+    if (!placed) return;
+    if (provisional) provisionalEnd = true;
+    const item = eventItem(makeEvent(title, category, recurrence, placed.start, placed.end));
+    anchors.push(item);
+    pending.push({ scope: "today", change_type: "added", before: null, after: [item], moved_to_date: null, reason: item.reason ?? "" });
+  };
+
+  // 明日〜日曜の day に予定を入れる（replan-add.md 12.18）。重なるタスクは溢れへ、重なる空き時間は削る
+  const addEventOnLaterDay = (
+    op: ReplanOpLlm,
+    title: string,
+    category: FixedCategory,
+    recurrence: FixedEvent["recurrence"],
+    day: Day,
+  ) => {
+    const date = day.date;
+    const start = parseClock(op.start, date);
+    if (start === null) {
+      opErrors.push(`${title}の開始時刻「${op.start ?? ""}」が読めません`);
+      return;
+    }
+    const { end, provisional } = endOfEvent(op, date, start);
+    if (ms(start) >= ms(end)) {
+      opErrors.push(`${title}の終わりが開始より前になっています`);
+      return;
+    }
+    const sleepStart = dayEndOf(day.items, date, atJstTime(date, "00:00"));
+    if (ms(end) > ms(sleepStart)) {
+      opErrors.push(`${title}（${timeLabel(start, date)}〜${timeLabel(end, date)}）は就寝（${timeLabel(sleepStart, date)}）を過ぎるため入れられません`);
+      return;
+    }
+    const range = { start_at: start, end_at: end };
+    const hit = day.items.find((item) => (item.locked || isHardKind(item.kind)) && overlaps(item, range));
+    if (hit) {
+      opErrors.push(`${hit.title}（${timeLabel(hit.start_at, date)}〜${timeLabel(hit.end_at, date)}）と重なるため入れられません`);
+      return;
+    }
+    if (provisional) provisionalEnd = true;
+    // 重なるタスクは外して溢れへ（12.10 の 6 で、その日も候補にして置き直す）
+    for (const item of day.items.filter((entry) => entry.kind === "task" && overlaps(entry, range))) {
+      removeFromLater(day, item);
+      overflow.push({ ...entryOfLater(day, item), date: null });
+    }
+    // 重なる空き時間（自由時間・バッファ）は削る
+    const trimmed = day.items.flatMap((item) => {
+      if ((item.kind !== "free" && item.kind !== "buffer") || !overlaps(item, range)) return [item];
+      const pieces: PlannedItem[] = [];
+      if (ms(item.start_at) < ms(start)) pieces.push({ ...item, id: tmpId(), end_at: start });
+      if (ms(end) < ms(item.end_at)) pieces.push({ ...item, id: tmpId(), start_at: end });
+      return pieces;
+    });
+    const item = eventItem(makeEvent(title, category, recurrence, start, end));
+    day.items = [...trimmed, item].sort(byStart);
+    pending.push({ scope: "other", change_type: "added", before: null, after: [item], moved_to_date: null, reason: item.reason ?? "" });
+  };
+
+  // 毎週の予定：今週のその曜日に置けるなら置く。もう過ぎていれば来週の同じ曜日から（replan-add.md 12.18）
+  const addWeeklyEvent = (op: ReplanOpLlm, title: string, category: FixedCategory) => {
+    if (op.weekday === null) {
+      opErrors.push(`${title}の曜日（weekday）がありません`);
+      return;
+    }
+    if (op.start === null || op.start.trim() === "now") {
+      opErrors.push(`毎週の予定（${title}）は開始の時刻（HH:MM）で教えてください`);
+      return;
+    }
+    const date = addDays(context.week_start, WEEKDAYS.indexOf(op.weekday));
+    const start = parseClock(op.start, date);
+    if (start === null) {
+      opErrors.push(`${title}の開始時刻「${op.start}」が読めません`);
+      return;
+    }
+    if (date === today && ms(start) >= ms(cut)) {
+      addEventToday(op, title, category, "weekly");
+      return;
+    }
+    if (date > today) {
+      const day = laterDays.find((entry) => entry.date === date);
+      if (day) {
+        addEventOnLaterDay(op, title, category, "weekly", day);
+        return;
+      }
+    }
+    // 今日より前、または今日でもう始まっている → 今週には置かない。start_at は来週の同じ曜日
+    const nextDate = addDays(date, 7);
+    const nextStart = parseClock(op.start, nextDate)!;
+    const { end, provisional } = endOfEvent(op, nextDate, nextStart);
+    if (ms(nextStart) >= ms(end)) {
+      opErrors.push(`${title}の終わりが開始より前になっています`);
+      return;
+    }
+    if (provisional) provisionalEnd = true;
+    makeEvent(title, category, "weekly", nextStart, end);
+  };
+
+  // 締切のあるタスクを作り、90分以下の回に分けて溢れに入れる（replan-add.md 12.18 の add_task）
+  const addTask = (op: ReplanOpLlm) => {
+    const title = op.title?.trim() ?? "";
+    if (title === "") {
+      opErrors.push("タスクの名前（title）がありません");
+      return;
+    }
+    if (op.minutes === null || op.minutes <= 0) {
+      opErrors.push(`${title}の所要時間（minutes）がありません`);
+      return;
+    }
+    const minutes = Math.ceil(op.minutes / 5) * 5;
+    if (minutes > TASK_MAX_MINUTES) {
+      opErrors.push(`${title}の所要時間は${TASK_MAX_MINUTES}分までです`);
+      return;
+    }
+    if (op.deadline_date === null || !DATE_PATTERN.test(op.deadline_date)) {
+      opErrors.push(`${title}の締切の日付（deadline_date）がありません`);
+      return;
+    }
+    const deadlineClock = parseExactClock(op.deadline_time ?? "23:59");
+    if (deadlineClock === null) {
+      opErrors.push(`${title}の締切の時刻「${op.deadline_time ?? ""}」が読めません`);
+      return;
+    }
+    const deadlineAt = atJstTime(op.deadline_date, deadlineClock);
+    if (ms(deadlineAt) <= ms(now)) {
+      opErrors.push(`${title}の締切が過ぎています`);
+      return;
+    }
+    const task: Task = {
+      id: input.newId(),
+      title,
+      goal_id: null,
+      deadline_at: deadlineAt,
+      estimated_minutes: minutes,
+      remaining_minutes: minutes,
+      importance: op.importance ?? "medium",
+      concentration: op.concentration ?? "medium",
+      splittable: true,
+      interruptible: true,
+      buffer_fit: "low",
+      status: "not_started",
+    };
+    newTasks.push(task);
+    tasks.set(task.id, task);
+    const source = blank({ kind: "task", title, start_at: cut, end_at: cut, task_id: task.id });
+    for (const length of splitTaskMinutes(minutes)) {
+      overflow.push({ source, sourceDate: today, task, minutes: length, earliest: null, origin: "new", shortened: false, date: null });
+    }
   };
 
   // ---------- 2. 操作を順に当てはめる ----------
@@ -379,40 +622,26 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
     switch (op.op) {
       case "add_event": {
         const title = op.title?.trim() || "予定";
-        let provisional = false;
-        const placed = placeBlock(op, title, (start) => {
-          const end = parseClock(op.end, today);
-          if (end !== null) return end;
-          if (op.minutes !== null && op.minutes > 0) return addMinutes(start, round5(op.minutes));
-          provisional = true;
-          return addMinutes(start, PROVISIONAL_MINUTES);
-        });
-        if (!placed) break;
-        if (provisional) provisionalEnd = true;
-        const event: FixedEvent = {
-          id: input.newId(),
-          title,
-          category: "other",
-          location_id: null,
-          start_at: placed.start,
-          end_at: placed.end,
-          recurrence: null,
-        };
-        newFixedEvents.push(event);
-        const reason = formatReason("FIXED_EVENT_ADDED", { time: formatTime(placed.start) });
-        const item = blank({
-          kind: "fixed",
-          title,
-          start_at: placed.start,
-          end_at: placed.end,
-          fixed_event_id: event.id,
-          fixed_category: "other",
-          locked: true,
-          reason,
-          reason_code: "FIXED_EVENT_ADDED",
-        });
-        anchors.push(item);
-        pending.push({ scope: "today", change_type: "added", before: null, after: [item], moved_to_date: null, reason });
+        const category = op.category ?? "other";
+        if (op.repeat === "weekly") {
+          addWeeklyEvent(op, title, category);
+          break;
+        }
+        const date = op.date ?? today;
+        if (date === today) {
+          addEventToday(op, title, category, null);
+          break;
+        }
+        const day = isLaterDate(date) ? laterDays.find((entry) => entry.date === date) : undefined;
+        if (!day) {
+          opErrors.push(`今週（${formatMonthDay(sunday)}まで）の1回きりの予定だけ入れられます。毎週の予定なら入れられます`);
+          break;
+        }
+        if (op.start === null || op.start.trim() === "now") {
+          opErrors.push(`今日以外の予定（${title}）は開始の時刻（HH:MM）で教えてください`);
+          break;
+        }
+        addEventOnLaterDay(op, title, category, null, day);
         break;
       }
       case "add_rest": {
@@ -484,12 +713,19 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
       }
       case "postpone": {
         const index = queueIndex(op.item_id);
-        if (index < 0) {
+        const running = index < 0 ? inProgressTask(op.item_id) : null;
+        if (index < 0 && !running) {
           opErrors.push(notInQueue(op.item_id));
           break;
         }
         if (op.date !== null && !isLaterDate(op.date)) {
           opErrors.push(`${op.date}は明日〜日曜の日付ではありません`);
+          break;
+        }
+        if (running) {
+          // 進行中のタスク（「このタスク」）：now で切り、残り（終わり − now。replan() の state_change と同じ）を明日以降へ
+          const rest = splitAtNow(running, diffMinutesExact(now, running.end_at));
+          if (rest) overflow.push({ ...rest, date: op.date });
           break;
         }
         const [entry] = queue.splice(index, 1);
@@ -554,6 +790,10 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
         overflow.push({ ...entry, date: op.date });
         break;
       }
+      case "add_task": {
+        addTask(op);
+        break;
+      }
       case "tired_plan": {
         // 12.11 で Engine を呼ぶ。ほかの操作と同じ案には入れられない
         opErrors.push("tired_plan はほかの操作と同じ案に入れられません。tired_plan だけの案にしてください");
@@ -573,34 +813,53 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
     gapsOf(anchors, now, dayEnd).reduce((sum, gap) => sum + diffMinutesExact(gap.start, gap.end), 0) -
     placedToday.reduce((sum, placed) => sum + placed.entry.minutes, 0);
 
-  let lastEnd = cut;
-  for (const entry of queue) {
-    const fitsLimit =
-      taskTotal(blocking()) + entry.minutes <= prefs.daily_work_limit_minutes &&
-      todayRest() - entry.minutes >= prefs.min_daily_buffer_minutes;
-    let start: string | null = null;
-    if (fitsLimit) {
-      for (
-        let t = ceilToMinutes(maxIso(cut, lastEnd, entry.earliest ?? cut), 5);
-        ms(addMinutes(t, entry.minutes)) <= ms(workEnd);
-        t = addMinutes(t, 5)
-      ) {
-        const end = addMinutes(t, entry.minutes);
-        const items = blocking();
-        if (items.some((item) => overlaps(item, { start_at: t, end_at: end }))) continue;
-        if (!bufferOk(items, t, end, minBuffer)) continue;
-        start = t;
-        break;
+  // キューを前から順に置き、入らないものを返す
+  const placeQueue = (entries: readonly Entry[]): Entry[] => {
+    placedToday.length = 0;
+    const rest: Entry[] = [];
+    let lastEnd = cut;
+    for (const entry of entries) {
+      const fitsLimit =
+        taskTotal(blocking()) + entry.minutes <= prefs.daily_work_limit_minutes &&
+        todayRest() - entry.minutes >= prefs.min_daily_buffer_minutes;
+      let start: string | null = null;
+      if (fitsLimit) {
+        for (
+          let t = ceilToMinutes(maxIso(cut, lastEnd, entry.earliest ?? cut), 5);
+          ms(addMinutes(t, entry.minutes)) <= ms(workEnd);
+          t = addMinutes(t, 5)
+        ) {
+          const end = addMinutes(t, entry.minutes);
+          const items = blocking();
+          if (items.some((item) => overlaps(item, { start_at: t, end_at: end }))) continue;
+          if (!bufferOk(items, t, end, minBuffer)) continue;
+          start = t;
+          break;
+        }
       }
+      if (start === null) {
+        rest.push(entry);
+        continue;
+      }
+      const end = addMinutes(start, entry.minutes);
+      placedToday.push({ entry, item: taskItem(entry, start, end, locationAt(anchors, start, home)) });
+      lastEnd = end;
     }
-    if (start === null) {
-      overflow.push({ ...entry, date: null });
-      continue;
-    }
-    const end = addMinutes(start, entry.minutes);
-    placedToday.push({ entry, item: taskItem(entry, start, end, locationAt(anchors, start, home)) });
-    lastEnd = end;
+    return rest;
+  };
+  // 締切が日曜以前のタスクが溢れたら、今日に置いた目標の行動を後ろから1つずつ溢れに回して置き直す（replan-add.md 12.18）。
+  // now で切った後半（進行中だったもの）は外さない
+  const yielded: Entry[] = [];
+  let queueRest = placeQueue(queue);
+  while (queueRest.some((entry) => hasWeekDeadline(entry.task))) {
+    const last = placedToday
+      .filter(({ entry }) => entry.task?.goal_id && entry.origin !== "split")
+      .sort((a, b) => ms(b.item.start_at) - ms(a.item.start_at))[0];
+    if (!last) break;
+    yielded.push(last.entry);
+    queueRest = placeQueue(queue.filter((entry) => !yielded.includes(entry)));
   }
+  for (const entry of [...queueRest, ...yielded]) overflow.push({ ...entry, date: null });
 
   // ---------- 5. 今日の残りの空き：タスクの後ろのバッファと自由時間 ----------
   const todayItems: PlannedItem[] = blocking();
@@ -629,26 +888,76 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
   }
 
   // ---------- 6. 溢れを明日以降に置く ----------
-  // 締切の早い順 → 締切なし。同じなら元の開始時刻の順（12.10 の決まり 4）
-  const sortedOverflow = [...overflow].sort((a, b) => {
-    const da = a.task?.deadline_at ?? null;
-    const db = b.task?.deadline_at ?? null;
-    if (da !== db) {
-      if (da === null) return 1;
-      if (db === null) return -1;
-      return ms(da) - ms(db);
+  // add_task の回は、締切が今日か明日なら今日（cut 以降）にも置く
+  const todayDay: Day = { date: today, items: todayItems };
+  type Placed = { date: string; task: PlannedItem; buffer: PlannedItem | null };
+
+  // 置ける日（早い順）
+  const candidateDays = (entry: Overflow): Day[] => {
+    if (entry.origin === "new") {
+      const deadline = deadlineDate(entry.task)!;
+      const tomorrow = addDays(today, 1);
+      const first = deadline <= tomorrow ? today : tomorrow;
+      return [todayDay, ...laterDays].filter((day) => day.date >= first && day.date <= deadline);
     }
-    return ms(a.source.start_at) - ms(b.source.start_at);
-  });
-  for (const entry of sortedOverflow) {
-    const dates = entry.date !== null ? [entry.date] : laterDays.map((day) => day.date);
-    let placed: { date: string; task: PlannedItem; buffer: PlannedItem | null } | null = null;
-    for (const date of dates) {
-      const day = laterDays.find((d) => d.date === date);
-      if (!day) continue;
-      placed = placeOnDay(day, entry);
-      if (placed) break;
+    if (entry.date !== null) return laterDays.filter((day) => day.date === entry.date);
+    return laterDays;
+  };
+  const placeEntry = (entry: Overflow): Placed | null => {
+    for (const day of candidateDays(entry)) {
+      const placed = placeOnDay(day, entry);
+      if (placed) return placed;
     }
+    return null;
+  };
+
+  // 目標の行動を譲る（replan-add.md 12.18）：候補の日を早い順に見て、その日の目標の行動を後ろから1つずつ外して試す。
+  // 入った時点でその日を確定し、外した項目は displaced に入れる（締切のあるものを置いた後に置き直す）。
+  // 目標の行動で足りなければ、締切なしのタスクも同じように譲る。locked・now より前の項目は外さない
+  const displaced: Overflow[] = [];
+  const canYield = (item: PlannedItem, withOptional: boolean) => {
+    if (item.kind !== "task" || item.locked || item.status === "completed" || ms(item.start_at) < ms(cut)) return false;
+    // now で切った後半（進行中だったタスクの残り）は外さない
+    if (placedToday.some((placed) => placed.item.id === item.id && placed.entry.origin === "split")) return false;
+    const task = findTask(item.task_id);
+    if (task?.goal_id) return true;
+    return withOptional && task !== null && task.deadline_at === null;
+  };
+  const yieldAndPlace = (entry: Overflow): Placed | null => {
+    for (const withOptional of [false, true]) {
+      for (const day of candidateDays(entry)) {
+        const victims = day.items
+          .filter((item) => canYield(item, withOptional))
+          .sort((a, b) => ms(b.start_at) - ms(a.start_at) || b.id.localeCompare(a.id));
+        // 目標の行動が先、締切なしのタスクが後
+        victims.sort((a, b) => Number(!findTask(a.task_id)?.goal_id) - Number(!findTask(b.task_id)?.goal_id));
+        const trial: Day = { date: day.date, items: day.items };
+        const removed: PlannedItem[] = [];
+        for (const victim of victims) {
+          trial.items = withoutItem(trial.items, victim);
+          removed.push(victim);
+          const placed = placeOnDay(trial, entry);
+          if (!placed) continue;
+          day.items = trial.items;
+          for (const item of removed) displace(day, item);
+          return placed;
+        }
+      }
+    }
+    return null;
+  };
+  const displace = (day: Day, item: PlannedItem) => {
+    if (day.date !== today) {
+      displaced.push({ ...entryOfLater(day, item), date: null });
+      return;
+    }
+    const index = placedToday.findIndex((placed) => placed.item.id === item.id);
+    if (index < 0) return;
+    const [placed] = placedToday.splice(index, 1);
+    displaced.push({ ...placed.entry, date: null });
+  };
+
+  const finish = (entry: Overflow, placed: Placed | null) => {
     const title = entry.source.title;
     if (!placed) {
       unplaced.push({
@@ -656,7 +965,9 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
         title,
         minutes: entry.minutes,
         deadline_at: entry.task?.deadline_at ?? null,
+        goal_id: entry.task?.goal_id ?? null,
       });
+      if (entry.origin === "new") return; // 元の項目がないので、変更点には記録しない
       const deadline = deadlineDate(entry.task);
       pending.push({
         scope: entry.sourceDate === today ? "today" : "other",
@@ -669,9 +980,20 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
             ? formatReason("NEXT_WEEK", { taskName: title, deadlineAt: entry.task?.deadline_at ?? null })
             : `${title}は今週に入りませんでした`,
       });
-      continue;
+      return;
     }
     const reason = placed.task.reason ?? "";
+    if (entry.origin === "new") {
+      pending.push({
+        scope: placed.date === today ? "today" : "other",
+        change_type: "added",
+        before: null,
+        after: [placed.task],
+        moved_to_date: null,
+        reason,
+      });
+      return;
+    }
     pending.push({
       scope: "other",
       change_type: "moved",
@@ -683,6 +1005,30 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
     if (entry.origin === "today") {
       pending.push({ scope: "today", change_type: "moved", before: entry.source, after: [], moved_to_date: placed.date, reason });
     }
+  };
+
+  // 締切の早い順 → 締切なし。同じなら元の開始時刻の順（12.10 の決まり 4）
+  const sortEntries = (entries: readonly Overflow[]) =>
+    [...entries].sort((a, b) => {
+      const da = a.task?.deadline_at ?? null;
+      const db = b.task?.deadline_at ?? null;
+      if (da !== db) {
+        if (da === null) return 1;
+        if (db === null) return -1;
+        return ms(da) - ms(db);
+      }
+      return ms(a.source.start_at) - ms(b.source.start_at);
+    });
+  const sortedOverflow = sortEntries(overflow);
+  // 締切のあるもの：入らず、締切が日曜以前なら目標の行動を譲ってからもう一度置く
+  for (const entry of sortedOverflow.filter((item) => item.task?.deadline_at)) {
+    let placed = placeEntry(entry);
+    if (!placed && hasWeekDeadline(entry.task)) placed = yieldAndPlace(entry);
+    finish(entry, placed);
+  }
+  // 締切なし（目標の行動・任意）と、譲って外した項目：残りの空きへ
+  for (const entry of sortEntries([...sortedOverflow.filter((item) => !item.task?.deadline_at), ...displaced])) {
+    finish(entry, placeEntry(entry));
   }
 
   // ---------- 7. id ----------
@@ -704,7 +1050,7 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
       return final;
     });
   };
-  const finalToday = finalizeDay(today, todayItems);
+  const finalToday = finalizeDay(today, todayDay.items);
   const finalLater = laterDays.map((day) => ({ date: day.date, items: finalizeDay(day.date, day.items) }));
   const resolve = (item: PlannedItem) => finalById.get(item.id) ?? item;
 
@@ -774,7 +1120,7 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
   });
   if (!parsed.ok) throw new Error("unreachable");
 
-  return { result: parsed, newFixedEvents, opErrors, unplaced, skippedGoalMinutes, splitTaskIds, provisionalEnd };
+  return { result: parsed, newFixedEvents, newTasks, opErrors, unplaced, skippedGoalMinutes, splitTaskIds, provisionalEnd };
 
   // ---------- 内部の関数 ----------
 
@@ -796,10 +1142,17 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
     };
   }
 
-  // 明日以降の1日の自由時間に置く：[自由時間][バッファ][タスク][バッファ][自由時間]（0分の項目は作らない）
+  // 1日の自由時間に置く：[自由時間][バッファ][タスク][バッファ][自由時間]（0分の項目は作らない）。
+  // 明日以降のほか、add_task の回は今日（cut 以降）にも置く
   function placeOnDay(day: Day, entry: Entry): { date: string; task: PlannedItem; buffer: PlannedItem | null } | null {
     const items = day.items;
     if (taskTotal(items) + entry.minutes > prefs.daily_work_limit_minutes) return null;
+    if (
+      entry.origin === "new" &&
+      items.filter((item) => item.kind === "task" && item.task_id === entry.task?.id).length >= TASK_MAX_PER_DAY
+    ) {
+      return null;
+    }
     const rest = items.filter((item) => item.kind === "free" || item.kind === "buffer").reduce((sum, item) => sum + minutesOf(item), 0);
     if (rest - entry.minutes < prefs.min_daily_buffer_minutes) return null;
     const dayWorkEnd = workEndOf(dayEndOf(items, day.date, atJstTime(day.date, "00:00")));
@@ -813,7 +1166,8 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
         .find((item) => item.kind === "task" || isHardKind(item.kind));
       const lead =
         previous?.kind === "task" ? Math.max(0, minBuffer - diffMinutesExact(previous.end_at, free.start_at)) : 0;
-      const start = ceilToMinutes(addMinutes(free.start_at, lead), 5);
+      const earliest = addMinutes(free.start_at, lead);
+      const start = ceilToMinutes(day.date === today ? maxIso(earliest, cut) : earliest, 5);
       const end = addMinutes(start, entry.minutes);
       const limit = minIso(free.end_at, dayWorkEnd);
       if (ms(end) > ms(limit)) continue;
@@ -837,8 +1191,12 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
         location_id: location,
         locked: false,
         status: "planned",
-        reason: formatReason("USER_POSTPONED", { taskName: entry.source.title, date: day.date }),
-        reason_code: "USER_POSTPONED",
+        ...(entry.origin === "new"
+          ? { reason: `${formatMonthDay(deadlineAt!)}の締切に間に合うように入れました`, reason_code: null }
+          : {
+              reason: formatReason("USER_POSTPONED", { taskName: entry.source.title, date: day.date }),
+              reason_code: "USER_POSTPONED" as const,
+            }),
       };
       pieces.push(task);
       const bufferEnd = minIso(addMinutes(end, minBuffer), limit);

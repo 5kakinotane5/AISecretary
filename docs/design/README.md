@@ -36,6 +36,7 @@
 | 10、P0〜P14 | Planning Engine（骨組み・空き・優先度・Validator・集計）と、付録P：3案の生成（数学モデル） | [planning.md](planning.md) | B |
 | 11〜13 | 3案の保存・選択、今日・カレンダー、再計画、判断理由の文章 | [plans-replan.md](plans-replan.md) | A・B |
 | 12.8〜12.15 | 会話で再計画する（操作・検査・LLM とのやり取り・`POST /api/plans/replan/chat`） | [replan-chat.md](replan-chat.md) | A・B |
+| 12.16〜12.23 | 会話で予定（今週・毎週）と締切つきタスクを足す、目標の行動を譲る | [replan-add.md](replan-add.md) | A・B |
 | 14 | 画面の変更 | [frontend.md](frontend.md) | C |
 | 16 | 分担・実装の順番・完了の判定 | [schedule.md](schedule.md) | 全員 |
 

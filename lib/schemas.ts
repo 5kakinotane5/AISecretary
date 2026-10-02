@@ -514,6 +514,7 @@ export const ReplanOpTypeSchema = z.enum([
   "pull_forward", // 明日以降のタスクを今日やる
   "move_to_day",  // タスクを指定の日に移す
   "tired_plan",   // 疲れたときの標準の組み直し（12.4 A の Engine）。1案に単独で入れる
+  "add_task",     // 締切のあるタスクを足す（replan-add.md 12.17）
 ]);
 
 /** LLM が返す操作。OpenAI の strict JSON Schema に合わせて判別共用体にせず、使わない項目は null・空配列 */
@@ -525,8 +526,15 @@ export const ReplanOpLlmSchema = z.object({
   start: z.string().nullable(),        // "HH:MM" または "now"（add_event・add_rest）
   end: z.string().nullable(),          // "HH:MM"（add_event）
   minutes: z.number().int().nullable(),// add_event（end がないとき）・add_rest・delay・shorten（短くした後の長さ）
-  date: z.string().nullable(),         // "YYYY-MM-DD"（postpone の希望・move_to_day）
+  date: z.string().nullable(),         // "YYYY-MM-DD"（postpone の希望・move_to_day・add_event の once。null は今日）
   position: z.enum(["first", "last"]).nullable(), // pull_forward
+  repeat: z.enum(["once", "weekly"]).nullable(), // add_event。null は "once"
+  weekday: z.enum(["月", "火", "水", "木", "金", "土", "日"]).nullable(), // add_event の weekly
+  category: FixedCategorySchema.nullable(),     // add_event。null は "other"
+  deadline_date: z.string().nullable(),         // add_task。"YYYY-MM-DD"
+  deadline_time: z.string().nullable(),         // add_task。"HH:MM"。null は 23:59
+  importance: LevelSchema.nullable(),           // add_task。null は "medium"
+  concentration: LevelSchema.nullable(),        // add_task。null は "medium"
 });
 
 export const ReplanChatLlmSchema = z.object({

@@ -11,8 +11,11 @@ import {
   type ReplanChatRequest,
   type ReplanChatResponse,
   type ReplanResponse,
+  type Task,
 } from "@/lib/schemas";
+import { formatDateShort, toDateStr } from "@/lib/datetime";
 import { isLlmEnabled, LlmError } from "@/lib/llm/client";
+import { mentionsFatigue, taskKeys } from "@/lib/llm/replan-keywords";
 import { buildReplanChatInput, callReplanChat, REPLAN_CHAT_TIMEOUT_MS, type ReplanChatFeedback } from "@/lib/llm/replan-chat";
 import {
   buildOptionFacts,
@@ -29,7 +32,7 @@ import {
   PROPOSAL_TTL_MINUTES,
   replanByIntent,
 } from "@/lib/server/replan-by-intent";
-import { buildReplanRows } from "@/lib/server/replan-rows";
+import { buildNewTaskRows, buildReplanRows } from "@/lib/server/replan-rows";
 import { upsertCheckin } from "@/lib/server/repositories/daily-checkins";
 import type { PlanItemRow } from "@/lib/server/repositories/plans";
 import {
@@ -37,6 +40,7 @@ import {
   getPlanVersion,
   getReplanProposalLabels,
   insertReplanProposal,
+  type ReplanProposalInsert,
 } from "@/lib/server/repositories/replan-proposals";
 import { checkOption } from "./check";
 
@@ -49,7 +53,9 @@ export const TURN_BUDGET_MS = 15_000;
 const MAX_PLAN_CALLS = 3;
 
 const SELECT_MESSAGE = (n: number) => `案${n}にしますね。よければ『この計画にする』を押してください。`;
-const SELECT_UNKNOWN_MESSAGE = "どの案にするか、番号で教えてください。";
+// 出ている案がない・番号が範囲外の select：1回だけやり直し、それでもだめなら聞き返す
+const SELECT_INVALID_FEEDBACK = "出ている案はありません。発言をもう一度読んで proposal か question にしてください";
+const SELECT_INVALID_QUESTION = "どのタスクのことか教えてください";
 const DISCARD_MESSAGE = "わかりました。今の予定のままにします。";
 const CHAT_DEFAULT_MESSAGE = "わかりました。予定を変えたいときは、いつでも教えてください。";
 const QUESTION_DEFAULT_MESSAGE =
@@ -59,8 +65,29 @@ const NO_OPTIONS_ERROR = "案が1つもありません。options に1〜3個の�
 export type SavedProposal = {
   proposal: ReplanChatProposal;
   updatedDays: { date: string; items: PlanItemRow[] }[];
-  newFixedEvents: FixedEvent[];
+  newFixedEvents: FixedEvent[]; // 1回きり・毎週（recurrence "weekly"）の予定
+  newTasks: Task[]; // add_task で足したタスク（replan-add.md 12.19）
 };
+
+// replan_proposals に保存する1行（12.2 の 9・replan-add.md 12.19）。DB・時計には触れない
+export function buildProposalInsert(
+  entry: SavedProposal,
+  values: { weeklyPlanId: string; date: string; userId: string; now: string; version: number; expiresAt: string },
+): ReplanProposalInsert {
+  return {
+    id: entry.proposal.proposal_id,
+    weekly_plan_id: values.weeklyPlanId,
+    date: values.date,
+    proposal: entry.proposal,
+    updated_days: entry.updatedDays,
+    new_fixed_events: entry.newFixedEvents.map((event) => ({ ...event, user_id: values.userId })),
+    ...(entry.newTasks.length > 0
+      ? { new_tasks: buildNewTaskRows({ tasks: entry.newTasks, userId: values.userId, now: values.now }) }
+      : {}),
+    base_version: values.version,
+    expires_at: values.expiresAt,
+  };
+}
 
 export type ChatTurnInput = {
   request: ReplanChatRequest;
@@ -120,6 +147,70 @@ export function toFallbackResponse(result: ReplanResponse): ReplanChatResponse {
 const isTiredPlan = (option: ReplanChatLlm["options"][number]) =>
   option.ops.length === 1 && option.ops[0].op === "tired_plan";
 
+// 休憩・ゆるめたいことば。疲れのキーワード（mentionsFatigue）とあわせて、どちらにも当たらない発言では
+// tired_plan・add_rest を含む案（頼まれていない仮眠・今夜軽め）を出さない
+const REST_WORDS = /休憩|休み|仮眠|寝|横にな|ひと息|一息|ゆる|軽め|軽く/;
+const asksForRest = (text: string) => mentionsFatigue(text) || REST_WORDS.test(text.normalize("NFKC"));
+const hasRestOp = (option: ReplanChatLlm["options"][number]) =>
+  option.ops.some((entry) => entry.op === "tired_plan" || entry.op === "add_rest");
+
+type ChatOps = ReplanChatLlm["options"][number]["ops"];
+type ChatOp = ChatOps[number];
+// 前の試みで通らなかった案（ops と、利用者に見せてよい理由）
+type FailedAttempt = { ops: ChatOps; errors: string[] };
+
+// add_event の「同じ種類」（title と repeat）と、その日（once は date、weekly は曜日）
+const eventKind = (entry: ChatOp) => `${entry.title?.trim() ?? ""}|${entry.repeat ?? "once"}`;
+const eventDay = (entry: ChatOp, today: string) =>
+  entry.repeat === "weekly" ? `w:${entry.weekday ?? ""}` : `d:${entry.date ?? today}`;
+const dayLabel = (entry: ChatOp, today: string) =>
+  entry.repeat === "weekly" ? `毎週${entry.weekday ?? ""}曜` : formatDateShort(entry.date ?? today);
+
+// やり直しの後に通った案で外した日と理由（facts の dropped。replan-chat.md 12.12 の補い）。
+// 前の試みにあって通った案にない「同じ種類の add_event の日」を、その op だけの案で検査し直して理由を得る。
+// 見つからず、通った案の ops が前の試みより少ないときは、前の試みの理由をそのまま使う
+function droppedReasons(
+  ops: ChatOps,
+  attempts: readonly FailedAttempt[],
+  check: (entry: ChatOp) => string | null,
+  today: string,
+): string[] {
+  const events = ops.filter((entry) => entry.op === "add_event");
+  const kinds = new Set(events.map(eventKind));
+  const days = new Set(events.map((entry) => `${eventKind(entry)}|${eventDay(entry, today)}`));
+  const dropped = new Map<string, ChatOp>();
+  for (const attempt of attempts) {
+    for (const entry of attempt.ops) {
+      if (entry.op !== "add_event" || !kinds.has(eventKind(entry))) continue;
+      const key = `${eventKind(entry)}|${eventDay(entry, today)}`;
+      if (!days.has(key) && !dropped.has(key)) dropped.set(key, entry);
+    }
+  }
+  const reasons = [...dropped.values()].flatMap((entry) => {
+    const error = check(entry);
+    return error ? [`${dayLabel(entry, today)}は${error.replace(/入れられません$/, "入れていません")}`] : [];
+  });
+  if (reasons.length > 0) return reasons;
+  const larger = [...attempts].reverse().find((attempt) => attempt.ops.length > ops.length);
+  return larger ? [...new Set(larger.errors)] : [];
+}
+
+// label が、その案で postpone・skip・shorten するタスクのどれかの名前（taskKeys の言葉）を含むか。対象がなければ true
+function labelNamesTargets(
+  label: string,
+  ops: ReplanChatLlm["options"][number]["ops"],
+  beforeDays: readonly { items: PlannedItem[] }[],
+): boolean {
+  const items = beforeDays.flatMap((day) => day.items);
+  const titles = ops
+    .filter((entry) => entry.op === "postpone" || entry.op === "skip" || entry.op === "shorten")
+    .map((entry) => items.find((item) => item.id === entry.item_id)?.title)
+    .filter((title): title is string => title !== undefined);
+  if (titles.length === 0) return true;
+  const normalized = label.normalize("NFKC").toLowerCase();
+  return titles.some((title) => taskKeys(title).some((key) => normalized.includes(key)));
+}
+
 export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps): Promise<ReplanChatResponse> {
   const { request } = input;
   // 2. LLM_MODE=off → 12.2 の経路
@@ -129,6 +220,11 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
   let feedback: ReplanChatFeedback[] = [];
   // 最後に通らなかった案の理由のうち、利用者に見せてよいもの（Engine・Validator の理由は除く）
   let userReasons: string[] = [];
+  // 出ている案がないのに select が返ってきて、やり直したか。awaitingRetry は、そのやり直しの返事をまだ受け取っていない間
+  let selectRetried = false;
+  let awaitingRetry = false;
+  // これまでの試みで通らなかった案（やり直しの後に通った案で、外した日を説明に出すため）
+  const attempts: FailedAttempt[] = [];
 
   for (let call = 0; call < MAX_PLAN_CALLS; call += 1) {
     // やり直しの前に、1ターンの上限を超えそうなら打ち切る（計画の呼び出し＋説明の最小の時間）
@@ -154,9 +250,12 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
       break;
     }
 
+    awaitingRetry = false;
+    // 疲れは、今回の発言が疲れのキーワード（12.3.2）に当たるときだけ使う。当たらなければ LLM の fatigue は無視する
+    const fatigue = mentionsFatigue(request.text) ? llm.fatigue : null;
     // 疲れ（high・medium）は reply_type に関係なく、今日のチェックインに入れる（12.2 の 6 と同じ。accept を待たない）
-    if ((llm.fatigue === "high" || llm.fatigue === "medium") && context.checkin?.fatigue !== llm.fatigue) {
-      context = { ...context, checkin: await deps.updateFatigue(llm.fatigue) };
+    if ((fatigue === "high" || fatigue === "medium") && context.checkin?.fatigue !== fatigue) {
+      context = { ...context, checkin: await deps.updateFatigue(fatigue) };
     }
 
     // 4. reply_type ごと
@@ -166,9 +265,15 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
       case "question":
         return reply(llm.text?.trim() || QUESTION_DEFAULT_MESSAGE);
       case "select": {
-        const id = llm.select_index !== null ? request.open_proposal_ids[llm.select_index - 1] : undefined;
-        if (!id) return reply(SELECT_UNKNOWN_MESSAGE);
-        return reply(SELECT_MESSAGE(llm.select_index as number), { selected_proposal_id: id });
+        const id = llm.select_index !== null && llm.select_index >= 1 ? request.open_proposal_ids[llm.select_index - 1] : undefined;
+        if (id) return reply(SELECT_MESSAGE(llm.select_index as number), { selected_proposal_id: id });
+        // 出ている案がない・番号が範囲外 → select として扱わない。1回だけやり直す
+        if (selectRetried || call + 1 >= MAX_PLAN_CALLS) return reply(SELECT_INVALID_QUESTION);
+        selectRetried = true;
+        awaitingRetry = true;
+        feedback = [{ label: "", errors: [SELECT_INVALID_FEEDBACK] }];
+        userReasons = [];
+        continue;
       }
       case "discard":
         await deps.discardProposals(request.open_proposal_ids);
@@ -178,14 +283,20 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
     }
 
     // 5. 各案を検査する
-    const options = llm.options.slice(0, 3);
+    // 休憩・疲れの発言でなければ、tired_plan・add_rest を含む案は捨てる（全部捨てれば「案がない」の扱い）
+    const options = llm.options.filter((option) => asksForRest(request.text) || !hasRestOp(option)).slice(0, 3);
     if (options.length === 0) {
       feedback = [{ label: "", errors: [NO_OPTIONS_ERROR] }];
       userReasons = [NO_OPTIONS_ERROR];
       continue;
     }
     const failedUserReasons: string[] = [];
-    const passed: { label: string; tired: boolean; check: Extract<ReturnType<typeof checkOption>, { ok: true }> }[] = [];
+    const passed: {
+      label: string;
+      tired: boolean;
+      ops: ReplanChatLlm["options"][number]["ops"];
+      check: Extract<ReturnType<typeof checkOption>, { ok: true }>;
+    }[] = [];
     const failed: ReplanChatFeedback[] = [];
     options.forEach((option, i) => {
       const label = option.label.trim() || `案${i + 1}`;
@@ -193,23 +304,31 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
         context,
         beforeDays: input.beforeDays,
         option: { label, ops: option.ops },
-        fatigue: llm.fatigue,
+        fatigue,
         newId: deps.newId,
       });
-      if (check.ok) passed.push({ label, tired: isTiredPlan(option), check });
+      if (check.ok) passed.push({ label, tired: isTiredPlan(option), ops: option.ops, check });
       else {
         // LLM にはすべての理由を返す。Engine・Validator の理由はログにだけ出し、利用者には見せない
         failed.push({ label, errors: check.errors });
         if (check.engineErrors.length > 0) logEngineFailure("replan-chat", check.engineErrors);
-        failedUserReasons.push(...check.errors.filter((error) => !check.engineErrors.includes(error)));
+        const userErrors = check.errors.filter((error) => !check.engineErrors.includes(error));
+        failedUserReasons.push(...userErrors);
+        attempts.push({ ops: option.ops, errors: userErrors });
       }
     });
+
+    // 外した op だけの案を検査し直し、利用者に見せてよい最初の理由を返す（droppedReasons）
+    const recheck = (entry: ChatOp): string | null => {
+      const result = checkOption({ context, beforeDays: input.beforeDays, option: { label: "", ops: [entry] }, fatigue, newId: deps.newId });
+      return result.ok ? null : (result.errors.find((error) => !result.engineErrors.includes(error)) ?? null);
+    };
 
     // 7. 通った案だけを保存して、説明を作る
     if (passed.length > 0) {
       const saved: SavedProposal[] = [];
       const facts: OptionFacts[] = [];
-      for (const { label, tired, check } of passed) {
+      for (const { label: llmLabel, tired, ops, check } of passed) {
         const rows = buildReplanRows({
           result: check.result,
           storedRows: input.storedRows,
@@ -217,18 +336,29 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
           weeklyPlanId: input.weeklyPlanId,
           newId: deps.newId,
         });
+        const optionFacts = buildOptionFacts({
+          label: llmLabel,
+          proposal: rows.proposal,
+          warnings: check.warnings,
+          tasks: context.tasks,
+          newFixedEvents: check.newFixedEvents,
+          newTasks: check.newTasks,
+          dropped: call > 0 ? droppedReasons(ops, attempts, recheck, toDateStr(context.now)) : [],
+        });
+        // label が動かすタスクの名前を含まない（中身と違う）ときは、コードで作った要約の最初の文にする
+        const label = labelNamesTargets(llmLabel, ops, input.beforeDays) ? llmLabel : (optionFacts.summary[0] ?? llmLabel);
+        optionFacts.label = label;
+        facts.push(optionFacts);
         // 会話の経路の intent（12.9 の互換の形）。tired_plan は Engine の intent のまま
         const intent = tired
           ? rows.proposal.intent
           : {
               type: "preference_change" as const,
-              fatigue: llm.fatigue,
+              fatigue,
               task_changes: [],
               new_fixed_events: check.newFixedEvents,
               preference_changes: [label],
             };
-        const optionFacts = buildOptionFacts({ label, proposal: rows.proposal, warnings: check.warnings, tasks: context.tasks });
-        facts.push(optionFacts);
         saved.push({
           proposal: ReplanChatProposalSchema.parse({
             ...rows.proposal,
@@ -240,6 +370,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
           }),
           updatedDays: rows.updatedDays,
           newFixedEvents: check.newFixedEvents,
+          newTasks: check.newTasks,
         });
       }
       await deps.saveProposals(saved);
@@ -260,6 +391,8 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
   // 8. 最後まで通らない → できる範囲を伝える文。proposals は空。
   // 見せてよい理由がない（Engine・Validator の失敗だけ）ときは、決まった文を返す
   const reasons = [...new Set(userReasons)];
+  // select のやり直しの前に時間切れになった
+  if (awaitingRetry) return reply(SELECT_INVALID_QUESTION);
   if (reasons.length === 0) return reply(ENGINE_FAILED_MESSAGE);
   const message = await writeReplanChatMessage({
     userText: request.text,
@@ -306,16 +439,17 @@ export async function runReplanChat(
         if (version === null) throw new HttpError(409, "INVALID_STATE", "先にプランを選んでください");
         const expiresAt = new Date(Date.now() + PROPOSAL_TTL_MINUTES * 60_000).toISOString();
         for (const entry of proposals) {
-          await insertReplanProposal(supabase, {
-            id: entry.proposal.proposal_id,
-            weekly_plan_id: active.id,
-            date: today,
-            proposal: entry.proposal,
-            updated_days: entry.updatedDays,
-            new_fixed_events: entry.newFixedEvents.map((event) => ({ ...event, user_id: userId })),
-            base_version: version,
-            expires_at: expiresAt,
-          });
+          await insertReplanProposal(
+            supabase,
+            buildProposalInsert(entry, {
+              weeklyPlanId: active.id,
+              date: today,
+              userId,
+              now: base.context.now, // getNow()（confirm_goal の tasks の created_at と同じ）
+              version,
+              expiresAt,
+            }),
+          );
         }
       },
       discardProposals: (ids) => discardReplanProposals(supabase, userId, today, ids),
