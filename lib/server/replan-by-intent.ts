@@ -22,6 +22,13 @@ export const UNSUPPORTED_MESSAGE =
   "ごめんなさい、この内容はまだ計画に反映できません。『今日は疲れた』『20時から1時間予定が入った』『今日はもう勉強したくない』のように教えてください。";
 export const NOT_TODAY_MESSAGE = "今日の予定だけ変更できます。";
 export const PROPOSAL_TTL_MINUTES = 30;
+// Engine・Validator が失敗したときの返事（細かい理由は利用者に見せない）
+export const ENGINE_FAILED_MESSAGE = "うまく組み直せませんでした。時間や内容を変えて教えてください。";
+
+// Engine・Validator の理由をサーバーのログに出す（利用者の発言は渡さない・出さない）
+export function logEngineFailure(scope: string, reasons: readonly string[]): void {
+  console.warn(`[${scope}] engine failed: ${reasons.join(" / ")}`);
+}
 
 const unsupported = (message: string) => ReplanResponseSchema.parse({ supported: false, message });
 
@@ -95,12 +102,11 @@ export async function replanByIntent(
   context.fixed_events = [...context.fixed_events, ...intent.new_fixed_events];
 
   // 7. Engine。Before の項目には保存されている reason_code を付けて渡す
+  // 成立しない・検証に失敗したとき：細かい理由はサーバーのログにだけ出し、利用者には決まった文を返す
   const result = replan(context, engineBeforeDays, intent);
   if (!result.ok) {
-    const { reason, required_changes } = result.infeasible;
-    return unsupported(
-      required_changes.length > 0 ? `${reason}（${required_changes.join("／")}）` : reason,
-    );
+    logEngineFailure("replan", [result.infeasible.reason, ...result.infeasible.required_changes]);
+    return unsupported(ENGINE_FAILED_MESSAGE);
   }
 
   // 8. updated_days の全項目に新しい UUID を振り、保存する行と after 側の id を組み立てる（lib/server/replan-rows.ts）。

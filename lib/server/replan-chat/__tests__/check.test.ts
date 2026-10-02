@@ -70,12 +70,12 @@ describe("checkOption（replan-chat.md 12.11）", () => {
       op({ op: "pull_forward", item_id: report.id }),
       op({ op: "postpone", item_id: report.id, date: "2026-10-10" }),
     ], fixture);
-    expect(result).toEqual({ ok: false, errors: ["ゼミレポート「地域経済の課題」が締切（10/9）に間に合いません"] });
+    expect(result).toEqual({ ok: false, errors: ["ゼミレポート「地域経済の課題」が締切（10/9）に間に合いません"], engineErrors: [] });
   });
 
   it("add_event 19:00〜21:00：夕食と重なり errors", () => {
     const result = check([op({ op: "add_event", title: "飲み会", start: "19:00", end: "21:00" })]);
-    expect(result).toEqual({ ok: false, errors: ["夕食（19:00〜19:45）と重なるため入れられません"] });
+    expect(result).toEqual({ ok: false, errors: ["夕食（19:00〜19:45）と重なるため入れられません"], engineErrors: [] });
   });
 
   it("終わりの時刻がない予定は1時間で仮置きし、warnings に C-10 の一文", () => {
@@ -93,7 +93,7 @@ describe("checkOption（replan-chat.md 12.11）", () => {
 
   it("tired_plan がほかの操作と同じ案にある → errors", () => {
     const result = check([op({ op: "tired_plan" }), op({ op: "delay", minutes: 30 })]);
-    expect(result).toEqual({ ok: false, errors: ["tired_plan はほかの操作と同じ案に入れられません。tired_plan だけの案にしてください"] });
+    expect(result).toEqual({ ok: false, errors: ["tired_plan はほかの操作と同じ案に入れられません。tired_plan だけの案にしてください"], engineErrors: [] });
   });
 
   it("tired_plan だけの案：今の replan()（state_change・high）と同じ結果", () => {
@@ -115,7 +115,17 @@ describe("checkOption（replan-chat.md 12.11）", () => {
     expect(() => buildReplanRows({ result: result.result, storedRows: new Map(), userId: "user-1", weeklyPlanId: "plan-1", newId: idFactory("row") })).not.toThrow();
   }, 30_000);
 
+  it("tired_plan で Engine の検証が失敗 → 理由は engineErrors にも入る", () => {
+    const fixture = chatFixture();
+    // 目標の実施済みを実際と合わない値にして、replan() の検証（週合計）を失敗させる
+    fixture.context.goal_done_minutes = { goal_toeic: 60 };
+    const result = check([op({ op: "tired_plan" })], fixture, "high");
+    if (result.ok) throw new Error("通らないはず");
+    expect(result.errors).toEqual([expect.stringContaining("再計画後の検証に失敗しました")]);
+    expect(result.engineErrors).toEqual(result.errors);
+  }, 30_000);
+
   it("操作が1つもない案は errors", () => {
-    expect(check([])).toEqual({ ok: false, errors: ["操作が1つもありません"] });
+    expect(check([])).toEqual({ ok: false, errors: ["操作が1つもありません"], engineErrors: [] });
   });
 });

@@ -23,7 +23,12 @@ import {
 } from "@/lib/llm/replan-chat-message";
 import { HttpError } from "@/lib/server/http";
 import type { ReplanBase } from "@/lib/server/replan-base";
-import { PROPOSAL_TTL_MINUTES, replanByIntent } from "@/lib/server/replan-by-intent";
+import {
+  ENGINE_FAILED_MESSAGE,
+  logEngineFailure,
+  PROPOSAL_TTL_MINUTES,
+  replanByIntent,
+} from "@/lib/server/replan-by-intent";
 import { buildReplanRows } from "@/lib/server/replan-rows";
 import { upsertCheckin } from "@/lib/server/repositories/daily-checkins";
 import type { PlanItemRow } from "@/lib/server/repositories/plans";
@@ -122,6 +127,8 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
 
   let context = input.context;
   let feedback: ReplanChatFeedback[] = [];
+  // 最後に通らなかった案の理由のうち、利用者に見せてよいもの（Engine・Validator の理由は除く）
+  let userReasons: string[] = [];
 
   for (let call = 0; call < MAX_PLAN_CALLS; call += 1) {
     // やり直しの前に、1ターンの上限を超えそうなら打ち切る（計画の呼び出し＋説明の最小の時間）
@@ -174,8 +181,10 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
     const options = llm.options.slice(0, 3);
     if (options.length === 0) {
       feedback = [{ label: "", errors: [NO_OPTIONS_ERROR] }];
+      userReasons = [NO_OPTIONS_ERROR];
       continue;
     }
+    const failedUserReasons: string[] = [];
     const passed: { label: string; tired: boolean; check: Extract<ReturnType<typeof checkOption>, { ok: true }> }[] = [];
     const failed: ReplanChatFeedback[] = [];
     options.forEach((option, i) => {
@@ -188,7 +197,12 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
         newId: deps.newId,
       });
       if (check.ok) passed.push({ label, tired: isTiredPlan(option), check });
-      else failed.push({ label, errors: check.errors });
+      else {
+        // LLM にはすべての理由を返す。Engine・Validator の理由はログにだけ出し、利用者には見せない
+        failed.push({ label, errors: check.errors });
+        if (check.engineErrors.length > 0) logEngineFailure("replan-chat", check.engineErrors);
+        failedUserReasons.push(...check.errors.filter((error) => !check.engineErrors.includes(error)));
+      }
     });
 
     // 7. 通った案だけを保存して、説明を作る
@@ -240,10 +254,13 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
 
     // 6. 全部だめ → 理由を feedback に入れてやり直す
     feedback = failed;
+    userReasons = failedUserReasons;
   }
 
-  // 8. 最後まで通らない → できる範囲を伝える文。proposals は空
-  const reasons = [...new Set(feedback.flatMap((entry) => entry.errors))];
+  // 8. 最後まで通らない → できる範囲を伝える文。proposals は空。
+  // 見せてよい理由がない（Engine・Validator の失敗だけ）ときは、決まった文を返す
+  const reasons = [...new Set(userReasons)];
+  if (reasons.length === 0) return reply(ENGINE_FAILED_MESSAGE);
   const message = await writeReplanChatMessage({
     userText: request.text,
     options: [],
