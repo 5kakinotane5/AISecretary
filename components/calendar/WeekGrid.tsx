@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { WEEK_LEGEND_ITEMS, formatWeekColumnLabel, getItemAppearance, getTravelIcon, type ItemAppearance } from "@/lib/labels";
-import { diffMinutes, formatDateLong, getDayOfMonth, getWeekdayJa } from "@/lib/datetime";
-import { mergeFreeTime, sumFreeTimeMinutes } from "@/lib/schedule";
+import { diffMinutes, formatDateLong, formatTimeRange, getDayOfMonth, getWeekdayJa } from "@/lib/datetime";
+import { mergeFreeTime, sumFreeTimeMinutes, type DisplayScheduleItem } from "@/lib/schedule";
 import type { DayView, ScheduleItem } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 
@@ -21,18 +21,21 @@ type WeekGridProps = {
   days: DayView[];
   /** 今日（demo_now の日付）。列見出しを強調する */
   today: string;
-  /** 列見出し・ブロック（その日の列）をタップしたとき（その日の日表示へ） */
+  /** 列見出しをタップしたとき（その日の日表示へ） */
   onDaySelect: (date: string) => void;
+  /** ブロックをタップしたとき（その項目の詳細シートへ） */
+  onItemSelect: (item: ScheduleItem) => void;
 };
 
 /**
  * 週表示の縦タイムグリッド（mock-spec.md 2.6）。
  * 7列・7:00〜24:00・1時間＝32px。高さは所要時間に比例させる（design-spec.md 5.4：週表示だけ比例表示）。
  * ブロックには文字を出さず色で種類を表し、高さ24px以上のブロックだけ中央に12pxのアイコンを出す（mock-spec.md 10.22）。
- * ブロックの中身は日表示で見る。押せる範囲はその日の列全体（タップ領域を44px以上にするため）。
+ * 自由時間・睡眠は出さない（タスクや予定が埋もれないように。中身は日表示で見る）。
+ * 列見出しを押すとその日の日表示へ、ブロックを押すとその項目の詳細シートを開く。
  * グリッドの下に凡例を置く。
  */
-export function WeekGrid({ days, today, onDaySelect }: WeekGridProps) {
+export function WeekGrid({ days, today, onDaySelect, onItemSelect }: WeekGridProps) {
   return (
     <div className="flex flex-col">
       {/* 列見出し「5 月」。タップでその日の日表示へ */}
@@ -45,7 +48,7 @@ export function WeekGrid({ days, today, onDaySelect }: WeekGridProps) {
               key={day.date}
               type="button"
               onClick={() => onDaySelect(day.date)}
-              aria-label={formatDateLong(day.date)}
+              aria-label={columnLabel(day)}
               aria-current={isToday ? "date" : undefined}
               className="flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center rounded-xl outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
             >
@@ -88,20 +91,14 @@ export function WeekGrid({ days, today, onDaySelect }: WeekGridProps) {
         </div>
 
         {days.map((day) => (
-          <button
+          <div
             key={day.date}
-            type="button"
-            onClick={() => onDaySelect(day.date)}
-            aria-label={columnLabel(day)}
-            className={cn(
-              "relative min-w-0 flex-1 border-l outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-              day.date === today && "bg-(--brand-purple-pale)/30",
-            )}
+            className={cn("relative min-w-0 flex-1 border-l", day.date === today && "bg-(--brand-purple-pale)/30")}
           >
-            {mergeFreeTime(day.items).map((item) => (
-              <WeekBlock key={item.id} item={item} date={day.date} />
+            {weekBlockItems(day.items).map((item) => (
+              <WeekBlock key={item.id} item={item} date={day.date} onSelect={onItemSelect} />
             ))}
-          </button>
+          </div>
         ))}
       </div>
 
@@ -110,7 +107,15 @@ export function WeekGrid({ days, today, onDaySelect }: WeekGridProps) {
   );
 }
 
-/** 列のボタンの読み上げ。表示に使っている DayView から、タスクの件数・自由時間（buffer＋free）の合計・締切の件数を出す */
+/** 週表示に出さない種類。自由時間（buffer・free）と睡眠は日表示で見る */
+const HIDDEN_KINDS: ReadonlySet<ScheduleItem["kind"]> = new Set(["free", "buffer", "sleep"]);
+
+/** 週表示に描く項目。mergeFreeTime を通したうえで自由時間・睡眠を除く（表示の直前にだけ通し、Engine・API・DB の値は変えない） */
+function weekBlockItems(items: ScheduleItem[]): DisplayScheduleItem[] {
+  return mergeFreeTime(items).filter((item) => !HIDDEN_KINDS.has(item.kind));
+}
+
+/** 列見出しのボタンの読み上げ。表示に使っている DayView から、タスクの件数・自由時間（buffer＋free）の合計・締切の件数を出す */
 function columnLabel(day: DayView): string {
   return formatWeekColumnLabel(formatDateLong(day.date), {
     taskCount: day.items.filter((item) => item.kind === "task").length,
@@ -130,9 +135,8 @@ function blockPosition(item: ScheduleItem, date: string): { top: number; height:
   };
 }
 
-/** 薄い背景＋枠。移動は破線の枠、睡眠は枠なしの薄い灰色、それ以外は左に細い線（丸印の色） */
-function blockStyle(appearance: ItemAppearance, isSleep: boolean): CSSProperties {
-  if (isSleep) return { backgroundColor: "var(--muted)" };
+/** 薄い背景＋枠。移動は破線の枠、それ以外は左に細い線（丸印の色） */
+function blockStyle(appearance: ItemAppearance): CSSProperties {
   if (appearance.dashedBorder) {
     return { backgroundColor: appearance.blockBg, border: `1px dashed ${appearance.circleColor}` };
   }
@@ -140,33 +144,42 @@ function blockStyle(appearance: ItemAppearance, isSleep: boolean): CSSProperties
 }
 
 /**
- * 1つの予定のブロック。色は design-spec.md 2.3 の薄い背景＋左の細い線（丸印の色）。
- * 移動は破線の枠、睡眠は薄い紫寄りの灰色
+ * 1つの予定のブロック。色は design-spec.md 2.3 の薄い背景＋左の細い線（丸印の色）。移動は破線の枠。
+ * 押すとその項目の詳細シートを開く。読み上げは「タイトル　時刻」
  */
-function WeekBlock({ item, date }: { item: ScheduleItem; date: string }) {
+function WeekBlock({
+  item,
+  date,
+  onSelect,
+}: {
+  item: ScheduleItem;
+  date: string;
+  onSelect: (item: ScheduleItem) => void;
+}) {
   const position = blockPosition(item, date);
   if (!position) return null;
 
   const appearance = getItemAppearance(item.kind, item.fixed_category);
-  const isSleep = item.kind === "sleep";
-  // 睡眠は凡例に入れないのでアイコンも出さない。移動のアイコンは移動手段で決める（design-spec.md 9.7）
-  const showIcon = !isSleep && position.height >= MIN_ICON_HEIGHT;
+  // 移動のアイコンは移動手段で決める（design-spec.md 9.7）
+  const showIcon = position.height >= MIN_ICON_HEIGHT;
   // getTravelIcon の戻り値をそのまま <Icon /> にすると react-hooks/static-components に引っかかるため、プロパティ経由で参照する
   const icon = { Icon: item.travel ? getTravelIcon(item.travel.mode) : appearance.icon };
 
   return (
-    <span
-      aria-hidden
-      className="absolute inset-x-px flex items-center justify-center overflow-hidden rounded-[4px]"
+    <button
+      type="button"
+      onClick={() => onSelect(item)}
+      aria-label={`${item.title}　${formatTimeRange(item.start_at, item.end_at)}`}
+      className="absolute inset-x-px flex items-center justify-center overflow-hidden rounded-[4px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
       style={{
         top: position.top + 1,
         height: Math.max(position.height - 2, 2),
-        ...blockStyle(appearance, isSleep),
+        ...blockStyle(appearance),
         opacity: item.status === "completed" ? 0.5 : undefined,
       }}
     >
-      {showIcon ? <icon.Icon size={12} style={{ color: appearance.circleColor }} /> : null}
-    </span>
+      {showIcon ? <icon.Icon size={12} style={{ color: appearance.circleColor }} aria-hidden /> : null}
+    </button>
   );
 }
 
@@ -176,7 +189,7 @@ function WeekLegend() {
     <ul aria-label="凡例" className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 px-1 text-xs text-muted-foreground">
       {WEEK_LEGEND_ITEMS.map(({ label, appearance, icons }) => (
         <li key={label} className="flex items-center gap-1.5">
-          <span className="h-4 w-5 shrink-0 rounded-[4px]" style={blockStyle(appearance, false)} aria-hidden />
+          <span className="h-4 w-5 shrink-0 rounded-[4px]" style={blockStyle(appearance)} aria-hidden />
           {icons.map((Icon, i) => (
             <Icon key={i} size={12} style={{ color: appearance.circleColor }} aria-hidden />
           ))}
