@@ -4,7 +4,8 @@ import { replan } from "@/lib/planning/replan";
 import type { DailyCheckin, ReplanChatLlm, ReplanChatResponse } from "@/lib/schemas";
 import { buildReplanChatInput } from "@/lib/llm/replan-chat";
 import { buildProposalInsert, runReplanChatTurn, toFallbackResponse, type ChatTurnDeps, type SavedProposal } from "../run";
-import { chatFixture, findBefore, idFactory, op, TODAY, type ChatFixture } from "./helpers";
+import { addDays } from "@/lib/datetime";
+import { blockFreeTime, chatFixture, findBefore, idFactory, op, TODAY, type ChatFixture } from "./helpers";
 
 // 会話の再計画の1ターン（replan-chat.md 12.11・12.15）。callStructured だけを差し替える（実際の OpenAI は呼ばない）
 
@@ -104,8 +105,8 @@ describe("runReplanChatTurn（replan-chat.md 12.11）", () => {
     const fixture = chatFixture();
     const listening = findBefore(fixture, TODAY, (item) => item.task_id === "task_toeic_listening");
     const { planInputs } = setupLlm([
-      llmReply({ reply_type: "proposal", options: [{ label: "明日に回す", ops: [op({ op: "postpone", item_id: "no-such-item" })] }] }),
-      llmReply({ reply_type: "proposal", options: [{ label: "明日に回す", ops: [op({ op: "postpone", item_id: listening.id })] }] }),
+      llmReply({ reply_type: "proposal", options: [{ label: "リスニングを明日に", ops: [op({ op: "postpone", item_id: "no-such-item" })] }] }),
+      llmReply({ reply_type: "proposal", options: [{ label: "リスニングを明日に", ops: [op({ op: "postpone", item_id: listening.id })] }] }),
     ]);
     const d = deps();
     const response = await run(fixture, d.value, { text: "リスニング明日に回して" });
@@ -113,14 +114,14 @@ describe("runReplanChatTurn（replan-chat.md 12.11）", () => {
     expect(planInputs).toHaveLength(2);
     expect(planInputs[0]).not.toHaveProperty("feedback");
     expect(planInputs[1].feedback).toEqual([
-      { label: "明日に回す", errors: ["item_id「no-such-item」は今日のこれから変えられるタスクにありません"] },
+      { label: "リスニングを明日に", errors: ["item_id「no-such-item」は今日のこれから変えられるタスクにありません"] },
     ]);
     expect(response.source).toBe("llm");
     expect(response.proposals).toHaveLength(1);
-    expect(response.proposals[0].label).toBe("明日に回す");
+    expect(response.proposals[0].label).toBe("リスニングを明日に");
     // 会話の経路の intent（12.9 の互換の形）
     expect(response.proposals[0].intent).toEqual({
-      type: "preference_change", fatigue: null, task_changes: [], new_fixed_events: [], preference_changes: ["明日に回す"],
+      type: "preference_change", fatigue: null, task_changes: [], new_fixed_events: [], preference_changes: ["リスニングを明日に"],
     });
     expect(response.proposals[0].summary_message).toContain("TOEIC リスニング演習を");
     // 通った案だけを保存する
@@ -400,14 +401,14 @@ describe("手動確認で見つかったことの歯止め", () => {
     const listening = findBefore(fixture, TODAY, (item) => item.task_id === "task_toeic_listening");
     const { planInputs } = setupLlm([
       llmReply({ reply_type: "select", select_index: 1 }),
-      llmReply({ reply_type: "proposal", options: [{ label: "明日に回す", ops: [op({ op: "postpone", item_id: listening.id })] }] }),
+      llmReply({ reply_type: "proposal", options: [{ label: "リスニングを明日に", ops: [op({ op: "postpone", item_id: listening.id })] }] }),
     ]);
     const response = await run(fixture, deps().value, { text: "このタスクを明日に回したい" });
     expect(planInputs).toHaveLength(2);
     expect(planInputs[1].feedback).toEqual([
       { label: "", errors: ["出ている案はありません。発言をもう一度読んで proposal か question にしてください"] },
     ]);
-    expect(response.proposals.map((p) => p.label)).toEqual(["明日に回す"]);
+    expect(response.proposals.map((p) => p.label)).toEqual(["リスニングを明日に"]);
   }, 30_000);
 
   it("B：2回目も select なら question「どのタスクのことか教えてください」", async () => {
@@ -440,5 +441,86 @@ describe("手動確認で見つかったことの歯止め", () => {
     expect(proposal.summary_message).toContain("来週の10/12から");
     expect(d.saved[0][0].newFixedEvents).toEqual([expect.objectContaining({ recurrence: "weekly", start_at: "2026-10-12T09:00:00+09:00" })]);
     expect(response.message).toContain("来週の10/12から");
+  }, 30_000);
+});
+
+describe("頼んでいない案・ラベル・要約（手動確認 2）", () => {
+  const addTaskOp = op({ op: "add_task", title: "統計レポート", minutes: 120, deadline_date: "2026-10-09" });
+
+  it("C：疲れ・休憩のことばがない発言では、tired_plan・add_rest を含む案を捨てる", async () => {
+    setupLlm([
+      llmReply({
+        reply_type: "proposal",
+        options: [
+          { label: "レポートを入れる", ops: [addTaskOp] },
+          { label: "仮眠してから", ops: [addTaskOp, op({ op: "add_rest", title: "仮眠", start: "now", minutes: 20 })] },
+          { label: "今夜は軽めにする", ops: [op({ op: "tired_plan" })] },
+        ],
+      }),
+    ]);
+    const response = await run(chatFixture(), deps().value, { text: "金曜までにレポート2時間" });
+    expect(response.proposals.map((p) => p.label)).toEqual(["レポートを入れる"]);
+  }, 30_000);
+
+  it("C：全部捨てて案が0件 → 「案がない」の feedback でやり直す", async () => {
+    const { planInputs } = setupLlm([
+      llmReply({ reply_type: "proposal", options: [{ label: "今夜は軽めにする", ops: [op({ op: "tired_plan" })] }] }),
+      llmReply({ reply_type: "proposal", options: [{ label: "レポートを入れる", ops: [addTaskOp] }] }),
+    ]);
+    const response = await run(chatFixture(), deps().value, { text: "金曜までにレポート2時間" });
+    expect(planInputs[1].feedback).toEqual([{ label: "", errors: ["案が1つもありません。options に1〜3個の案を入れてください"] }]);
+    expect(response.proposals.map((p) => p.label)).toEqual(["レポートを入れる"]);
+  }, 30_000);
+
+  it("C：休憩のことば（「仮眠」）があれば add_rest の案は残る", async () => {
+    setupLlm([llmReply({ reply_type: "proposal", options: [{ label: "仮眠する", ops: [op({ op: "add_rest", title: "仮眠", start: "now", minutes: 20 })] }] })]);
+    const response = await run(chatFixture(), deps().value, { text: "20分だけ仮眠したい" });
+    expect(response.proposals.map((p) => p.label)).toEqual(["仮眠する"]);
+  }, 30_000);
+
+  it("Demo Path：「今日は疲れた」では今まで通り tired_plan と add_rest の2案", async () => {
+    setupLlm([
+      llmReply({
+        reply_type: "proposal",
+        fatigue: "high",
+        options: [
+          { label: "今夜は軽めにする", ops: [op({ op: "tired_plan" })] },
+          { label: "仮眠してから続ける", ops: [op({ op: "add_rest", title: "仮眠", start: "now", minutes: 20 })] },
+        ],
+      }),
+    ]);
+    const d = deps();
+    const response = await run(chatFixture(), d.value, { text: "今日は疲れた" });
+    expect(d.updateFatigue).toHaveBeenCalledWith("high");
+    expect(response.proposals.map((p) => p.label)).toEqual(["今夜は軽めにする", "仮眠してから続ける"]);
+  }, 30_000);
+
+  it("E：label が中身のタスクの名前を含まない → 要約の最初の文にする。省略した名前（「リスニング」）なら label のまま", async () => {
+    const fixture = chatFixture();
+    const listening = findBefore(fixture, TODAY, (item) => item.task_id === "task_toeic_listening");
+    setupLlm([
+      llmReply({
+        reply_type: "proposal",
+        options: [
+          { label: "ES作成を明日に回す", ops: [op({ op: "postpone", item_id: listening.id })] },
+          { label: "リスニングは木曜に", ops: [op({ op: "postpone", item_id: listening.id, date: "2026-10-08" })] },
+        ],
+      }),
+    ]);
+    const response = await run(fixture, deps().value, { text: "このタスクを明日に回したい" });
+    expect(response.proposals.map((p) => p.label)).toEqual(["TOEIC リスニング演習を火曜に回す", "リスニングは木曜に"]);
+    expect(response.proposals[0].intent.preference_changes).toEqual(["TOEIC リスニング演習を火曜に回す"]);
+  }, 30_000);
+
+  it("F：目標の行動が入らないとき、summary に「…は今週に入りませんでした」を出さず、「今週の…が N 分足りなくなります」だけ", async () => {
+    const fixture = chatFixture();
+    for (let date = "2026-10-06"; date <= "2026-10-11"; date = addDays(date, 1)) blockFreeTime(fixture, date);
+    const listening = findBefore(fixture, TODAY, (item) => item.task_id === "task_toeic_listening");
+    setupLlm([llmReply({ reply_type: "proposal", options: [{ label: "リスニングを明日に", ops: [op({ op: "postpone", item_id: listening.id })] }] })]);
+    const response = await run(fixture, deps().value, { text: "リスニング明日に回したい" });
+    const [proposal] = response.proposals;
+    expect(proposal.warnings).toEqual(["今週のTOEIC学習が60分足りなくなります"]);
+    expect(proposal.summary_message).toContain("今週のTOEIC学習が60分足りなくなります");
+    expect(proposal.summary_message).not.toContain("今週に入りませんでした");
   }, 30_000);
 });

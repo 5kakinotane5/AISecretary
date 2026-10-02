@@ -79,6 +79,7 @@ type PendingChange = {
 
 const TMP = "tmp:";
 const PROVISIONAL_MINUTES = 60;
+const NEAR_NOW_MINUTES = 5; // 開始が now との差この分以内なら "now" と同じに扱う
 const WORK_END_BEFORE_SLEEP_MINUTES = 30;
 const REST_DEFAULT_MINUTES = 20;
 const DELAY_DEFAULT_MINUTES = 30;
@@ -370,6 +371,8 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
         return null;
       }
       start = parsed;
+      // now の前後5分以内の時刻（「18時から」を 18:00 に言われた）は "now" と同じ：進行中のタスクは now で切る
+      if (Math.abs(diffMinutesExact(now, parsed)) <= NEAR_NOW_MINUTES) ({ start, split } = resolveNow(true));
     }
     const end = endOf(start);
     if (ms(start) < ms(cut)) {
@@ -392,25 +395,31 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
       opErrors.push(`${hit.title}（${timeLabel(hit.start_at, today)}〜${timeLabel(hit.end_at, today)}）と重なるため入れられません`);
       return null;
     }
-    // 切る：前半は同じ id で now まで（completed）、後半はキューの先頭へ
-    if (split && prefix) {
-      anchors = anchors.map((item) => (item.id === split.id ? prefix : item));
-      splitTaskIds.push(split.id);
-      const rest = diffMinutesExact(cut, split.end_at);
-      if (rest > 0) {
-        queue.unshift({
-          source: split,
-          sourceDate: today,
-          task: findTask(split.task_id),
-          minutes: rest,
-          earliest: null,
-          origin: "split",
-          shortened: false,
-        });
-      }
+    // 切る：前半は同じ id で now まで（completed）、後半（終わり − cut）はキューの先頭へ
+    if (split) {
+      const rest = splitAtNow(split, diffMinutesExact(cut, split.end_at));
+      if (rest) queue.unshift(rest);
     }
     return { start, end, split };
   };
+
+  // 進行中のタスクを now で切る（12.10 の決まり 1。replan() の state_change と同じ形）：
+  // 前半は同じ id・同じ start_at で end_at = now・locked・completed。後半（minutes 分）の Entry を返す
+  const splitAtNow = (task: PlannedItem, minutes: number): Entry | null => {
+    anchors = anchors.map((item) => (item.id === task.id ? { ...task, end_at: now, locked: true, status: "completed" as const } : item));
+    splitTaskIds.push(task.id);
+    if (minutes <= 0) return null;
+    return { source: task, sourceDate: today, task: findTask(task.task_id), minutes, earliest: null, origin: "split", shortened: false };
+  };
+  const inProgressTask = (id: string | null) =>
+    anchors.find(
+      (item) =>
+        item.id === id &&
+        item.kind === "task" &&
+        item.status !== "completed" &&
+        ms(item.start_at) < ms(now) &&
+        ms(now) < ms(item.end_at),
+    ) ?? null;
 
   // 予定の終わり：end → start＋minutes → start＋60分（仮置き）
   const endOfEvent = (op: ReplanOpLlm, date: string, start: string): { end: string; provisional: boolean } => {
@@ -704,12 +713,19 @@ export function applyOps(input: ApplyOpsInput): ApplyOpsResult {
       }
       case "postpone": {
         const index = queueIndex(op.item_id);
-        if (index < 0) {
+        const running = index < 0 ? inProgressTask(op.item_id) : null;
+        if (index < 0 && !running) {
           opErrors.push(notInQueue(op.item_id));
           break;
         }
         if (op.date !== null && !isLaterDate(op.date)) {
           opErrors.push(`${op.date}は明日〜日曜の日付ではありません`);
+          break;
+        }
+        if (running) {
+          // 進行中のタスク（「このタスク」）：now で切り、残り（終わり − now。replan() の state_change と同じ）を明日以降へ
+          const rest = splitAtNow(running, diffMinutesExact(now, running.end_at));
+          if (rest) overflow.push({ ...rest, date: op.date });
           break;
         }
         const [entry] = queue.splice(index, 1);

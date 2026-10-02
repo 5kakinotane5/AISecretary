@@ -460,3 +460,88 @@ describe("applyOps：予定・タスクを足す（replan-add.md 12.18・12.23�
     expect(fixedRows.map((row) => row.recurrence)).toEqual(["weekly", null]);
   });
 });
+
+describe("applyOps：18:00 に進行中のタスク（ES作成（企業B）17:35〜18:35）があるとき", () => {
+  const esB = (fixture: ChatFixture) => findBefore(fixture, TODAY, (item) => item.task_id === "task_es_b" && item.locked);
+
+  it("(a)・A：add_event start 18:00（now の5分以内）は now と同じ：ES を now で切り、予定を 18:00〜19:00 に仮置きする", () => {
+    const fixture = chatFixture();
+    const es = esB(fixture);
+    const { applied, validation } = run([op({ op: "add_event", title: "予定", start: "18:00" })], fixture);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.provisionalEnd).toBe(true);
+    expect(applied.splitTaskIds).toEqual([es.id]);
+    const today = todayItems(applied);
+    expect(today.find((item) => item.id === es.id)).toMatchObject({ end_at: at(TODAY, "18:00"), locked: true, status: "completed" });
+    expect(today.find((item) => item.title === "予定")).toMatchObject({ kind: "fixed", start_at: at(TODAY, "18:00"), end_at: at(TODAY, "19:00") });
+    // ES の残り（35分）は今日の後ろ（夕食の後）に回る
+    expect(today.filter((item) => item.task_id === "task_es_b" && item.id !== es.id).map((item) => [item.start_at, item.end_at])).toEqual([
+      [at(TODAY, "19:45"), at(TODAY, "20:20")],
+    ]);
+  });
+
+  it("A：now の5分以内なら now より前の時刻でもよい。5分より離れた過去の時刻は今まで通り opErrors", () => {
+    const fixture = chatFixture("2026-10-05T18:03:00+09:00");
+    const near = run([op({ op: "add_event", title: "予定", start: "18:00", minutes: 30 })], fixture);
+    expect(near.applied.opErrors).toEqual([]);
+    expect(near.validation.errors).toEqual([]);
+    expect(todayItems(near.applied).find((item) => item.title === "予定")).toMatchObject({ start_at: at(TODAY, "18:05"), end_at: at(TODAY, "18:35") });
+    const far = run([op({ op: "add_event", title: "予定", start: "17:55", minutes: 30 })], chatFixture("2026-10-05T18:03:00+09:00"));
+    expect(far.applied.opErrors).toEqual(["予定の開始（17:55）はもう過ぎています"]);
+  });
+
+  it("A：add_rest start 18:00 も now と同じに扱う", () => {
+    const fixture = chatFixture();
+    const { applied, validation } = run([op({ op: "add_rest", title: "休憩", start: "18:00", minutes: 20 })], fixture);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.splitTaskIds).toEqual([esB(fixture).id]);
+  });
+
+  it("(b)：add_event start now（終わりなし）は今まで通り、ES を切って 18:00〜19:00 に仮置き", () => {
+    const fixture = chatFixture();
+    const { applied, validation } = run([op({ op: "add_event", title: "予定", start: "now" })], fixture);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.provisionalEnd).toBe(true);
+    expect(applied.splitTaskIds).toEqual([esB(fixture).id]);
+  });
+
+  it("(c)・B：進行中の ES の postpone：now で切り（前半は completed）、残り35分を明日以降に回す。errors 0", () => {
+    const fixture = chatFixture();
+    const es = esB(fixture);
+    const { applied, validation } = run([op({ op: "postpone", item_id: es.id })], fixture);
+    expect(applied.opErrors).toEqual([]);
+    expect(validation.errors).toEqual([]);
+    expect(applied.splitTaskIds).toEqual([es.id]);
+    const today = todayItems(applied);
+    // 前半は replan() の state_change と同じ形（同じ id・同じ start_at・end_at = now・locked・completed）
+    expect(today.find((item) => item.id === es.id)).toEqual({ ...es, end_at: at(TODAY, "18:00"), locked: true, status: "completed" });
+    expect(today.filter((item) => item.task_id === "task_es_b")).toHaveLength(1);
+    // 残り（終わり − now ＝35分）は他の日へ
+    const moved = applied.result.proposal.other_day_changes.find((change) => change.before?.id === es.id)!;
+    expect(moved.change_type).toBe("moved");
+    expect(moved.moved_to_date! > TODAY).toBe(true);
+    expect(moved.after[0]).toMatchObject({ task_id: "task_es_b" });
+    expect((Date.parse(moved.after[0].end_at) - Date.parse(moved.after[0].start_at)) / 60_000).toBe(35);
+    expect(applied.result.proposal.changes).toContainEqual(expect.objectContaining({ change_type: "replaced", before: expect.objectContaining({ id: es.id, end_at: es.end_at }) }));
+  });
+
+  it("(c)・B：進行中の ES の postpone（date あり）は指定の日へ", () => {
+    const fixture = chatFixture();
+    const { applied, validation } = run([op({ op: "postpone", item_id: esB(fixture).id, date: THURSDAY })], fixture);
+    expect(validation.errors).toEqual([]);
+    expect(applied.result.proposal.other_day_changes.find((change) => change.before?.id === esB(fixture).id)?.moved_to_date).toBe(THURSDAY);
+  });
+
+  it("(d)：20:00 のリスニングの postpone（date なし）は火曜 17:00 に移る（単独では「今週に入りませんでした」にならない）", () => {
+    const fixture = chatFixture();
+    const { applied, validation } = run([op({ op: "postpone", item_id: listening(fixture).id })], fixture);
+    expect(validation.errors).toEqual([]);
+    expect(applied.unplaced).toEqual([]);
+    const moved = applied.result.proposal.other_day_changes.find((change) => change.before?.id === listening(fixture).id)!;
+    expect(moved.moved_to_date).toBe(TUESDAY);
+    expect(moved.after[0].start_at).toBe(at(TUESDAY, "17:00"));
+  });
+});

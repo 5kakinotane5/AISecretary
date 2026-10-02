@@ -19,6 +19,9 @@ import { applyOps } from "./apply-ops";
 
 type EngineReplanOk = Extract<EngineReplanResult, { ok: true }>;
 
+// 終わりの時刻を仮置きした予定（補正 C-10）。会話の経路では、終わりの時刻を聞く一文を足す
+export const PROVISIONAL_END_WARNING = `${PROVISIONAL_END_NOTE}終わりの時刻が分かれば教えてください。`;
+
 // 1つの案の操作の上限（replan-add.md 12.17）
 export const MAX_OPS_PER_OPTION = 7;
 
@@ -135,7 +138,7 @@ export function checkOption(input: CheckOptionInput): CheckOptionResult {
     if (!short || restMinutes(beforeByDate.get(day.date) ?? []) < minRest) continue;
     warnings.push(`${formatMonthDay(day.date)}の空き時間が${restMinutes(day.items)}分になります（めやすは${minRest}分）`);
   }
-  if (applied.provisionalEnd) warnings.push(PROVISIONAL_END_NOTE);
+  if (applied.provisionalEnd) warnings.push(PROVISIONAL_END_WARNING);
 
   if (errors.length > 0) return { ok: false, errors, engineErrors };
 

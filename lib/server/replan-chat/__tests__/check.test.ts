@@ -83,7 +83,7 @@ describe("checkOption（replan-chat.md 12.11）", () => {
     const result = check([op({ op: "add_event", title: "散歩", start: "21:00" })]);
     if (!result.ok) throw new Error(result.errors.join("\n"));
     expect(result.newFixedEvents).toEqual([expect.objectContaining({ start_at: at(TODAY, "21:00"), end_at: at(TODAY, "22:00") })]);
-    expect(result.warnings).toContain(PROVISIONAL_END_NOTE);
+    expect(result.warnings).toContain(`${PROVISIONAL_END_NOTE}終わりの時刻が分かれば教えてください。`);
     expect(result.result.proposal.intent.new_fixed_events).toEqual(result.newFixedEvents);
   });
 

@@ -14,7 +14,7 @@ import {
   type Task,
 } from "@/lib/schemas";
 import { isLlmEnabled, LlmError } from "@/lib/llm/client";
-import { mentionsFatigue } from "@/lib/llm/replan-keywords";
+import { mentionsFatigue, taskKeys } from "@/lib/llm/replan-keywords";
 import { buildReplanChatInput, callReplanChat, REPLAN_CHAT_TIMEOUT_MS, type ReplanChatFeedback } from "@/lib/llm/replan-chat";
 import {
   buildOptionFacts,
@@ -146,6 +146,29 @@ export function toFallbackResponse(result: ReplanResponse): ReplanChatResponse {
 const isTiredPlan = (option: ReplanChatLlm["options"][number]) =>
   option.ops.length === 1 && option.ops[0].op === "tired_plan";
 
+// 休憩・ゆるめたいことば。疲れのキーワード（mentionsFatigue）とあわせて、どちらにも当たらない発言では
+// tired_plan・add_rest を含む案（頼まれていない仮眠・今夜軽め）を出さない
+const REST_WORDS = /休憩|休み|仮眠|寝|横にな|ひと息|一息|ゆる|軽め|軽く/;
+const asksForRest = (text: string) => mentionsFatigue(text) || REST_WORDS.test(text.normalize("NFKC"));
+const hasRestOp = (option: ReplanChatLlm["options"][number]) =>
+  option.ops.some((entry) => entry.op === "tired_plan" || entry.op === "add_rest");
+
+// label が、その案で postpone・skip・shorten するタスクのどれかの名前（taskKeys の言葉）を含むか。対象がなければ true
+function labelNamesTargets(
+  label: string,
+  ops: ReplanChatLlm["options"][number]["ops"],
+  beforeDays: readonly { items: PlannedItem[] }[],
+): boolean {
+  const items = beforeDays.flatMap((day) => day.items);
+  const titles = ops
+    .filter((entry) => entry.op === "postpone" || entry.op === "skip" || entry.op === "shorten")
+    .map((entry) => items.find((item) => item.id === entry.item_id)?.title)
+    .filter((title): title is string => title !== undefined);
+  if (titles.length === 0) return true;
+  const normalized = label.normalize("NFKC").toLowerCase();
+  return titles.some((title) => taskKeys(title).some((key) => normalized.includes(key)));
+}
+
 export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps): Promise<ReplanChatResponse> {
   const { request } = input;
   // 2. LLM_MODE=off → 12.2 の経路
@@ -216,14 +239,20 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
     }
 
     // 5. 各案を検査する
-    const options = llm.options.slice(0, 3);
+    // 休憩・疲れの発言でなければ、tired_plan・add_rest を含む案は捨てる（全部捨てれば「案がない」の扱い）
+    const options = llm.options.filter((option) => asksForRest(request.text) || !hasRestOp(option)).slice(0, 3);
     if (options.length === 0) {
       feedback = [{ label: "", errors: [NO_OPTIONS_ERROR] }];
       userReasons = [NO_OPTIONS_ERROR];
       continue;
     }
     const failedUserReasons: string[] = [];
-    const passed: { label: string; tired: boolean; check: Extract<ReturnType<typeof checkOption>, { ok: true }> }[] = [];
+    const passed: {
+      label: string;
+      tired: boolean;
+      ops: ReplanChatLlm["options"][number]["ops"];
+      check: Extract<ReturnType<typeof checkOption>, { ok: true }>;
+    }[] = [];
     const failed: ReplanChatFeedback[] = [];
     options.forEach((option, i) => {
       const label = option.label.trim() || `案${i + 1}`;
@@ -234,7 +263,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
         fatigue,
         newId: deps.newId,
       });
-      if (check.ok) passed.push({ label, tired: isTiredPlan(option), check });
+      if (check.ok) passed.push({ label, tired: isTiredPlan(option), ops: option.ops, check });
       else {
         // LLM にはすべての理由を返す。Engine・Validator の理由はログにだけ出し、利用者には見せない
         failed.push({ label, errors: check.errors });
@@ -247,7 +276,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
     if (passed.length > 0) {
       const saved: SavedProposal[] = [];
       const facts: OptionFacts[] = [];
-      for (const { label, tired, check } of passed) {
+      for (const { label: llmLabel, tired, ops, check } of passed) {
         const rows = buildReplanRows({
           result: check.result,
           storedRows: input.storedRows,
@@ -255,6 +284,18 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
           weeklyPlanId: input.weeklyPlanId,
           newId: deps.newId,
         });
+        const optionFacts = buildOptionFacts({
+          label: llmLabel,
+          proposal: rows.proposal,
+          warnings: check.warnings,
+          tasks: context.tasks,
+          newFixedEvents: check.newFixedEvents,
+          newTasks: check.newTasks,
+        });
+        // label が動かすタスクの名前を含まない（中身と違う）ときは、コードで作った要約の最初の文にする
+        const label = labelNamesTargets(llmLabel, ops, input.beforeDays) ? llmLabel : (optionFacts.summary[0] ?? llmLabel);
+        optionFacts.label = label;
+        facts.push(optionFacts);
         // 会話の経路の intent（12.9 の互換の形）。tired_plan は Engine の intent のまま
         const intent = tired
           ? rows.proposal.intent
@@ -265,15 +306,6 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
               new_fixed_events: check.newFixedEvents,
               preference_changes: [label],
             };
-        const optionFacts = buildOptionFacts({
-          label,
-          proposal: rows.proposal,
-          warnings: check.warnings,
-          tasks: context.tasks,
-          newFixedEvents: check.newFixedEvents,
-          newTasks: check.newTasks,
-        });
-        facts.push(optionFacts);
         saved.push({
           proposal: ReplanChatProposalSchema.parse({
             ...rows.proposal,

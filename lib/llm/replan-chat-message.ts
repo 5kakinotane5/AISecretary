@@ -146,10 +146,22 @@ export function buildOptionFacts(input: {
   newTasks?: readonly Task[];
 }): OptionFacts {
   const impact = computeReplanImpact({ ...input.proposal, proposal_id: "" }, input.tasks);
+  // 目標の行動が入らなかった文（「…は今週に入りませんでした」）は、warnings に「今週の…が N 分足りなくなります」が
+  // あるときは出さない（check.ts の warnings と同じく二重にしない。replan-add.md 12.18）
+  const goalTaskIds = new Set(input.tasks.filter((task) => task.goal_id !== null).map((task) => task.id));
+  const goalShort = input.warnings.some((warning) => /^今週の.+が\d+分足りなくなります$/.test(warning));
+  const hidden = new Set(
+    goalShort
+      ? [...input.proposal.changes, ...input.proposal.other_day_changes]
+          .filter((change) => change.change_type === "removed" && change.before?.task_id && goalTaskIds.has(change.before.task_id))
+          .map((change) => change.reason.replace(/。$/, ""))
+          .filter((line) => line.endsWith("は今週に入りませんでした"))
+      : [],
+  );
   return {
     label: input.label,
     summary: [
-      ...summarizeProposal(input.proposal),
+      ...summarizeProposal(input.proposal).filter((line) => !hidden.has(line)),
       // 来週から始まる毎週の予定は今週の変更点にないので、ここで足す
       ...(input.newFixedEvents ?? [])
         .filter((event) => toDateStr(event.start_at) > addDays(getWeekStart(input.proposal.date), 6))
