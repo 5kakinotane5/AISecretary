@@ -276,9 +276,9 @@ export const PLAN_STYLE_SHORT_LABELS: Record<PlanStyle, string> = {
 
 // ---------- オンボーディング（/login・/interview・/plans）の文言（design-spec.md 1章・4章・6章） ----------
 export const ONBOARDING_LABELS = {
-  tagline: "まだ決まっていない未来を、今の自分から航海する。",
-  taglineEn: "Navigate your uncertain future.",
-  start: "はじめる",
+  tagline: "毎日の自己管理を、AI秘書と。",
+  taglineEn: "Your AI secretary for student life.",
+  start: "START",
   interviewTitle: "航海の準備",
   plansTitle: "コースを選ぶ",
   chooseCandidate: "これにする",

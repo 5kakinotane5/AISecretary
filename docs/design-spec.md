@@ -16,8 +16,8 @@
 | 項目 | 内容 |
 |---|---|
 | アプリ名 | PURCHART（パーチャート） |
-| タグライン | まだ決まっていない未来を、今の自分から航海する。 |
-| 英語タグライン | Navigate your uncertain future. |
+| タグライン | 毎日の自己管理を、AI秘書と。（折り返さない） |
+| 英語タグライン | Your AI secretary for student life. |
 | 世界観 | 夜明け前の海を、羅針盤を頼りに進む航海。「航海の準備」など一部の航海用語は残し、`/today` は「予定」、`/calendar` は「予定表」、スケジュール3案は「〇〇コース」と表記する |
 | トーン | 静か・やさしい・前向き。急かさない。詰め込まない |
 
@@ -227,7 +227,7 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 
 | 画面 | デザインイメージの対応 | 見た目のポイント |
 |---|---|---|
-| `/login` | 1枚目（スプラッシュ） | 背景 `--gradient-night`、中央に大きな CompassMark とロゴ、タグライン（日本語・英語）。下部に白の主ボタン「はじめる」。下端に水平線と海の光（CSS のグラデーションで表現。画像がある場合は `public/brand/` の画像を使う） |
+| `/login` | 1枚目（スプラッシュ） | 背景は1枚の連続したグラデーション（夜空の藍 `#0F172A` → `#2A2A6E` → 紫と水色の間の青紫 `#5A64C8` → 下端 `#9FB0F2`。ページ内で指定し、`--gradient-night` は使わない）に、ごく薄いノイズ。中央に大きな CompassMark（`tone="splash"`：細い円 `#B9A8F5`、単色の星 `#F4F1FF`、中央の点 `#8B7CF6`）とその後ろだけの薄い光、ロゴ（`tone="splash"`：600、字間0.24em）、幅24pxの細い線、タグライン（日本語・英語）。下部に `#F4F1FF` の丸い主ボタン「START」（文字 `#1C1A36`、影なし）。表示時にロゴ→アプリ名→コピー→ボタンの順にふわっと出す（動きを減らす設定では動かさない） |
 | `/interview` | 4枚目（AIとの対話） | ヘッダー `--gradient-deep`「航海の準備」。5.5の吹き出し、目標時間3案は5.6のカードを縦に3枚 |
 | `/plans` | 2枚目の応用 | ヘッダー `--gradient-header`「コースを選ぶ」。比較表は白いカード。3案の切り替えは `--brand-purple-pale` の角丸のセグメント |
 | `/today` | 2枚目（ホーム） | 日付（右にデモ時刻のチップ）と今日のタスク達成率の2行のヘッダーを上部に固定（高さは固定せず、中身と上下12pxの余白で決める。約92px＋セーフエリア）。タスク枠に完了チェックを置く。`/replan` へはタブバーの「計画づくり」から移る（主ボタンは置かない） |
@@ -289,7 +289,7 @@ shadcn/ui との対応：`--primary` = `--brand-purple`、`--primary-foreground`
 PURCHARTにする範囲：
 
 - 画面上の表示（`lib/labels.ts`）
-- `app/layout.tsx` の `metadata`（`title`は「PURCHART」、`description`はタグライン「まだ決まっていない未来を、今の自分から航海する。」）
+- `app/layout.tsx` の `metadata`（`title`は「PURCHART」、`description`はタグライン「毎日の自己管理を、AI秘書と。」）
 - `README.md` の見出し（「PURCHART（Personal AI Secretary）」）
 
 変えない範囲：`package.json` の `name`、リポジトリ名、ディレクトリ名、コード内の変数名・ファイル名、`AGENTS.md` の見出し。
