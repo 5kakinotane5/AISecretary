@@ -502,6 +502,63 @@ export const ReplanIntentLlmSchema = z.object({
   preference_changes: z.array(z.string()),
 });
 
+// ---------- 再計画（会話。replan-chat.md 12.8〜） ----------
+export const ReplanOpTypeSchema = z.enum([
+  "add_event",    // 新しい予定を入れる（飲み会・散歩・自習など、タスク一覧にないもの）
+  "add_rest",     // 休憩・仮眠を入れる
+  "delay",        // 今の予定が長引く・遅れる（now から minutes 分ふさぐ）
+  "reorder",      // 今日の残りのタスクの順番を変える
+  "shorten",      // タスクを短くする
+  "postpone",     // タスクを今日から外し、明日以降に回す
+  "skip",         // タスクを今週はやめる
+  "pull_forward", // 明日以降のタスクを今日やる
+  "move_to_day",  // タスクを指定の日に移す
+  "tired_plan",   // 疲れたときの標準の組み直し（12.4 A の Engine）。1案に単独で入れる
+]);
+
+/** LLM が返す操作。OpenAI の strict JSON Schema に合わせて判別共用体にせず、使わない項目は null・空配列 */
+export const ReplanOpLlmSchema = z.object({
+  op: ReplanOpTypeSchema,
+  item_id: z.string().nullable(),      // shorten・postpone・skip・pull_forward・move_to_day
+  item_ids: z.array(z.string()),       // reorder（先にやる順）
+  title: z.string().nullable(),        // add_event・add_rest
+  start: z.string().nullable(),        // "HH:MM" または "now"（add_event・add_rest）
+  end: z.string().nullable(),          // "HH:MM"（add_event）
+  minutes: z.number().int().nullable(),// add_event（end がないとき）・add_rest・delay・shorten（短くした後の長さ）
+  date: z.string().nullable(),         // "YYYY-MM-DD"（postpone の希望・move_to_day）
+  position: z.enum(["first", "last"]).nullable(), // pull_forward
+});
+
+export const ReplanChatLlmSchema = z.object({
+  reply_type: z.enum(["proposal", "question", "select", "discard", "chat"]),
+  options: z.array(z.object({ label: z.string(), ops: z.array(ReplanOpLlmSchema) })),
+  select_index: z.number().int().nullable(), // select のとき。1始まり
+  text: z.string().nullable(),               // question・chat のときの返事
+  fatigue: LevelSchema.nullable(),           // 発言から分かる疲れ（分からなければ null）
+});
+
+export const ReplanChatMessageLlmSchema = z.object({ message: z.string() });
+
+// API
+export const ReplanChatTurnSchema = z.object({ role: z.enum(["user", "assistant"]), text: z.string() });
+export const ReplanChatRequestSchema = z.object({
+  date: z.string(),
+  text: z.string().min(1).max(500),
+  history: z.array(ReplanChatTurnSchema).max(20),   // 今回の発言は含めない。古い順
+  open_proposal_ids: z.array(z.string()).max(3),    // 画面に出ている案（表示の順）
+});
+export const ReplanChatProposalSchema = ReplanProposalSchema.extend({
+  label: z.string(),             // 「仮眠してから続ける」など
+  warnings: z.array(z.string()), // 「今週のTOEIC学習が40分足りなくなります」など（12.11）
+});
+export const ReplanChatResponseSchema = z.object({
+  message: z.string(),
+  proposals: z.array(ReplanChatProposalSchema).max(3),
+  selected_proposal_id: z.string().nullable(), // select のとき
+  discarded: z.boolean(),                      // discard のとき（画面は出ている案を消す）
+  source: z.enum(["llm", "fallback"]),         // fallback ＝ 12.2 の経路で作った
+});
+
 // ---------- 型 ----------
 export type PlanStyle = z.infer<typeof PlanStyleSchema>;
 export type InterviewState = z.infer<typeof InterviewStateSchema>;
@@ -550,3 +607,8 @@ export type Infeasible = z.infer<typeof InfeasibleSchema>;
 export type ValidationResult = z.infer<typeof ValidationResultSchema>;
 export type EngineGenerateResult = z.infer<typeof EngineGenerateResultSchema>;
 export type EngineReplanResult = z.infer<typeof EngineReplanResultSchema>;
+export type ReplanOpLlm = z.infer<typeof ReplanOpLlmSchema>;
+export type ReplanChatLlm = z.infer<typeof ReplanChatLlmSchema>;
+export type ReplanChatRequest = z.infer<typeof ReplanChatRequestSchema>;
+export type ReplanChatProposal = z.infer<typeof ReplanChatProposalSchema>;
+export type ReplanChatResponse = z.infer<typeof ReplanChatResponseSchema>;
