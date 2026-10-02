@@ -23,7 +23,7 @@ export const OBJECTIVE_AXES: readonly { key: keyof ObjectiveVector; label: strin
 ];
 
 // 今日のビームの重み w_k の6成分（P5.4）
-export const BEAM_WEIGHT_LABELS = ["w1 達成", "w2 適合", "w3 締切の安全", "w4 バッファ", "w5 空き時間", "w6 詰め込み"] as const;
+export const BEAM_WEIGHT_LABELS = ["w1 達成", "w2 適合", "w3 締切", "w4 バッファ", "w5 空き時間", "w6 詰め込み"] as const;
 
 export type OptionView = {
   call: number;
@@ -217,10 +217,18 @@ export type EngineViewAction =
   | { kind: "event"; event: EngineEvent }
   | { kind: "idle"; current: EngineSnapshotResponse; loadedAt: number };
 
-// 画面の reducer。待機中の値は、今のターンを置き換える（前のターンは previous に残す）
+// 今の値（engine-snapshot）を読んでよいか：まだ何も出していないか、待機中のときだけ。
+// turn_start 以降のターンを出しているときは読まない（つなぎ直しで録画中の結果が消えないように）
+export function shouldLoadSnapshot(state: ViewState): boolean {
+  return state.turn === null || state.turn.source === "idle";
+}
+
+// 画面の reducer。待機中の値は、待機中のターンを新しい値に置き換える。
+// 読んでいる間に turn_start 以降のターンが出ていたら、その値は捨てる
 export function engineViewReducer(state: ViewState, action: EngineViewAction): ViewState {
   if (action.kind === "event") return applyEngineEvent(state, action.event);
-  return { ...state, turn: idleTurn(action.current, action.loadedAt), previous: state.turn ?? state.previous };
+  if (!shouldLoadSnapshot(state)) return state;
+  return { ...state, turn: idleTurn(action.current, action.loadedAt) };
 }
 
 // 距離が一番小さい方向
