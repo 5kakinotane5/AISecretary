@@ -60,17 +60,31 @@ export default function ReplanPage() {
   const [accepting, setAccepting] = useState<"idle" | "loading" | "error">("idle");
   const nextId = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
+  // 最後の AI の吹き出しと、その頭までスクロールした返事の id
+  const lastAssistantRef = useRef<HTMLDivElement>(null);
+  const scrolledAssistantIdRef = useRef<number | null>(null);
   // ?text= を送ったか。Strict Mode で effect が2回走っても1回だけ送る
   const queryTextSentRef = useRef(false);
 
   const now = clock.status === "success" ? clock.data.now : null;
-  // 「数字で見る変化」のタスク名・締切に使う。取れなかったら締切の行だけ出さない（frontend.md 14.2）
+  // 「主な変更」のタスク名・締切に使う。取れなかったら締切の行だけ出さない（frontend.md 14.2）
   const tasksResult = useApiData(fetchTasks, []);
   const tasks = tasksResult.status === "success" ? tasksResult.data : null;
 
-  // 新しい発言・結果が出たら、そこまでスクロールする
+  // スクロール（frontend.md 14.2）：
+  // - AI の返事が来たら、その吹き出しの頭を画面の上に合わせる（下の「主な変更」・変更の詳細・ボタンは利用者が自分でスクロールして見る）
+  // - 利用者の発言・読み込み中・エラーのときは、一番下までスクロールする
+  // 同じ返事に2回合わせない（「並べて見る」などで再描画しても戻さない）
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const behavior: ScrollBehavior = prefersReducedMotion() ? "auto" : "smooth";
+    const last = messages.at(-1);
+    if (last?.role === "assistant" && send.status === "idle") {
+      if (scrolledAssistantIdRef.current === last.id) return;
+      scrolledAssistantIdRef.current = last.id;
+      lastAssistantRef.current?.scrollIntoView({ behavior, block: "start" });
+      return;
+    }
+    endRef.current?.scrollIntoView({ behavior, block: "end" });
   }, [messages, send.status, proposal]);
 
   function addMessage(role: Message["role"], text: string) {
@@ -160,10 +174,15 @@ export default function ReplanPage() {
               <QueryTextSender onText={sendQueryText} />
             </Suspense>
             <ChatBubble role="assistant">{REPLAN_LABELS.prompt}</ChatBubble>
-            {messages.map((m) => (
-              <ChatBubble key={m.id} role={m.role}>
-                {m.text}
-              </ChatBubble>
+            {messages.map((m, index) => (
+              // 最後の AI の返事は、頭に合わせてスクロールする（上に12pxの余白）
+              <div
+                key={m.id}
+                ref={m.role === "assistant" && index === messages.length - 1 ? lastAssistantRef : undefined}
+                className="scroll-mt-3"
+              >
+                <ChatBubble role={m.role}>{m.text}</ChatBubble>
+              </div>
             ))}
 
             {/* 最後の発言の下に出す。対応していない入力のあとも、選択肢から選び直せるようにする */}
@@ -216,6 +235,11 @@ export default function ReplanPage() {
       </div>
     </MainShell>
   );
+}
+
+/** 視差効果を減らす設定（prefers-reduced-motion: reduce）のとき true。そのときはスクロールを smooth にしない */
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 /**

@@ -111,7 +111,7 @@ const TIRED = proposal(
   ],
 );
 
-describe("computeReplanImpact（frontend.md 14.2「数字で見る変化」）", () => {
+describe("computeReplanImpact（frontend.md 14.2「主な変更」）", () => {
   it("今日の増減：タスクと自由時間（buffer＋free）", () => {
     // タスク 60+60=120 → 25+20=45（−75）。自由時間 15+70+30=115 → 30+10+150=190（+75）
     expect(computeReplanImpact(TIRED, TASKS).today).toEqual({ taskMinutesDelta: -75, freeMinutesDelta: 75 });

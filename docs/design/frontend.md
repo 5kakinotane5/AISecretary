@@ -89,9 +89,9 @@ API の形がモックと同じものは、画面を変えない。変えるの�
 - 送ったら `router.replace("/replan")` でクエリを消す（再読み込みで再送しない）
 - `useSearchParams` は Suspense で囲む。`text` がないときの動きは変えない。計画を変えるのは、提案を見て「この計画にする」を押したときだけ
 
-#### `/replan` の「数字で見る変化」
+#### `/replan` の「主な変更」
 
-提案が出たら、AI の一文の下・変更点（`ChangeList`）の上に、提案の影響を数字で出すカード（`components/replan/ReplanImpact.tsx`）を置く。画面だけで計算し（`lib/replan-impact.ts` の `computeReplanImpact`）、API・Engine・スキーマは変えない。
+提案が出たら、AI の一文の下・「変更の詳細」（`ChangeList`）の上に、提案の影響を数字で出すカード（`components/replan/ReplanImpact.tsx`）を置く。画面だけで計算し（`lib/replan-impact.ts` の `computeReplanImpact`）、API・Engine・スキーマは変えない。見出しは「主な変更」、その下の `ChangeList` の見出しは「変更の詳細」（`REPLAN_LABELS.impactTitle`・`changesTitle`）。
 
 ```
 今日      タスク −40分 ／ 自由時間 +40分
@@ -104,6 +104,12 @@ API の形がモックと同じものは、画面を変えない。変えるの�
 - **ほかの日**：日付ごとに、その日に増えたタスクの時間とタスク名。`other_day_changes` を正とし、`changes` の `moved_to_date`（今日以外）は、同じタスク項目・同じ日の `other_day_changes` がないときだけ足す（二重に数えない）。変更がなければ「ほかの日への影響はありません」
 - **締切**：他の日へ移したタスクのうち `deadline_at` があるものについて、移した先の日 ≤ 締切の日かを確かめ、「すべて間に合います」「締切のあるタスクは動いていません」「間に合わないタスクがあります（タスク名）」のどれかを出す。タスク一覧（`GET /api/tasks`）が取れなかったときは、この行だけ出さない
 - 増減は「＋／−」の文字で出す（色だけに頼らない）
+
+#### `/replan` の自動スクロール
+
+- AI の返事が来たら、その吹き出しの頭がスクロール領域の上端（12px の余白）に来るまでスクロールする。下の「主な変更」・「変更の詳細」・ボタンは利用者が自分でスクロールして見る。同じ返事に2回は合わせない
+- 利用者の発言・読み込み中・エラーのときは、一番下までスクロールする
+- `prefers-reduced-motion: reduce` のときは smooth にしない
 
 ### 14.3 モックへの先行追加（担当A が Day 1 の最初に行う）
 

@@ -122,7 +122,7 @@ function checkDeadlines(tasks: Task[], moves: Move[]): DeadlineImpact {
 }
 
 /**
- * 再計画の提案の影響を数字にする（frontend.md 14.2「数字で見る変化」）。画面の表示用で、配置は変えない。
+ * 再計画の提案の影響を数字にする（frontend.md 14.2「主な変更」）。画面の表示用で、配置は変えない。
  * tasks は GET /api/tasks の一覧（タスクの目標・締切を見るため）。取れなかったときは空配列を渡し、締切の結果は使わない
  */
 export function computeReplanImpact(proposal: ReplanProposal, tasks: Task[]): ReplanImpact {
