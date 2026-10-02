@@ -134,7 +134,7 @@ applyOps(input: {
 4. **キューを並べる**（順番は変えない）
    - 前から順に、直前に置いたタスクの終わり（＋`min_buffer_minutes` のバッファ）以降で、入る最初の空きに置く
    - タスクの後ろには、空きに余裕があれば `min_buffer_minutes` のバッファ（kind buffer）を置く。次がアンカーならバッファが短くてもよい
-   - 今日のタスク合計（完了済みを含む）が `daily_work_limit_minutes` を超える、または入らない → 溢れに入れる
+   - 今日のタスク合計（完了済みを含む）が `daily_work_limit_minutes` を超える、置くと今日のバッファ＋自由時間の合計が `min_daily_buffer_minutes` を下回る（Validator の BUFFER_SHORTAGE。「予定のずれに備える時間」を守るため）、または入らない → 溢れに入れる。明日以降に置くとき（6）も同じ2つを守る
    - 分割はしない
 5. **今日の残りの空き**はすべて自由時間（kind free・title「自由時間」）。隣り合う自由時間は1つにまとめる
 6. **溢れを明日以降に置く**：締切の早い順 → 締切なし（目標・任意）の順
@@ -146,6 +146,28 @@ applyOps(input: {
 8. **変更点**：`ReplanDiffBuilder`（`lib/planning/diff.ts`）で記録する
    - 予定・休憩を足した → added。今日の中で時刻が変わったタスク → moved（moved_to_date null）。短くした → shortened。他の日へ → moved（moved_to_date）。skip → removed。自由時間・バッファの変化は記録しない
 9. **結果**：`updated_days` は今日と、項目が変わった日。`proposal` の before・after は今日。`summary_message` は空文字（12.12 で入れる）
+
+### 細かい決まり（2026-10-02 決定）
+
+1. **「now」と進行中のアンカー**
+   - add_event・add_rest の start が `"now"` で、cut を含む進行中のアンカーが **task** のとき：そのタスクを now で切る
+     - 前半：同じ id・同じ start_at・`end_at = context.now`・locked・completed（FR-12-4 の例外と同じ形）
+     - 後半（end_at − cut の分）：新しい id でキューの先頭に入れる
+     - 切ったタスクの id は、`validatePlan` の `allowedInProgressTaskSplitIds` に渡す
+   - 進行中のアンカーが fixed・travel・sleep のとき：`"now"` はそのアンカーの終わり
+   - delay：進行中のアンカー（種類を問わない）の終わりから minutes 分ふさぐ。なければ cut から。次のアンカーと重なる分は手前で切る
+   - add_rest・add_event が（切った後も）アンカーと重なるときは opErrors
+2. **前へ詰めない**：キューのタスクは元の開始時刻より前には置かない。reorder・pull_forward で先頭に来たものと、切ったタスクの後半は cut（か直前のアンカーの終わり）から置く
+3. **作業の終わり**：タスクとバッファは、その日の就寝の30分前（`replan()` の workEnd と同じ。睡眠 0:00 なら 23:30）までに置く
+4. **溢れの並び順**：締切の早い順 → 締切なし。同じなら元の開始時刻の順。date の指定があっても締切は守り、守れなければ unplaced
+5. **バッファ**：タスクの後ろのバッファは min(`min_buffer_minutes`, 次のアンカー・作業の終わりまで)。0分なら作らない
+6. **id**：他の日の自由時間を分けた項目は、すべて新しい id（元の自由時間はなくなる）
+7. **reason と変更点**
+   - 今日の中で時刻だけ変わったタスク：元の reason・reason_code のまま、新しい id。changes に moved（moved_to_date null）
+   - 他の日に回したタスク：理由によらず `USER_POSTPONED`
+   - delay：added。reason「前の予定が延びた分をあけました」・reason_code null
+   - pull_forward：今日の changes に moved（before＝明日以降の元の項目、after＝今日の項目、moved_to_date＝今日）。元の日には記録しない
+   - unplaced：今日の changes に removed。締切が来週以降なら `NEXT_WEEK`、締切がなければ reason「{タスク名}は今週に入りませんでした」・reason_code null
 
 ## 12.11 検査と LLM とのやり取り（`lib/server/replan-chat/run.ts`）
 

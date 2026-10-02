@@ -1,26 +1,16 @@
 import type { NextRequest } from "next/server";
-import {
-  ReplanProposalSchema,
-  ReplanRequestSchema,
-  ReplanResponseSchema,
-  type DayPlan,
-  type ScheduleItem,
-} from "@/lib/schemas";
-import { addDays, ceilToMinutes, formatTime, getWeekStart, toDateStr } from "@/lib/datetime";
+import { ReplanProposalSchema, ReplanRequestSchema, ReplanResponseSchema } from "@/lib/schemas";
+import { formatTime, toDateStr } from "@/lib/datetime";
 import type { ReplanTaskOption } from "@/lib/llm/replan-keywords";
 import { handle, HttpError, parseBody } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
-import { withDisplayState } from "@/lib/server/calendar";
-import { getNow } from "@/lib/server/clock";
-import { buildPlanningContext } from "@/lib/server/planning-context";
+import { loadReplanBase } from "@/lib/server/replan-base";
 import { extractReplanIntent, PROVISIONAL_END_NOTE } from "@/lib/server/replan-intent";
 import { buildReplanRows } from "@/lib/server/replan-rows";
 import { upsertCheckin } from "@/lib/server/repositories/daily-checkins";
-import { getActivePlan, listPlanItems } from "@/lib/server/repositories/plans";
 import {
   getPlanVersion,
   insertReplanProposal,
-  listPlanItemRows,
   type FixedEventRow,
 } from "@/lib/server/repositories/replan-proposals";
 import { replan } from "@/lib/planning/replan";
@@ -49,26 +39,10 @@ export async function POST(request: NextRequest) {
     const { user, supabase } = await requireUser();
     const body = await parseBody(request, ReplanRequestSchema);
 
-    // 1. 今日だけ（補正 C-12）
-    const now = await getNow(user.id, supabase);
-    const today = toDateStr(now);
-    if (body.date !== today) return unsupported(NOT_TODAY_MESSAGE);
-
-    // 2. 有効な計画が今週のもの
-    const active = await getActivePlan(supabase);
-    if (!active || active.week_start !== getWeekStart(today)) {
-      throw new HttpError(409, "INVALID_STATE", "先にプランを選んでください");
-    }
-
-    // 5（先に読む）. Before：有効な計画の7日分に、表示用の計算（11.3。locked・completed）をかける
-    const entries = (await listPlanItems(supabase, [active.id])).get(active.id) ?? [];
-    const beforeDays: DayPlan[] = Array.from({ length: 7 }, (_, i) =>
-      addDays(active.week_start, i),
-    ).map((date) => ({
-      date,
-      items: entries.filter((e) => e.date === date).map((e) => withDisplayState(e.item, now)),
-    }));
-    const beforeToday = beforeDays.find((d) => d.date === today)?.items ?? [];
+    // 1・2・5・6. 今日だけ（補正 C-12）・有効な計画・Before・PlanningContext（lib/server/replan-base.ts）
+    const base = await loadReplanBase(supabase, user.id, body.date);
+    if (!base.ok) return unsupported(NOT_TODAY_MESSAGE);
+    const { now, today, active, beforeToday, engineBeforeDays, storedRows, context } = base;
 
     // 3. 意図を取り出す（12.3）。今日の now 以降のタスク項目を渡す
     const todayTasks: ReplanTaskOption[] = beforeToday
@@ -110,45 +84,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 6. state_change なら、今日のチェックインの fatigue を先に更新する（計画ではないので accept を待たない）
+    // 6. state_change なら、今日のチェックインの fatigue を更新する（計画ではないので accept を待たない）。
+    // context は更新前に読んだので、更新後のチェックインに差し替える
     if (intent.type === "state_change") {
-      await upsertCheckin(supabase, user.id, today, { fatigue: intent.fatigue });
+      context.checkin = await upsertCheckin(supabase, user.id, today, { fatigue: intent.fatigue });
     }
 
-    // 6. PlanningContext：style ＝有効な計画の style、足す予定を fixed_events に入れる、locked_items に今日の locked な項目。
-    // now をまたぐ自由時間・バッファ（locked: false）は、作業用のコピーを now（5分単位に切り上げ）で切り、
-    // 前半を locked の項目として入れる。後半は空きとして扱う（Before の項目は切らない）
-    const context = await buildPlanningContext(supabase, user.id, active.style);
-    const cut = ceilToMinutes(now, 5);
-    const lockedToday: ScheduleItem[] = [];
-    for (const item of beforeToday) {
-      if (item.locked) {
-        lockedToday.push(item);
-      } else if (
-        (item.kind === "free" || item.kind === "buffer") &&
-        Date.parse(item.start_at) < Date.parse(now) &&
-        Date.parse(cut) < Date.parse(item.end_at)
-      ) {
-        lockedToday.push({ ...item, id: `${item.id}_before_now`, end_at: cut, locked: true });
-      }
-    }
-    const lockedIds = new Set(context.locked_items.map((item) => item.id));
-    context.locked_items = [
-      ...context.locked_items,
-      ...lockedToday.filter((item) => !lockedIds.has(item.id)),
-    ];
+    // 6. 足す予定を fixed_events に入れる
     context.fixed_events = [...context.fixed_events, ...intent.new_fixed_events];
 
-    // 7. Engine。Before の項目に、保存されている reason_code を付けて渡す
-    // （replan() は Before の項目をそのまま updated_days に写すため、ないと EngineReplanResultSchema に合わない）
-    const storedRows = await listPlanItemRows(supabase, active.id);
-    const engineBeforeDays = beforeDays.map((day) => ({
-      ...day,
-      items: day.items.map((item) => ({
-        ...item,
-        reason_code: storedRows.get(item.id)?.reason_code ?? null,
-      })),
-    }));
+    // 7. Engine。Before の項目には保存されている reason_code を付けて渡す
     const result = replan(context, engineBeforeDays, intent);
     if (!result.ok) {
       const { reason, required_changes } = result.infeasible;
