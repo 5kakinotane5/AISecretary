@@ -17,7 +17,7 @@ const notoSansJP = Noto_Sans_JP({
 // design-spec.md 9.5：アプリ名「PURCHART」の適用範囲
 export const metadata: Metadata = {
   title: "PURCHART",
-  description: "まだ決まっていない未来を、今の自分から航海する。",
+  description: "毎日の自己管理を、AI秘書と。",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -4,6 +4,8 @@ import { useId } from "react";
 
 type CompassMarkProps = {
   size?: number;
+  /** splash＝スプラッシュ（/login）用の落ち着いた配色。円の線を細く、星と中央の点を単色にする */
+  tone?: "default" | "splash";
   className?: string;
 };
 
@@ -11,8 +13,18 @@ type CompassMarkProps = {
  * ロゴ・アプリアイコンの中心にある「円＋4方向に伸びる星」（design-spec.md 5.7）。
  * 星は白〜--brand-purple-pale のグラデーション、周りの円は細い線。
  */
-export function CompassMark({ size = 48, className }: CompassMarkProps) {
+export function CompassMark({ size = 48, tone = "default", className }: CompassMarkProps) {
   const gradientId = useId();
+
+  if (tone === "splash") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 48 48" fill="none" className={className} role="img" aria-label="PURCHART">
+        <circle cx="24" cy="24" r="21" stroke="#B9A8F5" strokeOpacity="0.8" strokeWidth="1" />
+        <path d="M24 5 L27.5 20.5 L43 24 L27.5 27.5 L24 43 L20.5 27.5 L5 24 L20.5 20.5 Z" fill="#F4F1FF" />
+        <circle cx="24" cy="24" r="3" fill="#8B7CF6" />
+      </svg>
+    );
+  }
 
   return (
     <svg
