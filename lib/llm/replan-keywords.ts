@@ -19,6 +19,11 @@ const GIVE_UP_ALL =
 // 疲れ・気分の落ち込み。「やる気」だけ（「やる気が出てきた」）や「頑張れそう」は当てない
 const FATIGUE =
   /疲|つかれ|しんど|だる|眠|ねむ|やる気(が)?(出|で)ない|やる気ない|やる気が起きない|やる気(ゼロ|0|なし|皆無)|頑張れな|がんばれな|集中(でき|続か|もた)(な|ひん|ん)|頭(が)?回ら/;
+// 発言に疲れ・気分の落ち込みのキーワードがあるか（会話の経路でチェックインの fatigue を更新してよいか。replan-chat.md 12.11）
+export function mentionsFatigue(text: string): boolean {
+  return FATIGUE.test(text.normalize("NFKC").toLowerCase());
+}
+
 const EVENT_WORD =
   /予定|用事|約束|バイト|会議|飲み|ご飯|ごはん|面接|授業|ゼミ|病院|打ち合わせ|ミーティング|mtg|説明会/i;
 const TOMORROW = /明日/;

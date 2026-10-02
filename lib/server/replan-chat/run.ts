@@ -14,6 +14,7 @@ import {
   type Task,
 } from "@/lib/schemas";
 import { isLlmEnabled, LlmError } from "@/lib/llm/client";
+import { mentionsFatigue } from "@/lib/llm/replan-keywords";
 import { buildReplanChatInput, callReplanChat, REPLAN_CHAT_TIMEOUT_MS, type ReplanChatFeedback } from "@/lib/llm/replan-chat";
 import {
   buildOptionFacts,
@@ -51,7 +52,9 @@ export const TURN_BUDGET_MS = 15_000;
 const MAX_PLAN_CALLS = 3;
 
 const SELECT_MESSAGE = (n: number) => `案${n}にしますね。よければ『この計画にする』を押してください。`;
-const SELECT_UNKNOWN_MESSAGE = "どの案にするか、番号で教えてください。";
+// 出ている案がない・番号が範囲外の select：1回だけやり直し、それでもだめなら聞き返す
+const SELECT_INVALID_FEEDBACK = "出ている案はありません。発言をもう一度読んで proposal か question にしてください";
+const SELECT_INVALID_QUESTION = "どのタスクのことか教えてください";
 const DISCARD_MESSAGE = "わかりました。今の予定のままにします。";
 const CHAT_DEFAULT_MESSAGE = "わかりました。予定を変えたいときは、いつでも教えてください。";
 const QUESTION_DEFAULT_MESSAGE =
@@ -152,6 +155,9 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
   let feedback: ReplanChatFeedback[] = [];
   // 最後に通らなかった案の理由のうち、利用者に見せてよいもの（Engine・Validator の理由は除く）
   let userReasons: string[] = [];
+  // 出ている案がないのに select が返ってきて、やり直したか。awaitingRetry は、そのやり直しの返事をまだ受け取っていない間
+  let selectRetried = false;
+  let awaitingRetry = false;
 
   for (let call = 0; call < MAX_PLAN_CALLS; call += 1) {
     // やり直しの前に、1ターンの上限を超えそうなら打ち切る（計画の呼び出し＋説明の最小の時間）
@@ -177,9 +183,12 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
       break;
     }
 
+    awaitingRetry = false;
+    // 疲れは、今回の発言が疲れのキーワード（12.3.2）に当たるときだけ使う。当たらなければ LLM の fatigue は無視する
+    const fatigue = mentionsFatigue(request.text) ? llm.fatigue : null;
     // 疲れ（high・medium）は reply_type に関係なく、今日のチェックインに入れる（12.2 の 6 と同じ。accept を待たない）
-    if ((llm.fatigue === "high" || llm.fatigue === "medium") && context.checkin?.fatigue !== llm.fatigue) {
-      context = { ...context, checkin: await deps.updateFatigue(llm.fatigue) };
+    if ((fatigue === "high" || fatigue === "medium") && context.checkin?.fatigue !== fatigue) {
+      context = { ...context, checkin: await deps.updateFatigue(fatigue) };
     }
 
     // 4. reply_type ごと
@@ -189,9 +198,15 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
       case "question":
         return reply(llm.text?.trim() || QUESTION_DEFAULT_MESSAGE);
       case "select": {
-        const id = llm.select_index !== null ? request.open_proposal_ids[llm.select_index - 1] : undefined;
-        if (!id) return reply(SELECT_UNKNOWN_MESSAGE);
-        return reply(SELECT_MESSAGE(llm.select_index as number), { selected_proposal_id: id });
+        const id = llm.select_index !== null && llm.select_index >= 1 ? request.open_proposal_ids[llm.select_index - 1] : undefined;
+        if (id) return reply(SELECT_MESSAGE(llm.select_index as number), { selected_proposal_id: id });
+        // 出ている案がない・番号が範囲外 → select として扱わない。1回だけやり直す
+        if (selectRetried || call + 1 >= MAX_PLAN_CALLS) return reply(SELECT_INVALID_QUESTION);
+        selectRetried = true;
+        awaitingRetry = true;
+        feedback = [{ label: "", errors: [SELECT_INVALID_FEEDBACK] }];
+        userReasons = [];
+        continue;
       }
       case "discard":
         await deps.discardProposals(request.open_proposal_ids);
@@ -216,7 +231,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
         context,
         beforeDays: input.beforeDays,
         option: { label, ops: option.ops },
-        fatigue: llm.fatigue,
+        fatigue,
         newId: deps.newId,
       });
       if (check.ok) passed.push({ label, tired: isTiredPlan(option), check });
@@ -245,7 +260,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
           ? rows.proposal.intent
           : {
               type: "preference_change" as const,
-              fatigue: llm.fatigue,
+              fatigue,
               task_changes: [],
               new_fixed_events: check.newFixedEvents,
               preference_changes: [label],
@@ -291,6 +306,8 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
   // 8. 最後まで通らない → できる範囲を伝える文。proposals は空。
   // 見せてよい理由がない（Engine・Validator の失敗だけ）ときは、決まった文を返す
   const reasons = [...new Set(userReasons)];
+  // select のやり直しの前に時間切れになった
+  if (awaitingRetry) return reply(SELECT_INVALID_QUESTION);
   if (reasons.length === 0) return reply(ENGINE_FAILED_MESSAGE);
   const message = await writeReplanChatMessage({
     userText: request.text,
