@@ -410,6 +410,7 @@ export const CALENDAR_LABELS = {
 
 /**
  * 週表示の凡例（mock-spec.md 10.22、design-spec.md 9.12）。色・アイコンはタイムラインと同じ見た目から引く。
+ * 自由時間・睡眠は週表示に出さないので凡例にも入れない。
  * 固定予定（授業／バイト）と移動（電車／徒歩）は、ブロックに出るアイコンが複数あるので並べて出す
  */
 export const WEEK_LEGEND_ITEMS: { label: string; appearance: ItemAppearance; icons: LucideIcon[] }[] = [
@@ -418,7 +419,6 @@ export const WEEK_LEGEND_ITEMS: { label: string; appearance: ItemAppearance; ico
   { label: "食事", appearance: FIXED_APPEARANCE.meal, icons: [FIXED_APPEARANCE.meal.icon] },
   { label: "大切な人との時間", appearance: FIXED_APPEARANCE.social, icons: [FIXED_APPEARANCE.social.icon] },
   { label: "移動", appearance: NON_FIXED_APPEARANCE.travel, icons: [TrainFront, Footprints] },
-  { label: SCREEN_LABELS.freeTime, appearance: NON_FIXED_APPEARANCE.free, icons: [NON_FIXED_APPEARANCE.free.icon] },
 ];
 
 /** 分の表示「45分」「1時間15分」「2時間」 */

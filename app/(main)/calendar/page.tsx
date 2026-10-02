@@ -131,7 +131,9 @@ function CalendarBody({ now, tasks, locations }: { now: string; tasks: Task[]; l
       </div>
 
       <div className="flex flex-col gap-4 px-4 py-4">
-        {mode === "week" ? <WeekSection weekStart={weekStart} today={today} onDaySelect={openDay} /> : null}
+        {mode === "week" ? (
+          <WeekSection weekStart={weekStart} today={today} tasks={tasks} locations={locations} onDaySelect={openDay} />
+        ) : null}
         {mode === "day" ? <DaySection date={date} now={now} today={today} tasks={tasks} locations={locations} /> : null}
         {mode === "month" ? <MonthSection month={month} today={today} onDateSelect={openDay} /> : null}
       </div>
@@ -139,20 +141,36 @@ function CalendarBody({ now, tasks, locations }: { now: string; tasks: Task[]; l
   );
 }
 
-/** 週表示（mock-spec.md 2.6）。計画のない週は固定予定だけが返るので、その旨を添える */
+/**
+ * 週表示（mock-spec.md 2.6）。計画のない週は固定予定だけが返るので、その旨を添える。
+ * 列見出しをタップするとその日の日表示、ブロックをタップするとその項目の詳細シート
+ */
 function WeekSection({
   weekStart,
   today,
+  tasks,
+  locations,
   onDaySelect,
 }: {
   weekStart: string;
   today: string;
+  tasks: Task[];
+  locations: Location[];
   onDaySelect: (date: string) => void;
 }) {
   const result = useApiData(() => fetchCalendarWeek(weekStart), [weekStart], {
     isEmpty: (week) => week.days.every((day) => day.items.length === 0),
   });
   const hasPlan = result.status === "success" && result.data.days.some((day) => day.has_plan);
+  const [selected, setSelected] = useState<ScheduleItem | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const locationName = (id: string | null) => (id ? (locations.find((l) => l.id === id)?.name ?? null) : null);
+
+  function handleItemSelect(item: ScheduleItem) {
+    setSelected(item);
+    setSheetOpen(true);
+  }
 
   return (
     <>
@@ -167,9 +185,17 @@ function WeekSection({
                 {CALENDAR_LABELS.noWeekPlan}。{CALENDAR_LABELS.noPlanHint}
               </p>
             ) : null}
-            <WeekGrid days={result.data.days} today={today} onDaySelect={onDaySelect} />
+            <WeekGrid days={result.data.days} today={today} onDaySelect={onDaySelect} onItemSelect={handleItemSelect} />
           </>
         ) : null}
+
+        <ItemDetailSheet
+          item={selected}
+          open={sheetOpen}
+          onOpenChange={setSheetOpen}
+          tasks={tasks}
+          locationName={locationName(selected?.location_id ?? null)}
+        />
       </SurfaceCard>
       {result.status === "success" && hasPlan ? <WeekConditionCard days={result.data.days} /> : null}
     </>
