@@ -362,12 +362,13 @@ export const REPLAN_LABELS = {
   signedMinutes: (minutes: number) => `${minutes > 0 ? "+" : "−"}${Math.abs(minutes)}分`,
 } as const;
 
-/** /replan のクイックリプライ（mock-spec.md 2.5） */
+/** /replan のクイックリプライ（mock-spec.md 2.5、予定・タスクを足す例：replan-add.md 12.22） */
 export const REPLAN_QUICK_REPLIES = [
   "今日は疲れた",
   "18時から予定が入った",
   "このタスクを明日に回したい",
-  "今から30分だけ何かやりたい",
+  "金曜までにレポート2時間",
+  "毎週水曜18時からジム",
 ];
 
 /** 再計画の変更の種類（ReplanChange の change_type）ごとの表示名とアイコン */

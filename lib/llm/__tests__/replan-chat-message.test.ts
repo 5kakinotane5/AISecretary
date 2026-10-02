@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { callStructured, LlmError } from "@/lib/llm/client";
 import {
+  buildOptionFacts,
   extractNumberTokens,
   templateMessage,
   writeReplanChatMessage,
@@ -24,6 +25,8 @@ const FACTS: OptionFacts = {
   other_days: ["水曜：TOEIC リスニング演習 +60分"],
   deadline: "none",
   warnings: [],
+  added_events: [],
+  added_tasks: [],
 };
 
 const TEMPLATE = templateMessage([FACTS], []);
@@ -100,5 +103,73 @@ describe("templateMessage", () => {
       "案を2つ用意しました。案1：飲み会を入れる、案2：仮眠してから続ける。",
     );
     expect(templateMessage([], ["夕食（19:00〜19:45）と重なるため入れられません"])).toContain("（夕食（19:00〜19:45）と重なるため入れられません）");
+  });
+});
+
+describe("足した予定・タスクの facts（replan-add.md 12.21）", () => {
+  const ADDED: OptionFacts = {
+    ...FACTS,
+    label: "予定とレポートを入れる",
+    summary: ["水曜の18:00〜19:00 にジムを入れる"],
+    other_days: [],
+    added_events: ["毎週水曜 18:00〜19:00 ジム（今週は10/7から）"],
+    added_tasks: [{ title: "統計レポート", total_minutes: 120, deadline: "10/9", placed: ["10/6（火）60分", "10/7（水）60分"] }],
+  };
+
+  it("added_tasks の「120分」「2時間」「10/9」、added_events の「10/7」は facts として通る", async () => {
+    const message = "統計レポートは合計120分（2時間）、10/9までに終わるよう火曜と水曜に60分ずつ入れました。ジムは10/7から毎週です。";
+    llmSays(message);
+    expect(await writeReplanChatMessage({ userText: "毎週ジム、レポートも", options: [ADDED], failed: [] })).toBe(message);
+  });
+
+  it("facts にない数字（「90分」「10/8」）はテンプレートになる", async () => {
+    const template = templateMessage([ADDED], []);
+    llmSays("統計レポートを90分ずつ入れました。");
+    expect(await writeReplanChatMessage({ userText: "レポート", options: [ADDED], failed: [] })).toBe(template);
+    llmSays("ジムは10/8からです。");
+    expect(await writeReplanChatMessage({ userText: "ジム", options: [ADDED], failed: [] })).toBe(template);
+  });
+
+  it("テンプレートに足した予定・タスクの文が入る（案が複数なら「案{n}：」を付ける）", () => {
+    expect(templateMessage([ADDED], [])).toBe(
+      "予定とレポートを入れるの案を用意しました。毎週水曜 18:00〜19:00 ジム（今週は10/7から）を入れます。統計レポート（120分・10/9まで）を10/6（火）60分、10/7（水）60分に入れます。",
+    );
+    const unplaced = { ...ADDED, added_events: [], added_tasks: [{ ...ADDED.added_tasks[0], placed: [] }] };
+    expect(templateMessage([FACTS, unplaced], [])).toBe(
+      "案を2つ用意しました。案1：飲み会を入れる、案2：予定とレポートを入れる。案2：統計レポート（120分・10/9まで）を足します。",
+    );
+  });
+
+  it("buildOptionFacts：1回きりは「10/8（木）15:00〜16:00 面接」、毎週は今週から・来週からを付ける", () => {
+    const event = (id: string, start: string, end: string, recurrence: "weekly" | null) => ({
+      id, title: id, category: "other" as const, location_id: null, start_at: start, end_at: end, recurrence,
+    });
+    const facts = buildOptionFacts({
+      label: "予定を入れる",
+      proposal: {
+        date: "2026-10-05",
+        intent: { type: "preference_change", fatigue: null, task_changes: [], new_fixed_events: [], preference_changes: [] },
+        before: { date: "2026-10-05", items: [] },
+        after: { date: "2026-10-05", items: [] },
+        changes: [],
+        other_day_changes: [],
+        summary_message: "",
+      },
+      warnings: [],
+      tasks: [],
+      newFixedEvents: [
+        event("面接", "2026-10-08T15:00:00+09:00", "2026-10-08T16:00:00+09:00", null),
+        event("ジム", "2026-10-07T18:00:00+09:00", "2026-10-07T19:00:00+09:00", "weekly"),
+        event("自習", "2026-10-12T09:00:00+09:00", "2026-10-12T10:00:00+09:00", "weekly"),
+      ],
+      newTasks: [],
+    });
+    expect(facts.added_events).toEqual([
+      "10/8（木）15:00〜16:00 面接",
+      "毎週水曜 18:00〜19:00 ジム（今週は10/7から）",
+      "毎週月曜 9:00〜10:00 自習（来週の10/12から）",
+    ]);
+    // 来週から始まる毎週の予定は、今週の変更点にないので要約に足す
+    expect(facts.summary).toEqual(["毎週月曜 9:00〜10:00 自習（来週の10/12から）を入れる"]);
   });
 });

@@ -1,9 +1,24 @@
-import { ReplanChatMessageLlmSchema, type ReplanChange, type ReplanProposal, type Task } from "@/lib/schemas";
-import { diffMinutes, formatTime, getWeekdayJa, toDateStr } from "@/lib/datetime";
+import {
+  ReplanChatMessageLlmSchema,
+  type FixedEvent,
+  type ReplanChange,
+  type ReplanProposal,
+  type Task,
+} from "@/lib/schemas";
+import {
+  addDays,
+  diffMinutes,
+  formatDateShort,
+  formatMonthDay,
+  formatTime,
+  getWeekdayJa,
+  getWeekStart,
+  toDateStr,
+} from "@/lib/datetime";
 import { callStructured, LlmError } from "@/lib/llm/client";
 import { computeReplanImpact } from "@/lib/replan-impact";
 
-// 会話の再計画：説明の文章と数字の検査（replan-chat.md 12.12・12.13 ②）。
+// 会話の再計画：説明の文章と数字の検査（replan-chat.md 12.12・12.13 ②、足した予定・タスク：replan-add.md 12.21）。
 // 文章に出す数字は、コードが計算した値（facts）と利用者の発言にあるものだけ。違えばテンプレートに替える
 
 export const REPLAN_CHAT_MESSAGE_TIMEOUT_MS = 6000;
@@ -29,7 +44,13 @@ export type OptionFacts = {
   other_days: string[]; // 「水曜：TOEICリスニング演習 +40分」
   deadline: "ok" | "late" | "none";
   warnings: string[];
+  // 足した予定：「10/8（木）15:00〜16:00 面接」「毎週水曜 18:00〜19:00 ジム（今週は10/7から）」
+  added_events: string[];
+  added_tasks: AddedTaskFacts[];
 };
+
+// 足したタスク：{ title: "統計レポート", total_minutes: 120, deadline: "10/9", placed: ["10/6（火）60分", "10/7（水）60分"] }
+export type AddedTaskFacts = { title: string; total_minutes: number; deadline: string; placed: string[] };
 
 // 「19:00」。その日の 24:00（翌日 0:00）は「24:00」
 function timeLabel(iso: string, date: string): string {
@@ -40,14 +61,18 @@ const weekdayOf = (date: string) => `${getWeekdayJa(date)}曜`;
 
 // 1つの変更点を、操作の要約の文にする（文末の「。」は付けない）
 function describeChange(change: ReplanChange, date: string): string | null {
-  const range = (item: { start_at: string; end_at: string }) =>
-    `${timeLabel(item.start_at, date)}〜${timeLabel(item.end_at, date)}`;
+  const range = (item: { start_at: string; end_at: string }, day = date) =>
+    `${timeLabel(item.start_at, day)}〜${timeLabel(item.end_at, day)}`;
   const first = change.after[0];
   switch (change.change_type) {
-    case "added":
+    case "added": {
       if (!first) return null;
       if (first.title === "前の予定の延長") return `${range(first)} を前の予定の延長としてあける`;
+      // 今日以外の日に足した予定・タスクは曜日を付ける（replan-add.md 12.18）
+      const day = toDateStr(first.start_at);
+      if (day !== date) return `${weekdayOf(day)}の${range(first, day)} に${first.title}を入れる`;
       return `${range(first)} に${first.title}を入れる`;
+    }
     case "moved": {
       if (!change.before) return null;
       const title = change.before.title;
@@ -81,16 +106,55 @@ export function summarizeProposal(proposal: Omit<ReplanProposal, "proposal_id">)
   return lines;
 }
 
+// 足した予定の facts の文（replan-add.md 12.21）
+function describeAddedEvent(event: FixedEvent, today: string): string {
+  const date = toDateStr(event.start_at);
+  const range = `${formatTime(event.start_at)}〜${timeLabel(event.end_at, date)}`;
+  if (event.recurrence !== "weekly") return `${formatDateShort(date)}${range} ${event.title}`;
+  const sunday = addDays(getWeekStart(today), 6);
+  const from = date <= sunday ? `今週は${formatMonthDay(date)}から` : `来週の${formatMonthDay(date)}から`;
+  return `毎週${weekdayOf(date)} ${range} ${event.title}（${from}）`;
+}
+
+// 足したタスクの facts：置いた回（変更点の added）を日ごとに合計する
+function describeAddedTask(task: Task, proposal: Omit<ReplanProposal, "proposal_id">): AddedTaskFacts {
+  const byDate = new Map<string, number>();
+  for (const change of [...proposal.changes, ...proposal.other_day_changes]) {
+    if (change.change_type !== "added") continue;
+    for (const item of change.after) {
+      if (item.kind !== "task" || item.task_id !== task.id) continue;
+      const date = toDateStr(item.start_at);
+      byDate.set(date, (byDate.get(date) ?? 0) + diffMinutes(item.start_at, item.end_at));
+    }
+  }
+  return {
+    title: task.title,
+    total_minutes: task.estimated_minutes,
+    deadline: task.deadline_at ? formatMonthDay(task.deadline_at) : "",
+    placed: [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, minutes]) => `${formatDateShort(date)}${minutes}分`),
+  };
+}
+
 export function buildOptionFacts(input: {
   label: string;
   proposal: Omit<ReplanProposal, "proposal_id">;
   warnings: readonly string[];
   tasks: Task[];
+  newFixedEvents?: readonly FixedEvent[];
+  newTasks?: readonly Task[];
 }): OptionFacts {
   const impact = computeReplanImpact({ ...input.proposal, proposal_id: "" }, input.tasks);
   return {
     label: input.label,
-    summary: summarizeProposal(input.proposal),
+    summary: [
+      ...summarizeProposal(input.proposal),
+      // 来週から始まる毎週の予定は今週の変更点にないので、ここで足す
+      ...(input.newFixedEvents ?? [])
+        .filter((event) => toDateStr(event.start_at) > addDays(getWeekStart(input.proposal.date), 6))
+        .map((event) => `${describeAddedEvent(event, input.proposal.date)}を入れる`),
+    ],
     today_task_minutes_delta: impact.today.taskMinutesDelta,
     today_free_minutes_delta: impact.today.freeMinutesDelta,
     other_days: impact.otherDays.flatMap((day) =>
@@ -98,6 +162,8 @@ export function buildOptionFacts(input: {
     ),
     deadline: impact.deadline.status === "none_moved" ? "none" : impact.deadline.status,
     warnings: [...input.warnings],
+    added_events: (input.newFixedEvents ?? []).map((event) => describeAddedEvent(event, input.proposal.date)),
+    added_tasks: (input.newTasks ?? []).map((task) => describeAddedTask(task, input.proposal)),
   };
 }
 
@@ -133,10 +199,14 @@ export function extractNumberTokens(text: string): string[] {
 // message の数字がすべて facts・利用者の発言にあるか
 export function numbersAreGrounded(message: string, facts: { options: OptionFacts[]; failed: string[] }, userText: string): boolean {
   const allowed = new Set([...extractNumberTokens(JSON.stringify(facts)), ...extractNumberTokens(userText)]);
-  // 今日の増減（数値の欄）は「N分」として書いてよい
+  // 今日の増減・足したタスクの合計（数値の欄）は「N分」として書いてよい。足したタスクの合計は「N時間」でもよい
   for (const option of facts.options) {
     allowed.add(`m:${Math.abs(option.today_task_minutes_delta)}`);
     allowed.add(`m:${Math.abs(option.today_free_minutes_delta)}`);
+    for (const task of option.added_tasks) {
+      allowed.add(`m:${task.total_minutes}`);
+      if (task.total_minutes % 30 === 0) allowed.add(`h:${task.total_minutes / 60}`);
+    }
   }
   return extractNumberTokens(message).every((token) => allowed.has(token));
 }
@@ -152,8 +222,22 @@ export function templateMessage(options: readonly OptionFacts[], failed: readonl
     options.length === 1
       ? `${options[0].label}の案を用意しました。`
       : `案を${options.length}つ用意しました。${options.map((option, i) => `案${i + 1}：${option.label}`).join("、")}。`;
+  // 足した予定・タスク（replan-add.md 12.21）。案が複数なら「案{n}：」を付ける
+  const additions = options.flatMap((option, i) =>
+    additionsOf(option).map((line) => sentence(options.length === 1 ? line : `案${i + 1}：${line}`)),
+  );
   const warnings = [...new Set(options.flatMap((option) => option.warnings))].map(sentence);
-  return head + warnings.join("");
+  return head + additions.join("") + warnings.join("");
+}
+
+function additionsOf(option: OptionFacts): string[] {
+  return [
+    ...option.added_events.map((event) => `${event}を入れます`),
+    ...option.added_tasks.map((task) => {
+      const name = `${task.title}（${task.total_minutes}分・${task.deadline}まで）`;
+      return task.placed.length > 0 ? `${name}を${task.placed.join("、")}に入れます` : `${name}を足します`;
+    }),
+  ];
 }
 
 // 説明の呼び出し（12.13 ②）→ 数字の検査。LLM が失敗したとき・数字が合わないときはテンプレート

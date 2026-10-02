@@ -11,6 +11,7 @@ import {
   type ReplanChatRequest,
   type ReplanChatResponse,
   type ReplanResponse,
+  type Task,
 } from "@/lib/schemas";
 import { isLlmEnabled, LlmError } from "@/lib/llm/client";
 import { buildReplanChatInput, callReplanChat, REPLAN_CHAT_TIMEOUT_MS, type ReplanChatFeedback } from "@/lib/llm/replan-chat";
@@ -29,7 +30,7 @@ import {
   PROPOSAL_TTL_MINUTES,
   replanByIntent,
 } from "@/lib/server/replan-by-intent";
-import { buildReplanRows } from "@/lib/server/replan-rows";
+import { buildNewTaskRows, buildReplanRows } from "@/lib/server/replan-rows";
 import { upsertCheckin } from "@/lib/server/repositories/daily-checkins";
 import type { PlanItemRow } from "@/lib/server/repositories/plans";
 import {
@@ -37,6 +38,7 @@ import {
   getPlanVersion,
   getReplanProposalLabels,
   insertReplanProposal,
+  type ReplanProposalInsert,
 } from "@/lib/server/repositories/replan-proposals";
 import { checkOption } from "./check";
 
@@ -59,8 +61,29 @@ const NO_OPTIONS_ERROR = "案が1つもありません。options に1〜3個の�
 export type SavedProposal = {
   proposal: ReplanChatProposal;
   updatedDays: { date: string; items: PlanItemRow[] }[];
-  newFixedEvents: FixedEvent[];
+  newFixedEvents: FixedEvent[]; // 1回きり・毎週（recurrence "weekly"）の予定
+  newTasks: Task[]; // add_task で足したタスク（replan-add.md 12.19）
 };
+
+// replan_proposals に保存する1行（12.2 の 9・replan-add.md 12.19）。DB・時計には触れない
+export function buildProposalInsert(
+  entry: SavedProposal,
+  values: { weeklyPlanId: string; date: string; userId: string; now: string; version: number; expiresAt: string },
+): ReplanProposalInsert {
+  return {
+    id: entry.proposal.proposal_id,
+    weekly_plan_id: values.weeklyPlanId,
+    date: values.date,
+    proposal: entry.proposal,
+    updated_days: entry.updatedDays,
+    new_fixed_events: entry.newFixedEvents.map((event) => ({ ...event, user_id: values.userId })),
+    ...(entry.newTasks.length > 0
+      ? { new_tasks: buildNewTaskRows({ tasks: entry.newTasks, userId: values.userId, now: values.now }) }
+      : {}),
+    base_version: values.version,
+    expires_at: values.expiresAt,
+  };
+}
 
 export type ChatTurnInput = {
   request: ReplanChatRequest;
@@ -227,7 +250,14 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
               new_fixed_events: check.newFixedEvents,
               preference_changes: [label],
             };
-        const optionFacts = buildOptionFacts({ label, proposal: rows.proposal, warnings: check.warnings, tasks: context.tasks });
+        const optionFacts = buildOptionFacts({
+          label,
+          proposal: rows.proposal,
+          warnings: check.warnings,
+          tasks: context.tasks,
+          newFixedEvents: check.newFixedEvents,
+          newTasks: check.newTasks,
+        });
         facts.push(optionFacts);
         saved.push({
           proposal: ReplanChatProposalSchema.parse({
@@ -240,6 +270,7 @@ export async function runReplanChatTurn(input: ChatTurnInput, deps: ChatTurnDeps
           }),
           updatedDays: rows.updatedDays,
           newFixedEvents: check.newFixedEvents,
+          newTasks: check.newTasks,
         });
       }
       await deps.saveProposals(saved);
@@ -306,16 +337,17 @@ export async function runReplanChat(
         if (version === null) throw new HttpError(409, "INVALID_STATE", "先にプランを選んでください");
         const expiresAt = new Date(Date.now() + PROPOSAL_TTL_MINUTES * 60_000).toISOString();
         for (const entry of proposals) {
-          await insertReplanProposal(supabase, {
-            id: entry.proposal.proposal_id,
-            weekly_plan_id: active.id,
-            date: today,
-            proposal: entry.proposal,
-            updated_days: entry.updatedDays,
-            new_fixed_events: entry.newFixedEvents.map((event) => ({ ...event, user_id: userId })),
-            base_version: version,
-            expires_at: expiresAt,
-          });
+          await insertReplanProposal(
+            supabase,
+            buildProposalInsert(entry, {
+              weeklyPlanId: active.id,
+              date: today,
+              userId,
+              now: base.context.now, // getNow()（confirm_goal の tasks の created_at と同じ）
+              version,
+              expiresAt,
+            }),
+          );
         }
       },
       discardProposals: (ids) => discardReplanProposals(supabase, userId, today, ids),

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { callStructured, LlmError, type CallStructuredOptions } from "@/lib/llm/client";
 import { replan } from "@/lib/planning/replan";
 import type { DailyCheckin, ReplanChatLlm, ReplanChatResponse } from "@/lib/schemas";
-import { runReplanChatTurn, toFallbackResponse, type ChatTurnDeps, type SavedProposal } from "../run";
+import { buildReplanChatInput } from "@/lib/llm/replan-chat";
+import { buildProposalInsert, runReplanChatTurn, toFallbackResponse, type ChatTurnDeps, type SavedProposal } from "../run";
 import { chatFixture, findBefore, idFactory, op, TODAY, type ChatFixture } from "./helpers";
 
 // 会話の再計画の1ターン（replan-chat.md 12.11・12.15）。callStructured だけを差し替える（実際の OpenAI は呼ばない）
@@ -281,4 +282,78 @@ describe("runReplanChatTurn（replan-chat.md 12.11）", () => {
     expect(response.message).toBe(result.proposal.summary_message);
     expect(response.proposals).toEqual([expect.objectContaining({ proposal_id: "p-1", label: "今夜は軽めにする", warnings: [] })]);
   }, 30_000);
+});
+
+describe("予定・タスクを足す（replan-add.md 12.19〜12.21）", () => {
+  const INSERT_VALUES = { weeklyPlanId: "plan-1", date: TODAY, userId: "user-1", now: "2026-10-05T18:00:00+09:00", version: 3, expiresAt: "2026-10-05T09:30:00.000Z" };
+
+  it("add_task の案 → 保存する行の new_tasks に tasks の列の形で入る。facts・テンプレートに足したタスク", async () => {
+    setupLlm(
+      [llmReply({ reply_type: "proposal", options: [{ label: "レポートを入れる", ops: [op({ op: "add_task", title: "統計レポート", minutes: 120, deadline_date: "2026-10-09" })] }] })],
+      new LlmError("timeout"),
+    );
+    const d = deps();
+    const response = await run(chatFixture(), d.value, { text: "金曜までに統計のレポート2時間やらなきゃ" });
+    expect(response.proposals).toHaveLength(1);
+    const [entry] = d.saved[0];
+    expect(entry.newTasks).toEqual([expect.objectContaining({ title: "統計レポート", goal_id: null, deadline_at: "2026-10-09T23:59:00+09:00", estimated_minutes: 120 })]);
+    const row = buildProposalInsert(entry, INSERT_VALUES);
+    expect(row.new_tasks).toEqual([{ ...entry.newTasks[0], user_id: "user-1", created_at: INSERT_VALUES.now }]);
+    expect(Object.keys(row.new_tasks![0]).sort()).toEqual(
+      ["id", "user_id", "title", "goal_id", "deadline_at", "estimated_minutes", "remaining_minutes", "importance", "concentration", "splittable", "interruptible", "buffer_fit", "status", "created_at"].sort(),
+    );
+    expect(row).toMatchObject({ id: entry.proposal.proposal_id, weekly_plan_id: "plan-1", date: TODAY, new_fixed_events: [], base_version: 3 });
+    // 説明の呼び出しが失敗 → テンプレートに足したタスクの文が入る
+    expect(response.message).toBe(
+      "レポートを入れるの案を用意しました。統計レポート（120分・10/9まで）を10/6（火）60分、10/7（水）60分に入れます。",
+    );
+    expect(response.proposals[0].summary_message).toContain("火曜の17:00〜18:00 に統計レポートを入れる");
+  }, 30_000);
+
+  it("add_event weekly の案 → new_fixed_events の行の recurrence が weekly。タスクを足さない案は new_tasks を送らない", async () => {
+    setupLlm([
+      llmReply({
+        reply_type: "proposal",
+        options: [{ label: "毎週ジム", ops: [op({ op: "add_event", title: "ジム", repeat: "weekly", weekday: "水", start: "18:00", end: "19:00" })] }],
+      }),
+    ]);
+    const d = deps();
+    const response = await run(chatFixture(), d.value, { text: "毎週水曜の18時からジムに行くことにした" });
+    expect(response.proposals).toHaveLength(1);
+    const row = buildProposalInsert(d.saved[0][0], INSERT_VALUES);
+    expect(row.new_fixed_events).toEqual([
+      expect.objectContaining({ title: "ジム", recurrence: "weekly", start_at: "2026-10-07T18:00:00+09:00", user_id: "user-1" }),
+    ]);
+    expect(row).not.toHaveProperty("new_tasks");
+    expect(response.proposals[0].intent.new_fixed_events).toEqual([expect.objectContaining({ recurrence: "weekly" })]);
+  }, 30_000);
+
+  it("締切か時間がない発言で LLM が question を返す → その text で返り、案は出さない", async () => {
+    const text = "いつまでに終わらせたいですか？（例：金曜の夜まで、10/9まで）";
+    setupLlm([llmReply({ reply_type: "question", text })]);
+    const d = deps();
+    const response = await run(chatFixture(), d.value, { text: "レポートやらなきゃ" });
+    expect(response).toEqual({ message: text, proposals: [], selected_proposal_id: null, discarded: false, source: "llm" });
+    expect(d.saved).toEqual([]);
+  });
+
+  it("buildReplanChatInput：week は月曜〜日曜の7日分。今日より前は past: true、events に食事・睡眠・移動は入らない", () => {
+    const fixture = chatFixture("2026-10-07T18:00:00+09:00");
+    const input = buildReplanChatInput({ context: fixture.context, beforeDays: fixture.beforeDays, text: "x", history: [], openOptions: [], feedback: [] });
+    expect(input.week.map((day) => [day.date, day.weekday, "past" in day])).toEqual([
+      ["2026-10-05", "月", true],
+      ["2026-10-06", "火", true],
+      ["2026-10-07", "水", false],
+      ["2026-10-08", "木", false],
+      ["2026-10-09", "金", false],
+      ["2026-10-10", "土", false],
+      ["2026-10-11", "日", false],
+    ]);
+    expect(input.week[0]).toEqual({ date: "2026-10-05", weekday: "月", past: true, events: ["1限 マクロ経済学 9:00〜10:30", "2限 統計学 10:40〜12:10"] });
+    expect(input.week[1].events).toEqual(["3限 英語コミュニケーション 13:00〜14:30", "4限 経営学 14:40〜16:10", "バイト（休憩・まかない含む） 18:00〜22:00"]);
+    // 食事（fixed_category "meal"）・睡眠・移動は入らない。友人・家族との食事（social・family）は予定として入る
+    const events = input.week.flatMap((day) => day.events);
+    expect(events.filter((event) => /^(朝食|昼食|夕食|睡眠|移動) /.test(event))).toEqual([]);
+    expect(events).toEqual(expect.arrayContaining(["友人と夕食 19:00〜21:00", "家族と昼食 12:00〜13:30"]));
+  });
 });
