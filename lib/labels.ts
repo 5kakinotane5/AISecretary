@@ -335,7 +335,7 @@ export const REPLAN_LABELS = {
   prompt: "予定の変更や、今の状態を教えてください",
   advancedClock: "デモのため、時刻を18:00に進めました",
   adjusting: "予定を調整しています…",
-  changesTitle: "変更点",
+  changesTitle: "変更の詳細",
   unchanged: (count: number) => `変更なし ${count}件`,
   otherDaysTitle: "ほかの日への影響",
   compareToggle: "変更前と変更後を並べて見る",
@@ -347,8 +347,8 @@ export const REPLAN_LABELS = {
   acceptError: "計画を更新できませんでした。",
   sendError: "送信できませんでした。",
   choosePlan: "プランを選ぶ",
-  // 「数字で見る変化」（frontend.md 14.2）。自由時間＝内部の buffer＋free（design-spec.md 4章）
-  impactTitle: "数字で見る変化",
+  // 「主な変更」（frontend.md 14.2）。自由時間＝内部の buffer＋free（design-spec.md 4章）
+  impactTitle: "主な変更",
   impactToday: "今日",
   impactTask: "タスク",
   impactFree: SCREEN_LABELS.freeTime,

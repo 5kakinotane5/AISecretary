@@ -13,7 +13,7 @@ type ReplanImpactProps = {
 };
 
 /**
- * /replan の「数字で見る変化」（frontend.md 14.2）。AI の一文の下・ChangeList の上に置く。
+ * /replan の「主な変更」（frontend.md 14.2）。AI の一文の下・ChangeList の上に置く。
  * 今日のタスク・自由時間（内部の buffer＋free）の増減、ほかの日に増えた分、締切に間に合うかを出す。0分の項目は出さない
  */
 export function ReplanImpact({ proposal, tasks }: ReplanImpactProps) {
